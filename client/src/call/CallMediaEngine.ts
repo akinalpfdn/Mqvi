@@ -59,6 +59,9 @@ export interface CallMediaEngine {
   /** The peer's volume, 0–200%. Only an engine that plays the audio itself applies it; the web
    * engine's audio goes through P2PAudioSink, which reads the store. */
   setRemoteVolume(percent: number): void;
+  /** Silences the peer while deafened, keeping the volume setting for after. Like the volume, only
+   * an engine that plays the audio itself applies it; P2PAudioSink reads it from the store. */
+  setDeafened(deafened: boolean): void;
   /** Returns the camera state actually reached, so the store never claims more than happened. */
   setVideoEnabled(enabled: boolean): Promise<boolean>;
   /** Returns where it ended up, or null when there is nothing to flip to. */

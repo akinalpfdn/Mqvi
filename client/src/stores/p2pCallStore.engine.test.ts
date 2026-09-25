@@ -44,6 +44,9 @@ vi.mock("../call/WebCallEngine", () => ({
     setRemoteVolume(percent: number) {
       this.record.calls.push(`setRemoteVolume:${percent}`);
     }
+    setDeafened(deafened: boolean) {
+      this.record.calls.push(`setDeafened:${deafened}`);
+    }
     resync() {
       this.record.calls.push("resync");
     }
@@ -167,6 +170,40 @@ describe("store → engine", () => {
 
     expect(engineInstances[0].calls).toContain("setMicEnabled:false");
     expect(useP2PCallStore.getState().isMuted).toBe(true);
+  });
+
+  // Deafening a call works as it does in channel voice: the peer goes quiet and so do you.
+  it("should silence the peer and the microphone on deafen, and bring both back on undeafen", async () => {
+    await useP2PCallStore.getState().startWebRTC(true);
+    const calls = engineInstances[0].calls;
+
+    useP2PCallStore.getState().toggleDeafen();
+    expect(calls.slice(-2)).toEqual(["setDeafened:true", "setMicEnabled:false"]);
+    expect(useP2PCallStore.getState()).toMatchObject({ isDeafened: true, isMuted: true });
+
+    useP2PCallStore.getState().toggleDeafen();
+    expect(calls.slice(-2)).toEqual(["setDeafened:false", "setMicEnabled:true"]);
+    expect(useP2PCallStore.getState()).toMatchObject({ isDeafened: false, isMuted: false });
+  });
+
+  it("should undeafen when unmuting a deafened call, as channel voice does", async () => {
+    await useP2PCallStore.getState().startWebRTC(true);
+    useP2PCallStore.getState().toggleDeafen();
+
+    useP2PCallStore.getState().toggleMute();
+
+    expect(engineInstances[0].calls.slice(-2)).toEqual(["setDeafened:false", "setMicEnabled:true"]);
+    expect(useP2PCallStore.getState()).toMatchObject({ isDeafened: false, isMuted: false });
+  });
+
+  it("should keep the peer's volume setting through a deafen", async () => {
+    await useP2PCallStore.getState().startWebRTC(true);
+    useP2PCallStore.getState().setRemoteVolume(150);
+
+    useP2PCallStore.getState().toggleDeafen();
+    useP2PCallStore.getState().toggleDeafen();
+
+    expect(useP2PCallStore.getState().remoteVolume).toBe(150);
   });
 });
 

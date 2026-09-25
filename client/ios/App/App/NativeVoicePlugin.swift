@@ -17,10 +17,17 @@ public class NativeVoicePlugin: CAPPlugin, CAPBridgedPlugin, RoomDelegate {
         CAPPluginMethod(name: "disconnect", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setMicEnabled", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setDeafened", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setRemoteVolumes", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "isConnected", returnType: CAPPluginReturnPromise)
     ]
 
     private var room: Room?
+
+    /// Playout gain per user, computed by the page (utils/remoteAudioGain.ts). Main actor only.
+    /// Kept across rooms: they are the user's settings, and a track that arrives later picks them up.
+    private var microphoneGains: [String: Double] = [:]
+    private var screenShareGains: [String: Double] = [:]
+    private var fallbackGain: Double = 1
 
     // MARK: - Connect / Disconnect
 
@@ -113,6 +120,27 @@ public class NativeVoicePlugin: CAPPlugin, CAPBridgedPlugin, RoomDelegate {
         call.resolve(["deafened": deafened])
     }
 
+    /// Everyone's volume as the page sets it: per-user volume times master, zero while deafened by
+    /// yourself or a moderator. Local mute is a volume of zero.
+    /// Expects: { microphone: { [userId]: gain }, screenShare: { [userId]: gain }, fallback: gain }
+    @objc func setRemoteVolumes(_ call: CAPPluginCall) {
+        let microphone = Self.gains(from: call.getObject("microphone"))
+        let screenShare = Self.gains(from: call.getObject("screenShare"))
+        let fallback = call.getDouble("fallback") ?? 1
+
+        Task { @MainActor in
+            self.microphoneGains = microphone
+            self.screenShareGains = screenShare
+            self.fallbackGain = fallback
+            if let room = self.room {
+                for participant in room.remoteParticipants.values {
+                    self.applyGains(to: participant)
+                }
+            }
+            call.resolve()
+        }
+    }
+
     /// Check if currently connected.
     @objc func isConnected(_ call: CAPPluginCall) {
         let connected = room?.connectionState == .connected
@@ -120,6 +148,43 @@ public class NativeVoicePlugin: CAPPlugin, CAPBridgedPlugin, RoomDelegate {
     }
 
     // MARK: - Private Helpers
+
+    private static func gains(from object: JSObject?) -> [String: Double] {
+        guard let object else { return [:] }
+        var gains: [String: Double] = [:]
+        for (userId, value) in object {
+            switch value {
+            case let number as NSNumber: gains[userId] = number.doubleValue
+            case let number as Double: gains[userId] = number
+            case let number as Int: gains[userId] = Double(number)
+            default: continue
+            }
+        }
+        return gains
+    }
+
+    /// The participant's microphone and screen-share audio, at the gain the page asked for.
+    @MainActor
+    private func applyGains(to participant: RemoteParticipant) {
+        guard let userId = participant.identity?.stringValue else { return }
+        for publication in participant.trackPublications.values {
+            applyGain(to: publication, of: userId)
+        }
+    }
+
+    /// Only a subscribed audio track has a volume; the rest wait for didSubscribeTrack.
+    @MainActor
+    private func applyGain(to publication: TrackPublication, of userId: String) {
+        guard let track = publication.track as? RemoteAudioTrack else { return }
+        switch publication.source {
+        case .microphone:
+            track.volume = microphoneGains[userId] ?? fallbackGain
+        case .screenShareAudio:
+            track.volume = screenShareGains[userId] ?? fallbackGain
+        default:
+            break
+        }
+    }
 
     private func setAllRemoteAudio(enabled: Bool) {
         guard let room = self.room else { return }
@@ -145,6 +210,16 @@ public class NativeVoicePlugin: CAPPlugin, CAPBridgedPlugin, RoomDelegate {
         Task { @MainActor in
             guard room === self.room else { return }
             self.notifyListeners("nativeVoiceActiveSpeakers", data: ["userIds": userIds])
+        }
+    }
+
+    /// A new track plays at unity gain: someone joined, or everyone came back after a deafen. It
+    /// gets its user's volume here. Optional in the protocol, so the selector is spelled out.
+    @objc(room:participant:didSubscribeTrack:)
+    public func room(_ room: Room, participant: RemoteParticipant, didSubscribeTrack publication: RemoteTrackPublication) {
+        Task { @MainActor in
+            guard room === self.room, let userId = participant.identity?.stringValue else { return }
+            self.applyGain(to: publication, of: userId)
         }
     }
 

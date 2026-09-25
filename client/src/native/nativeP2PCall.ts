@@ -47,6 +47,8 @@ type NativeP2PCallPlugin = {
   addIceCandidate(options: { candidate: string; sdpMid?: string; sdpMLineIndex?: number }): Promise<void>;
   setMicEnabled(options: { enabled: boolean }): Promise<void>;
   setRemoteVolume(options: { volume: number }): Promise<void>;
+  /** Silences the peer without touching the volume, which comes back on undeafen. */
+  setDeafened(options: { deafened: boolean }): Promise<void>;
   setVideoEnabled(options: { enabled: boolean }): Promise<{ enabled: boolean }>;
   switchCamera(): Promise<{ facing: "front" | "back" }>;
   /** Where the two feeds belong, in CSS pixels of the web view. */
@@ -122,6 +124,8 @@ export type AdoptableCall = {
   facing: "front" | "back";
   remoteVideo: boolean;
   volume: number;
+  /** Deafened when the page died; the volume above is the setting, not the silence. */
+  deafened: boolean;
   /** CallKit shows it, so hanging up in the app must take that screen down too. */
   inCallKit: boolean;
 };

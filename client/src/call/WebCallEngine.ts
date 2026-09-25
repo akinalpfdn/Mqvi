@@ -250,6 +250,9 @@ export class WebCallEngine implements CallMediaEngine {
   /** P2PAudioSink plays the remote stream and applies the volume from the store. */
   setRemoteVolume(): void {}
 
+  /** P2PAudioSink silences the remote audio from the store's deafen state. */
+  setDeafened(): void {}
+
   async setVideoEnabled(enabled: boolean): Promise<boolean> {
     const pc = this.pc;
     const stream = this.localStream;

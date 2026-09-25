@@ -28,6 +28,7 @@ import { useToastStore } from "../../stores/toastStore";
 import { useTranslation } from "react-i18next";
 import { useNativeVoice, nativeVoiceConnect, onNativeVoiceActiveSpeakers, onNativeVoiceDisconnected } from "../../utils/nativePlugins";
 import VoiceStateManager from "./VoiceStateManager";
+import NativeVoiceStateSync from "./NativeVoiceStateSync";
 
 type VoiceProviderProps = {
   children: React.ReactNode;
@@ -349,6 +350,7 @@ function VoiceProvider({ children }: VoiceProviderProps) {
     >
       {isConnected && !isNativeVoice && <RoomAudioRenderer />}
       {isConnected && !isNativeVoice && <VoiceStateManager />}
+      {isInVoice && isNativeVoice && <NativeVoiceStateSync />}
       {children}
     </LiveKitRoom>
   );

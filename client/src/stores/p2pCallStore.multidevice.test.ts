@@ -438,6 +438,8 @@ describe("taking over a call a previous page ran", () => {
     facing: "back" as const,
     remoteVideo: true,
     volume: 150,
+    // Deafened: the volume above is the setting to return to, not the silence.
+    deafened: true,
     inCallKit: true,
   };
 
@@ -464,6 +466,7 @@ describe("taking over a call a previous page ran", () => {
     expect(s.activeCall?.status).toBe("active");
     expect(s.incomingCall).toBeNull();
     expect(s.isMuted).toBe(true);
+    expect(s.isDeafened).toBe(true);
     expect(s.isVideoOn).toBe(true);
     expect(s.cameraFacing).toBe("back");
     expect(s.remoteVolume).toBe(150);

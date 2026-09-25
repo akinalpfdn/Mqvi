@@ -480,6 +480,11 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 }
 /* iPad lifts an image under a held finger for dragging, which takes the touch from the long press. */
 .ch-tree-server-header img,.ch-tree-item img,.ch-tree-cat-header img,.ch-tree-voice-user img { -webkit-user-drag:none; }
+/* The voice room's tiles open the same menu by long press. */
+.voice-participant,.voice-participant-compact {
+  -webkit-touch-callout:none;-webkit-user-select:none;user-select:none;
+}
+.voice-participant img,.voice-participant-compact img { -webkit-user-drag:none; }
 .ch-tree-inline-rename { -webkit-user-select:text;user-select:text; }
 /* Voice channel drop target highlight */
 .ch-tree-item.voice.voice-drop-target { background:color-mix(in srgb, var(--primary) 18%, transparent);box-shadow:inset 0 0 0 1.5px var(--primary);border-radius:5px; }

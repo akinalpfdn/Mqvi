@@ -20,7 +20,7 @@ import { useVoiceStore } from "./voiceStore";
 
 const candidate: AdoptableCall = {
   callId: "old-call", instanceId: "old-page", isCaller: false, state: "connected",
-  micEnabled: true, videoEnabled: false, facing: "front", remoteVideo: false, volume: 100, inCallKit: true,
+  micEnabled: true, videoEnabled: false, facing: "front", remoteVideo: false, volume: 100, deafened: false, inCallKit: true,
 };
 const send = vi.fn();
 const adopted = { id: candidate.callId, status: "active" as const, caller_id: "them", receiver_id: "me",

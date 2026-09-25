@@ -80,6 +80,8 @@ export type P2PCallStore = {
   _ensureEngine: () => CallMediaEngine | null;
 
   isMuted: boolean;
+  /** Deafened for the call: the peer silenced and the microphone off, as channel voice deafens. */
+  isDeafened: boolean;
   isVideoOn: boolean;
   /** Which camera is publishing. Drives the mirror on your own preview. */
   cameraFacing: CameraFacing;
@@ -148,6 +150,7 @@ export type P2PCallStore = {
   /** `how` is what the phone's call history records for this device's own end. */
   endCall: (how?: LocalEnd["how"]) => void;
   toggleMute: () => void;
+  toggleDeafen: () => void;
   toggleVideo: () => void;
   switchCamera: () => void;
   toggleScreenShare: () => void;
@@ -225,6 +228,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
   remoteTrackVideo: false,
   peerVideoOff: false,
   isMuted: false,
+  isDeafened: false,
   isVideoOn: false,
   cameraFacing: "front",
   _mediaChanging: false,
@@ -368,10 +372,21 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
   },
 
   toggleMute: () => {
-    const { engine, isMuted } = get();
+    const { engine, isMuted, isDeafened } = get();
     const next = !isMuted;
+    // Unmuting while deafened undeafens too, as channel voice does.
+    if (isDeafened) engine?.setDeafened(false);
     engine?.setMicEnabled(!next);
-    set({ isMuted: next });
+    set({ isMuted: next, isDeafened: false });
+  },
+
+  toggleDeafen: () => {
+    const { engine, isDeafened } = get();
+    const next = !isDeafened;
+    // Deafening mutes the microphone and undeafening unmutes it, as channel voice does.
+    engine?.setDeafened(next);
+    engine?.setMicEnabled(!next);
+    set({ isDeafened: next, isMuted: next });
   },
 
   toggleVideo: () => {
@@ -473,6 +488,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
     // The call can be muted before it has an engine — from the CallKit screen, before the
     // accept has come back. That mute lives only in isMuted until now.
     if (get().isMuted) engine.setMicEnabled(false);
+    if (get().isDeafened) engine.setDeafened(true);
 
     // Tell the peer whenever our picture starts or stops, from the state rather than each
     // toggle. Lives as long as this engine; clearing _videoAnnounced makes it say it again.
@@ -536,6 +552,7 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
       remoteTrackVideo: false,
       peerVideoOff: false,
       isMuted: false,
+      isDeafened: false,
       isVideoOn: false,
       cameraFacing: "front",
       _mediaChanging: false,

@@ -266,6 +266,13 @@ export class NativeCallEngine implements CallMediaEngine {
     );
   }
 
+  setDeafened(deafened: boolean): void {
+    if (this.closed) return;
+    void NativeP2PCall.setDeafened({ deafened }).catch((err) =>
+      console.error("[p2p] native setDeafened failed:", err),
+    );
+  }
+
   async setVideoEnabled(enabled: boolean): Promise<boolean> {
     if (this.closed) return false;
     try {

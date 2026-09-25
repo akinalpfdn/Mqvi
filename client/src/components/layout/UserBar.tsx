@@ -7,7 +7,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../../stores/authStore";
 import { useVoiceStore } from "../../stores/voiceStore";
-import { useActiveMicMuted } from "../../hooks/useActiveMic";
+import { useActiveDeafened, useActiveMicMuted } from "../../hooks/useActiveAudio";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useChannelStore } from "../../stores/channelStore";
 import { useServerStore } from "../../stores/serverStore";
@@ -42,9 +42,9 @@ function UserBar({
   const user = useAuthStore((s) => s.user);
   const manualStatus = useAuthStore((s) => s.manualStatus);
   const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
-  // A call's microphone while one is answered, so the icon never claims a mute the call does not have.
+  // A call's audio while one is answered, so the icons never claim a state the call is not in.
   const isMuted = useActiveMicMuted();
-  const isDeafened = useVoiceStore((s) => s.isDeafened);
+  const isDeafened = useActiveDeafened();
   const isStreaming = useVoiceStore((s) => s.isStreaming);
   // "Akıcı Görüntü" runs the native helper instead of getDisplayMedia — one sharing concept,
   // two engines, so the button reflects either.

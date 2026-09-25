@@ -17,6 +17,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "addIceCandidate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setMicEnabled", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setRemoteVolume", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setDeafened", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setVideoEnabled", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "switchCamera", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setVideoLayout", returnType: CAPPluginReturnPromise),
@@ -68,6 +69,10 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Held for the volume: remote audio plays here, not in the page.
     private var remoteAudioTrack: LKRTCAudioTrack?
     private var remoteGain: Double = 1
+    /// Deafened silences the peer without touching remoteGain, the setting undeafen returns to.
+    private var remoteDeafened = false
+    /// What the peer plays at now. Caller holds `lock`.
+    private var effectiveRemoteGain: Double { remoteDeafened ? 0 : remoteGain }
     /// Kept apart from the track: a mute can arrive before the track exists.
     private var micEnabled = true
     /// Last change wins, and no WebRTC call runs under `lock`.
@@ -329,7 +334,19 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         lock.lock()
         remoteGain = percent / 100
         let track = remoteAudioTrack
-        let gain = remoteGain
+        let gain = effectiveRemoteGain
+        lock.unlock()
+        track?.source.volume = gain
+        call.resolve()
+    }
+
+    /// Silences the peer while deafened; undeafen plays at the volume set before.
+    @objc func setDeafened(_ call: CAPPluginCall) {
+        let deafened = call.getBool("deafened") ?? false
+        lock.lock()
+        remoteDeafened = deafened
+        let track = remoteAudioTrack
+        let gain = effectiveRemoteGain
         lock.unlock()
         track?.source.volume = gain
         call.resolve()
@@ -505,6 +522,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         let micEnabled = self.micEnabled
         let videoEnabled = videoTrack?.isEnabled ?? false
         let volume = remoteGain * 100
+        let deafened = remoteDeafened
         let camera = self.camera
         lock.unlock()
         guard let owner, let pc, pc.connectionState != .failed, pc.connectionState != .closed else {
@@ -526,6 +544,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
                 "facing": camera?.position == .back ? "back" : "front",
                 "remoteVideo": NativeCallVideo.shared.hasRemoteTrack,
                 "volume": volume,
+                "deafened": deafened,
                 "inCallKit": CallManager.shared.holds(callId: owner.callId)
             ]
             if let instanceId = owner.instanceId { result["instanceId"] = instanceId }
@@ -961,6 +980,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
         videoSource = nil
         remoteAudioTrack = nil
         remoteGain = 1
+        remoteDeafened = false
         micEnabled = true
         self.camera = nil
         callId = nil
@@ -1067,7 +1087,7 @@ extension NativeP2PCallPlugin: LKRTCPeerConnectionDelegate {
                 return
             }
             remoteAudioTrack = audio
-            let gain = remoteGain
+            let gain = effectiveRemoteGain
             lock.unlock()
             audio.source.volume = gain
             return

@@ -55,6 +55,7 @@ export function createAdoptionSlice(
         activeCall: { ...data, status: "active" },
         incomingCall: null,
         isMuted: !candidate.micEnabled,
+        isDeafened: candidate.deafened,
         isVideoOn: candidate.videoEnabled,
         cameraFacing: candidate.facing,
         remoteVolume: candidate.volume,

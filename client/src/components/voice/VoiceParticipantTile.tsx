@@ -20,6 +20,7 @@ import { useAuthStore } from "../../stores/authStore";
 import { useSoundboardStore } from "../../stores/soundboardStore";
 import { IconHeadphonesMuted, IconMicMuted } from "../shared/Icons";
 import VoiceUserContextMenu from "./VoiceUserContextMenu";
+import { useLongPressContextMenu } from "../../hooks/useLongPressContextMenu";
 import { resolveAssetUrl } from "../../utils/constants";
 
 type VoiceParticipantTileProps = {
@@ -69,6 +70,8 @@ function VoiceParticipantTile({ userId, rawSpeaking, fallbackName, compact = fal
   const currentUserId = useAuthStore((s) => s.user?.id);
 
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  // iOS has no right click and never turns a long press into one.
+  const longPressMenu = useLongPressContextMenu();
 
   const channelStates = currentVoiceChannelId
     ? voiceStates[currentVoiceChannelId] ?? []
@@ -133,7 +136,7 @@ function VoiceParticipantTile({ userId, rawSpeaking, fallbackName, compact = fal
   if (compact) {
     return (
       <>
-        <div className="voice-participant-compact" onContextMenu={handleContextMenu}>
+        <div className="voice-participant-compact" onContextMenu={handleContextMenu} {...longPressMenu}>
           <div className={avatarClass}>
             {avatarContent}
             {overlay}
@@ -147,7 +150,7 @@ function VoiceParticipantTile({ userId, rawSpeaking, fallbackName, compact = fal
 
   return (
     <>
-      <div className="voice-participant" onContextMenu={handleContextMenu}>
+      <div className="voice-participant" onContextMenu={handleContextMenu} {...longPressMenu}>
         <div className={avatarClass}>
           {avatarContent}
           {overlay}

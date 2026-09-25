@@ -9,6 +9,7 @@ import { StatusBar, Style } from "@capacitor/status-bar";
 import { isCapacitor, getCapacitorPlatform } from "./constants";
 import { handleBack } from "./backStack";
 import { initKeyboardScroll } from "./keyboardScroll";
+import type { RemoteAudioGains } from "./remoteAudioGain";
 import { ensureFreshToken } from "../api/client";
 
 // ─── VoiceCallService Plugin ───
@@ -167,6 +168,7 @@ interface NativeVoicePluginInterface {
   disconnect(): Promise<{ disconnected: boolean }>;
   setMicEnabled(opts: { enabled: boolean }): Promise<{ micEnabled: boolean }>;
   setDeafened(opts: { deafened: boolean }): Promise<{ deafened: boolean }>;
+  setRemoteVolumes(opts: RemoteAudioGains): Promise<void>;
   isConnected(): Promise<{ connected: boolean }>;
   addListener(event: "nativeVoiceDisconnected", handler: (data: { error: string }) => void): Promise<{ remove: () => void }>;
   /** Everyone speaking now, this device included; sent whole on every change. */
@@ -210,6 +212,12 @@ export function nativeVoiceReleased(): Promise<void> {
 export async function nativeVoiceSetMic(enabled: boolean): Promise<void> {
   if (!useNativeVoice()) return;
   await NativeVoice.setMicEnabled({ enabled });
+}
+
+/** Everyone's playout volume in the native room: the numbers VoiceStateManager gives the page's room. */
+export async function nativeVoiceSetRemoteVolumes(gains: RemoteAudioGains): Promise<void> {
+  if (!useNativeVoice()) return;
+  await NativeVoice.setRemoteVolumes(gains);
 }
 
 /** Set deafened state on native voice. */
