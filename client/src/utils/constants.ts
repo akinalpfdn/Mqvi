@@ -30,6 +30,13 @@ export function getCapacitorPlatform(): string {
   return Capacitor.getPlatform();
 }
 
+/** iPhone or iPad, app or browser. WebKit there never turns a long press into a contextmenu event. */
+export function isIOSWebKit(): boolean {
+  if (getCapacitorPlatform() === "ios") return true;
+  // iPadOS asks for desktop sites and reports a Mac; only the touch points give it away.
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
 /**
  * Detects if the app is running in any native shell (Electron or Capacitor).
  * These environments need absolute server URLs (no Vite proxy).

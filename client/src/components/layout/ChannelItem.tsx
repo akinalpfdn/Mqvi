@@ -1,5 +1,6 @@
 import type { ReactNode, RefObject } from "react";
 import { useTranslation } from "react-i18next";
+import { useLongPressContextMenu } from "../../hooks/useLongPressContextMenu";
 import { IconSpeaker } from "../shared/Icons";
 import VoiceChannelDuration from "./VoiceChannelDuration";
 import type { Channel } from "../../types";
@@ -60,6 +61,8 @@ function ChannelItem({
   children,
 }: ChannelItemProps) {
   const { t: tVoice } = useTranslation("voice");
+  // iOS has no right click and never turns a long press into one.
+  const longPressMenu = useLongPressContextMenu();
   const isText = channel.type === "text";
   const mutedClass = isEffectivelyMuted ? " muted" : "";
 
@@ -77,6 +80,7 @@ function ChannelItem({
         className={`ch-tree-item${isActive ? " active" : ""}${!isText ? " voice" : ""}${isVoiceLocked ? " locked" : ""}${unread > 0 && !isEffectivelyMuted ? " has-unread" : ""}${voiceDropTarget ? " voice-drop-target" : ""}${mutedClass}`}
         onClick={onClick}
         onContextMenu={onContextMenu}
+        {...longPressMenu}
         title={
           isVoiceLocked
             ? `${channel.name} — ${tVoice("voiceChannelLocked")}`

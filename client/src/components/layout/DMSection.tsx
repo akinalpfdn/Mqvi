@@ -21,6 +21,7 @@ import DMMuteDurationPicker from "../dm/DMMuteDurationPicker";
 import ReportModal from "../shared/ReportModal";
 import BlockConfirmDialog from "../shared/BlockConfirmDialog";
 import { useContextMenu, type ContextMenuItem } from "../../hooks/useContextMenu";
+import { useLongPressContextMenu } from "../../hooks/useLongPressContextMenu";
 import { useAuthStore } from "../../stores/authStore";
 import type { DMChannelWithUser, User } from "../../types";
 
@@ -61,6 +62,8 @@ function DMSection({ onShowUserCard }: DMSectionProps) {
   const initiateCall = useP2PCallStore((s) => s.initiateCall);
 
   const { menuState, openMenu, closeMenu } = useContextMenu();
+  // iOS has no right click and never turns a long press into one.
+  const longPressMenu = useLongPressContextMenu();
 
   const [mutePicker, setMutePicker] = useState<{
     channelId: string; x: number; y: number;
@@ -301,6 +304,7 @@ function DMSection({ onShowUserCard }: DMSectionProps) {
                     className={`ch-tree-item ch-tree-dm${isActive ? " active" : ""}${unread > 0 ? " has-unread" : ""}${dm.is_muted ? " muted" : ""}`}
                     onClick={() => handleDMClick(dm.id, name)}
                     onContextMenu={(e) => handleDMContextMenu(e, dm)}
+                    {...longPressMenu}
                   >
                     <Avatar
                       name={name}

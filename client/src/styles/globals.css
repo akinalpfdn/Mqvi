@@ -472,6 +472,15 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .ch-tree-voice-user[draggable="true"] { cursor:grab;user-select:none; }
 .ch-tree-voice-user[draggable="true"]:active { cursor:grabbing; }
 .ch-tree-voice-user.vu-dragging { opacity:0.35; }
+
+/* Long press opens these rows' menus on iOS; the system's text selection and callout must not open
+   first. The inline rename field inside a row stays editable. */
+.ch-tree-server-header,.ch-tree-item,.ch-tree-cat-header,.ch-tree-voice-user {
+  -webkit-touch-callout:none;-webkit-user-select:none;user-select:none;
+}
+/* iPad lifts an image under a held finger for dragging, which takes the touch from the long press. */
+.ch-tree-server-header img,.ch-tree-item img,.ch-tree-cat-header img,.ch-tree-voice-user img { -webkit-user-drag:none; }
+.ch-tree-inline-rename { -webkit-user-select:text;user-select:text; }
 /* Voice channel drop target highlight */
 .ch-tree-item.voice.voice-drop-target { background:color-mix(in srgb, var(--primary) 18%, transparent);box-shadow:inset 0 0 0 1.5px var(--primary);border-radius:5px; }
 

@@ -26,7 +26,7 @@ setLogLevel(LogLevel.warn);
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useToastStore } from "../../stores/toastStore";
 import { useTranslation } from "react-i18next";
-import { useNativeVoice, nativeVoiceConnect, onNativeVoiceDisconnected } from "../../utils/nativePlugins";
+import { useNativeVoice, nativeVoiceConnect, onNativeVoiceActiveSpeakers, onNativeVoiceDisconnected } from "../../utils/nativePlugins";
 import VoiceStateManager from "./VoiceStateManager";
 
 type VoiceProviderProps = {
@@ -178,6 +178,8 @@ function VoiceProvider({ children }: VoiceProviderProps) {
    */
   const handleNativeDisconnected = useCallback(
     (error: string) => {
+      // The room that reported them is gone; a rejoin reports afresh.
+      useVoiceStore.getState().setActiveSpeakers([]);
       const { currentVoiceChannelId, _wsSend, wasReplaced } = useVoiceStore.getState();
 
       if (wasReplaced) {
@@ -221,15 +223,18 @@ function VoiceProvider({ children }: VoiceProviderProps) {
 
   useEffect(() => {
     if (!isNativeVoice || !isInVoice) return;
-    let remove: (() => void) | null = null;
+    const disposers: (() => void)[] = [];
     let cancelled = false;
-    onNativeVoiceDisconnected(handleNativeDisconnected).then((dispose) => {
+    const keep = (dispose: () => void) => {
       if (cancelled) dispose();
-      else remove = dispose;
-    });
+      else disposers.push(dispose);
+    };
+    void onNativeVoiceDisconnected(handleNativeDisconnected).then(keep);
+    // Who is talking: everywhere else the JS room reports it, and on iOS that room never connects.
+    void onNativeVoiceActiveSpeakers(useVoiceStore.getState().setActiveSpeakers).then(keep);
     return () => {
       cancelled = true;
-      remove?.();
+      disposers.forEach((dispose) => dispose());
     };
   }, [isNativeVoice, isInVoice, handleNativeDisconnected]);
 

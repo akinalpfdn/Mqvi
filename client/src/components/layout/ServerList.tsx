@@ -15,6 +15,7 @@ import ContextMenu from "../shared/ContextMenu";
 import ServerVoicePopup from "./ServerVoicePopup";
 import { VerifiedBadge } from "../discovery/DiscoveryBadges";
 import { useContextMenu, type ContextMenuItem } from "../../hooks/useContextMenu";
+import { useLongPressContextMenu } from "../../hooks/useLongPressContextMenu";
 import { useConfirm } from "../../hooks/useConfirm";
 
 const VOICE_POPUP_HOVER_MS = 300;
@@ -64,6 +65,8 @@ function ServerList({
 
   const confirmDialog = useConfirm();
   const { menuState, openMenu, closeMenu } = useContextMenu();
+  // iOS has no right click and never turns a long press into one.
+  const longPressMenu = useLongPressContextMenu();
 
   const currentMember = members.find((m) => m.id === currentUser?.id);
   const canManageChannels = currentMember
@@ -342,6 +345,7 @@ function ServerList({
                       className={`ch-tree-server-header${isActive ? " active" : ""}${mutedServerIds.has(srv.id) ? " muted" : ""}`}
                       onClick={handleSrvHeaderClick}
                       onContextMenu={(e) => handleServerContextMenu(e, srv.id, srv.name)}
+                      {...longPressMenu}
                       onMouseEnter={(e) => handleServerMouseEnter(e, srv.id)}
                       onMouseLeave={handleServerMouseLeave}
                     >

@@ -169,6 +169,8 @@ interface NativeVoicePluginInterface {
   setDeafened(opts: { deafened: boolean }): Promise<{ deafened: boolean }>;
   isConnected(): Promise<{ connected: boolean }>;
   addListener(event: "nativeVoiceDisconnected", handler: (data: { error: string }) => void): Promise<{ remove: () => void }>;
+  /** Everyone speaking now, this device included; sent whole on every change. */
+  addListener(event: "nativeVoiceActiveSpeakers", handler: (data: { userIds: string[] }) => void): Promise<{ remove: () => void }>;
 }
 
 const NativeVoice = registerPlugin<NativeVoicePluginInterface>("NativeVoice");
@@ -214,6 +216,13 @@ export async function nativeVoiceSetMic(enabled: boolean): Promise<void> {
 export async function nativeVoiceSetDeafened(deafened: boolean): Promise<void> {
   if (!useNativeVoice()) return;
   await NativeVoice.setDeafened({ deafened });
+}
+
+/** Listen for who is speaking in the native room: the page has no LiveKit room of its own on iOS. */
+export async function onNativeVoiceActiveSpeakers(handler: (userIds: string[]) => void): Promise<() => void> {
+  if (!useNativeVoice()) return () => {};
+  const listener = await NativeVoice.addListener("nativeVoiceActiveSpeakers", (data) => handler(data.userIds));
+  return () => listener.remove();
 }
 
 /** Listen for unexpected native voice disconnect. */

@@ -15,6 +15,7 @@ import Avatar from "../shared/Avatar";
 import { IconFriends } from "../shared/Icons";
 import ContextMenu from "../shared/ContextMenu";
 import { useContextMenu, type ContextMenuItem } from "../../hooks/useContextMenu";
+import { useLongPressContextMenu } from "../../hooks/useLongPressContextMenu";
 import type { FriendshipWithUser, User } from "../../types";
 
 type FriendsSectionProps = {
@@ -35,6 +36,8 @@ function FriendsSection({ onShowUserCard }: FriendsSectionProps) {
   const fetchMessages = useDMStore((s) => s.fetchMessages);
   const initiateCall = useP2PCallStore((s) => s.initiateCall);
   const { menuState, openMenu, closeMenu } = useContextMenu();
+  // iOS has no right click and never turns a long press into one.
+  const longPressMenu = useLongPressContextMenu();
 
   const closeAllDrawers = useMobileStore((s) => s.closeAllDrawers);
   const isExpanded = expandedSections["friends"] ?? true;
@@ -156,6 +159,7 @@ function FriendsSection({ onShowUserCard }: FriendsSectionProps) {
                   className={`ch-tree-item${unread > 0 ? " has-unread" : ""}`}
                   onClick={() => { void handleFriendClick(friend); }}
                   onContextMenu={(e) => handleFriendContextMenu(e, friend)}
+                  {...longPressMenu}
                 >
                   <span className="member-av-wrap">
                     <Avatar

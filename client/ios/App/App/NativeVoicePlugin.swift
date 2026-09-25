@@ -136,6 +136,18 @@ public class NativeVoicePlugin: CAPPlugin, CAPBridgedPlugin, RoomDelegate {
 
     // MARK: - RoomDelegate
 
+    /// Everyone speaking now, this device included, sent whole on every change. The page keeps no
+    /// LiveKit room on iOS, so this is its only source for who is talking. Optional in the
+    /// protocol, so the selector is spelled out: a mismatched signature would compile and never run.
+    @objc(room:didUpdateSpeakingParticipants:)
+    public func room(_ room: Room, didUpdateSpeakingParticipants participants: [Participant]) {
+        let userIds = participants.compactMap { $0.identity?.stringValue }
+        Task { @MainActor in
+            guard room === self.room else { return }
+            self.notifyListeners("nativeVoiceActiveSpeakers", data: ["userIds": userIds])
+        }
+    }
+
     /// Fires after the SDK's own reconnects are exhausted or the server removed us.
     /// Intentional disconnects drop ownership first, so `room` no longer matches.
     public func room(_ room: Room, didDisconnectWithError error: LiveKitError?) {
