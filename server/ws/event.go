@@ -141,6 +141,16 @@ const (
 	// native media never stopped; OpP2PCallAdopted hands it the call when it may.
 	OpP2PCallAdopt   = "p2p_call_adopt"
 	OpP2PCallAdopted = "p2p_call_adopted"
+	// OpP2PCallError — sent to the connection that dialled when no call started, with the reason.
+	OpP2PCallError = "p2p_call_error"
+)
+
+// P2PCallErrorData.Reason values. A client that does not know one shows the generic failure.
+const (
+	P2PCallRefusedNotFriends  = "not_friends"
+	P2PCallRefusedUnavailable = "unavailable"
+	P2PCallRefusedInCall      = "already_in_call"
+	P2PCallRefusedFailed      = "failed"
 )
 
 // E2EE operations
@@ -343,6 +353,12 @@ type P2PCallResumeData struct {
 type P2PCallAdoptData struct {
 	CallID     string `json:"call_id"`
 	InstanceID string `json:"instance_id"`
+}
+
+// P2PCallErrorData says why a p2p_call_initiate started no call.
+type P2PCallErrorData struct {
+	ReceiverID string `json:"receiver_id"`
+	Reason     string `json:"reason"`
 }
 
 // P2PSignalData carries WebRTC SDP/ICE data. Server relays without inspecting.

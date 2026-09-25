@@ -2298,7 +2298,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
   padding:7px 12px;color:var(--t1);border-bottom:1px solid var(--b1);
   white-space:nowrap;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;
 }
-.admin-report-table tbody tr { transition:background .08s; }
+.admin-report-table tbody tr { transition:background .08s;cursor:pointer; }
 .admin-report-table tbody tr:hover td { background:var(--bg-h); }
 
 /* ── Description cell — truncated with ellipsis ── */
@@ -2370,6 +2370,23 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .admin-report-no-attach {
   color:var(--t3);font-size:14px;text-align:center;padding:24px 0;
 }
+
+/* ── Report detail modal ── */
+.admin-report-detail {
+  display:flex;flex-direction:column;gap:18px;max-height:70vh;overflow-y:auto;padding:4px 0;
+}
+.admin-report-detail-meta {
+  display:grid;grid-template-columns:max-content 1fr;gap:8px 16px;margin:0;font-size:14px;
+}
+.admin-report-detail-meta dt { color:var(--t2);font-weight:600; }
+.admin-report-detail-meta dd { margin:0;color:var(--t1);min-width:0;overflow-wrap:anywhere; }
+.admin-report-detail-label { margin:0 0 6px;font-size:13px;font-weight:600;color:var(--t2); }
+.admin-report-detail-text {
+  margin:0;font-size:14px;line-height:1.6;color:var(--t1);white-space:pre-wrap;overflow-wrap:anywhere;
+}
+.admin-report-detail-text.admin-report-text-muted { color:var(--t3); }
+.admin-report-detail-hint { margin:6px 0 0;font-size:13px;color:var(--t3); }
+.admin-report-detail-attachments { display:flex;flex-direction:column;gap:16px; }
 
 /* ── Platform Ban Dialog ── */
 .platform-ban-dialog { max-width:440px; }

@@ -315,6 +315,9 @@ export async function handleSystemEvent(
     case "p2p_call_busy":
       useP2PCallStore.getState().handleCallBusy(msg.d as { receiver_id: string });
       return true;
+    case "p2p_call_error":
+      useP2PCallStore.getState().handleCallError(msg.d as { receiver_id: string; reason: string });
+      return true;
     case "p2p_signal":
       useP2PCallStore.getState().handleSignal(msg.d as P2PSignalPayload);
       return true;

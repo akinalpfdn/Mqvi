@@ -185,11 +185,13 @@ func registerHubCallbacks(
 
 	// ─── P2P Call Callbacks ───
 
-	hub.OnP2PCallInitiate(func(callerID, sessionID, instanceID, deviceID string, data ws.P2PCallInitiateData) {
+	hub.OnP2PCallInitiate(func(callerID, sessionID, instanceID, deviceID string, data ws.P2PCallInitiateData) string {
 		callType := models.P2PCallType(data.CallType)
-		if err := p2pCallService.InitiateCall(callerID, sessionID, instanceID, deviceID, data.ReceiverID, callType); err != nil {
+		err := p2pCallService.InitiateCall(callerID, sessionID, instanceID, deviceID, data.ReceiverID, callType)
+		if err != nil {
 			log.Printf("[p2p] initiate error caller=%s receiver=%s: %v", callerID, data.ReceiverID, err)
 		}
+		return services.CallRefusal(err)
 	})
 	hub.OnP2PCallAccept(func(userID, sessionID, instanceID, deviceID string, data ws.P2PCallAcceptData) {
 		if err := p2pCallService.AcceptCall(userID, sessionID, instanceID, deviceID, data.CallID); err != nil {

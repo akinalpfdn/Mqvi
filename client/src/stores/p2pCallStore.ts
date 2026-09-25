@@ -43,6 +43,13 @@ type OrphanedEnd = { call_id: string; instance_id?: string };
 /** Past the ring timeout the server no longer re-sends the call. */
 const ENDED_HERE_TTL = 60_000;
 
+/** Server refusal reasons (ws.P2PCallRefused*). Any other reason is shown as a failure. */
+const CALL_REFUSAL_KEYS = new Map<string, string>([
+  ["not_friends", "common:callNotFriends"],
+  ["unavailable", "common:callUnavailable"],
+  ["already_in_call", "common:callAlreadyInCall"],
+]);
+
 export type P2PCallStore = {
   /** Active call (ringing or active) — null means not in a call */
   activeCall: P2PCall | null;
@@ -159,6 +166,8 @@ export type P2PCallStore = {
   handleCallDecline: (data: { call_id: string; reason?: string; declined_by?: string }) => void;
   handleCallEnd: (data: { call_id: string; reason?: string; ended_by?: string }) => void;
   handleCallBusy: (data: { receiver_id: string }) => void;
+  /** This connection's call was refused. Nothing was set up for it, so there is nothing to undo. */
+  handleCallError: (data: { receiver_id: string; reason: string }) => void;
   handleSignal: (data: P2PSignalPayload) => void;
 };
 
@@ -668,6 +677,11 @@ export const useP2PCallStore = create<P2PCallStore>((set, get, api) => ({
     if (activeCall && activeCall.status !== "active" && activeCall.receiver_id === data.receiver_id) {
       get().cleanup();
     }
+  },
+
+  handleCallError: (data) => {
+    const key = CALL_REFUSAL_KEYS.get(data.reason);
+    useToastStore.getState().addToast(key ? "warning" : "error", i18n.t(key ?? "common:callFailed"));
   },
 
   handleSignal: async (data) => {

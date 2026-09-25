@@ -126,6 +126,19 @@ const STATUS_KEY_MAP: Record<string, string> = {
   dismissed: "platformReportStatusDismissed",
 };
 
+function refersToMessage(report: AdminReportListItem): boolean {
+  return !!(report.message_id || report.dm_message_id || report.voice_message_id);
+}
+
+/** Who took the excerpt: the server from stored text, or the reporter for E2EE content. */
+function excerptHintKey(report: AdminReportListItem): string {
+  return report.excerpt_source === "server" ? "platformReportMessageHintServer" : "platformReportMessageHintClient";
+}
+
+function userLabel(displayName: string | null, username: string): string {
+  return displayName ? `${displayName} (@${username})` : `@${username}`;
+}
+
 // --- Component ---
 
 function AdminReportList() {
@@ -145,6 +158,9 @@ function AdminReportList() {
 
   // --- Attachment modal state ---
   const [attachModalReport, setAttachModalReport] = useState<AdminReportListItem | null>(null);
+
+  // --- Detail modal: an id, so it always shows the row as last fetched ---
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   // --- Table state ---
   const [searchQuery, setSearchQuery] = useState("");
@@ -205,6 +221,8 @@ function AdminReportList() {
 
     return [...list].sort((a, b) => compareSortValue(a, b, sortKey, sortDir));
   }, [reports, searchQuery, sortKey, sortDir]);
+
+  const detailReport = detailId ? reports.find((r) => r.id === detailId) ?? null : null;
 
   // --- Sort handler ---
   function handleSort(key: SortKey) {
@@ -285,7 +303,7 @@ function AdminReportList() {
       onClick: () => handleSendDM(report.reported_user_id, report.reported_display_name ?? report.reported_username),
     });
 
-    if (report.message_id || report.dm_message_id || report.voice_message_id) {
+    if (refersToMessage(report)) {
       items.push({
         label: t("platformReportDeleteMessage"),
         danger: true,
@@ -453,6 +471,35 @@ function AdminReportList() {
 
   // --- Status badge (for non-editable display, not used in table but useful for reference) ---
 
+  // --- Attachment items, shared by the attachment and detail modals ---
+  function renderAttachmentItems(attachments: AdminReportListItem["attachments"]) {
+    return attachments.map((att) => (
+      <div key={att.id} className="admin-report-attach-item">
+        {att.mime_type?.startsWith("image/") ? (
+          <img
+            src={resolveAssetUrl(att.file_url)}
+            alt={att.filename}
+            className="admin-report-attach-img"
+            onClick={() => openAttachment(att)}
+          />
+        ) : (
+          <a
+            href={resolveAssetUrl(att.file_url)}
+            rel="noopener noreferrer"
+            className="admin-report-attach-link"
+            onClick={(e) => openAttachment(att, e)}
+          >
+            {att.filename}
+          </a>
+        )}
+        <div className="admin-report-attach-info">
+          <span>{att.filename}</span>
+          {att.file_size !== null && <span>{formatFileSize(att.file_size)}</span>}
+        </div>
+      </div>
+    ));
+  }
+
   // --- Render cell ---
   function renderCell(report: AdminReportListItem, colKey: SortKey) {
     switch (colKey) {
@@ -481,18 +528,14 @@ function AdminReportList() {
         );
 
       case "message": {
-        if (!report.message_id && !report.dm_message_id && !report.voice_message_id) {
+        if (!refersToMessage(report)) {
           return <span className="admin-report-text-muted">{"\u2014"}</span>;
         }
         const excerpt = report.message_excerpt ?? "";
-        const hint =
-          report.excerpt_source === "server"
-            ? t("platformReportMessageHintServer")
-            : t("platformReportMessageHintClient");
         return (
           <span
             className="admin-report-desc-cell"
-            title={`${excerpt}\n\n${hint}`}
+            title={`${excerpt}\n\n${t(excerptHintKey(report))}`}
           >
             {excerpt || <span className="admin-report-text-muted">{t("platformReportMessageNoText")}</span>}
           </span>
@@ -528,7 +571,8 @@ function AdminReportList() {
           : report.status;
 
         return (
-          <div className="admin-report-status-cell">
+          // Editing the status must not also open the row's details.
+          <div className="admin-report-status-cell" onClick={(e) => e.stopPropagation()}>
             <select
               className="admin-report-status-select"
               value={currentStatus}
@@ -649,6 +693,12 @@ function AdminReportList() {
               {filteredReports.map((report) => (
                 <tr
                   key={report.id}
+                  tabIndex={0}
+                  onClick={() => setDetailId(report.id)}
+                  onKeyDown={(e) => {
+                    // Only the row itself: Enter on the status select inside it is the select's.
+                    if (e.key === "Enter" && e.target === e.currentTarget) setDetailId(report.id);
+                  }}
                   onContextMenu={(e) => {
                     const items = buildContextItems(report);
                     if (items.length > 0) openMenu(e, items);
@@ -699,34 +749,62 @@ function AdminReportList() {
       >
         {attachModalReport && attachModalReport.attachments.length > 0 ? (
           <div className="admin-report-attach-modal">
-            {attachModalReport.attachments.map((att) => (
-              <div key={att.id} className="admin-report-attach-item">
-                {att.mime_type?.startsWith("image/") ? (
-                  <img
-                    src={resolveAssetUrl(att.file_url)}
-                    alt={att.filename}
-                    className="admin-report-attach-img"
-                    onClick={() => openAttachment(att)}
-                  />
-                ) : (
-                  <a
-                    href={resolveAssetUrl(att.file_url)}
-                    rel="noopener noreferrer"
-                    className="admin-report-attach-link"
-                    onClick={(e) => openAttachment(att, e)}
-                  >
-                    {att.filename}
-                  </a>
-                )}
-                <div className="admin-report-attach-info">
-                  <span>{att.filename}</span>
-                  {att.file_size !== null && <span>{formatFileSize(att.file_size)}</span>}
-                </div>
-              </div>
-            ))}
+            {renderAttachmentItems(attachModalReport.attachments)}
           </div>
         ) : (
           <p className="admin-report-no-attach">{t("platformReportNoAttachments")}</p>
+        )}
+      </Modal>
+
+      {/* Detail Modal — the full text the table can only truncate */}
+      <Modal
+        isOpen={!!detailReport}
+        onClose={() => setDetailId(null)}
+        title={t("platformReportDetails")}
+      >
+        {detailReport && (
+          <div className="admin-report-detail">
+            <dl className="admin-report-detail-meta">
+              <dt>{t("platformReportReporter")}</dt>
+              <dd>{userLabel(detailReport.reporter_display_name, detailReport.reporter_username)}</dd>
+              <dt>{t("platformReportReported")}</dt>
+              <dd>{userLabel(detailReport.reported_display_name, detailReport.reported_username)}</dd>
+              <dt>{t("platformReportReason")}</dt>
+              <dd>{reasonBadge(detailReport.reason)}</dd>
+              <dt>{t("platformReportDate")}</dt>
+              <dd>{formatDateTime(detailReport.created_at)}</dd>
+              <dt>{t("platformReportStatus")}</dt>
+              <dd>{t(STATUS_KEY_MAP[detailReport.status] ?? detailReport.status)}</dd>
+            </dl>
+
+            <section>
+              <h4 className="admin-report-detail-label">{t("platformReportDescription")}</h4>
+              <p className="admin-report-detail-text">{detailReport.description}</p>
+            </section>
+
+            {refersToMessage(detailReport) && (
+              <section>
+                <h4 className="admin-report-detail-label">{t("platformReportMessage")}</h4>
+                {detailReport.message_excerpt ? (
+                  <p className="admin-report-detail-text">{detailReport.message_excerpt}</p>
+                ) : (
+                  <p className="admin-report-detail-text admin-report-text-muted">
+                    {t("platformReportMessageNoText")}
+                  </p>
+                )}
+                <p className="admin-report-detail-hint">{t(excerptHintKey(detailReport))}</p>
+              </section>
+            )}
+
+            {detailReport.attachments.length > 0 && (
+              <section>
+                <h4 className="admin-report-detail-label">{t("platformReportFiles")}</h4>
+                <div className="admin-report-detail-attachments">
+                  {renderAttachmentItems(detailReport.attachments)}
+                </div>
+              </section>
+            )}
+          </div>
         )}
       </Modal>
     </div>

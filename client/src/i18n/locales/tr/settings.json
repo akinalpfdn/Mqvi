@@ -596,6 +596,7 @@
   "platformReportDeleteMessageSuccess": "Şikayet edilen mesaj silindi",
   "platformReportDeleteMessageError": "Şikayet edilen mesaj silinemedi",
   "platformReportAttachments": "Şikayet Dosyaları",
+  "platformReportDetails": "Şikayet Detayı",
   "platformReportNoAttachments": "Dosya yok",
   "platformReportFileCount": "{{count}} dosya",
   "connections": "Bağlantılar",

@@ -3,8 +3,9 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 // Module-level imports of p2pCallStore — stub them so the store loads in isolation.
 vi.mock("../api/calls", () => ({ fetchIceServers: vi.fn(), fetchIceServersForRecovery: vi.fn() }));
 vi.mock("../i18n", () => ({ default: { t: (k: string) => k } }));
+const { addToast } = vi.hoisted(() => ({ addToast: vi.fn() }));
 vi.mock("./toastStore", () => ({
-  useToastStore: { getState: () => ({ addToast: vi.fn() }) },
+  useToastStore: { getState: () => ({ addToast }) },
 }));
 
 import { useP2PCallStore } from "./p2pCallStore";
@@ -29,6 +30,7 @@ function makeCall(overrides: Partial<P2PCall>): P2PCall {
 }
 
 beforeEach(() => {
+  addToast.mockClear();
   useP2PCallStore.setState({
     activeCall: null,
     incomingCall: null,
@@ -74,6 +76,25 @@ describe("handleCallBusy — stale-busy protection", () => {
     useP2PCallStore.setState({ activeCall: makeCall({ id: "A", status: "ringing", receiver_id: "X" }) });
     useP2PCallStore.getState().handleCallBusy({ receiver_id: "X" });
     expect(useP2PCallStore.getState().activeCall).toBeNull();
+  });
+});
+
+describe("handleCallError — a refused call says why", () => {
+  it("names the reason the server gave", () => {
+    useP2PCallStore.getState().handleCallError({ receiver_id: "X", reason: "not_friends" });
+    expect(addToast).toHaveBeenCalledWith("warning", "common:callNotFriends");
+  });
+
+  it("shows a reason it does not know as a failure", () => {
+    useP2PCallStore.getState().handleCallError({ receiver_id: "X", reason: "from_a_newer_server" });
+    expect(addToast).toHaveBeenCalledWith("error", "common:callFailed");
+  });
+
+  it("leaves the call already on screen alone", () => {
+    useP2PCallStore.setState({ activeCall: makeCall({ id: "B", status: "active" }) });
+    useP2PCallStore.getState().handleCallError({ receiver_id: "X", reason: "already_in_call" });
+    expect(useP2PCallStore.getState().activeCall?.id).toBe("B");
+    expect(addToast).toHaveBeenCalledWith("warning", "common:callAlreadyInCall");
   });
 });
 

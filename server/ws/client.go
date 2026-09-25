@@ -508,8 +508,12 @@ func (c *Client) handleP2PCallInitiate(event Event) {
 		return
 	}
 
-	if c.hub.onP2PCallInitiate != nil {
-		c.hub.onP2PCallInitiate(c.userID, c.sessionID, c.instanceID, c.deviceID, data)
+	if c.hub.onP2PCallInitiate == nil {
+		return
+	}
+	// Only this connection is told: the user's other devices never saw the attempt.
+	if reason := c.hub.onP2PCallInitiate(c.userID, c.sessionID, c.instanceID, c.deviceID, data); reason != "" {
+		c.sendEvent(Event{Op: OpP2PCallError, Data: P2PCallErrorData{ReceiverID: data.ReceiverID, Reason: reason}})
 	}
 }
 

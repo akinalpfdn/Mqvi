@@ -596,6 +596,7 @@
   "platformReportDeleteMessageSuccess": "Reported message deleted",
   "platformReportDeleteMessageError": "Could not delete the reported message",
   "platformReportAttachments": "Report Attachments",
+  "platformReportDetails": "Report Details",
   "platformReportNoAttachments": "No attachments",
   "platformReportFileCount": "{{count}} file(s)",
   "connections": "Connections",

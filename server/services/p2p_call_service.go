@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -16,6 +17,31 @@ import (
 
 	"github.com/google/uuid"
 )
+
+// Why InitiateCall refused. Each wraps the pkg error it always returned, so callers and logs are unchanged.
+var (
+	errCallNotFriends    = fmt.Errorf("%w: not friends", pkg.ErrForbidden)
+	errCallUnavailable   = fmt.Errorf("%w: receiver is no longer available", pkg.ErrNotFound)
+	errCallAlreadyInCall = fmt.Errorf("%w: already in a call", pkg.ErrBadRequest)
+	errCallReceiverBusy  = fmt.Errorf("%w: user is busy", pkg.ErrBadRequest)
+)
+
+// CallRefusal is what the dialling app is told about an InitiateCall error, or "" when it needs
+// nothing: no error, or a busy receiver, which already has OpP2PCallBusy.
+func CallRefusal(err error) string {
+	switch {
+	case err == nil, errors.Is(err, errCallReceiverBusy):
+		return ""
+	case errors.Is(err, errCallNotFriends):
+		return ws.P2PCallRefusedNotFriends
+	case errors.Is(err, errCallUnavailable):
+		return ws.P2PCallRefusedUnavailable
+	case errors.Is(err, errCallAlreadyInCall):
+		return ws.P2PCallRefusedInCall
+	default:
+		return ws.P2PCallRefusedFailed
+	}
+}
 
 // ISP interfaces — minimal deps instead of full repositories.
 
@@ -295,16 +321,23 @@ func (s *p2pCallService) InitiateCall(callerID, sessionID, instanceID, deviceID,
 	if _, err := s.userGetter.GetActiveByID(ctx, callerID); err != nil {
 		return fmt.Errorf("%w: caller not available", pkg.ErrForbidden)
 	}
+	// A lookup that failed is not an answer: the caller is told "failed", never a reason that is not true.
 	if _, err := s.userGetter.GetActiveByID(ctx, receiverID); err != nil {
-		return fmt.Errorf("%w: receiver is no longer available", pkg.ErrNotFound)
+		if errors.Is(err, pkg.ErrNotFound) {
+			return errCallUnavailable
+		}
+		return fmt.Errorf("look up receiver %s: %w", receiverID, err)
 	}
 
 	friendship, err := s.friendChecker.GetByPair(ctx, callerID, receiverID)
 	if err != nil {
-		return fmt.Errorf("%w: not friends", pkg.ErrForbidden)
+		if errors.Is(err, pkg.ErrNotFound) {
+			return errCallNotFriends
+		}
+		return fmt.Errorf("check friendship %s -> %s: %w", callerID, receiverID, err)
 	}
 	if friendship.Status != models.FriendshipStatusAccepted {
-		return fmt.Errorf("%w: not friends", pkg.ErrForbidden)
+		return errCallNotFriends
 	}
 
 	call := &models.P2PCall{
@@ -327,7 +360,7 @@ func (s *p2pCallService) InitiateCall(callerID, sessionID, instanceID, deviceID,
 	s.mu.Lock()
 	if _, callerBusy := s.userCalls[callerID]; callerBusy {
 		s.mu.Unlock()
-		return fmt.Errorf("%w: already in a call", pkg.ErrBadRequest)
+		return errCallAlreadyInCall
 	}
 	if _, receiverBusy := s.userCalls[receiverID]; receiverBusy {
 		s.mu.Unlock()
@@ -336,7 +369,7 @@ func (s *p2pCallService) InitiateCall(callerID, sessionID, instanceID, deviceID,
 			Op:   ws.OpP2PCallBusy,
 			Data: map[string]string{"receiver_id": receiverID},
 		})
-		return fmt.Errorf("%w: user is busy", pkg.ErrBadRequest)
+		return errCallReceiverBusy
 	}
 	s.activeCalls[call.ID] = call
 	// Reserve BOTH parties immediately. Reserving only the caller let two callers
@@ -357,7 +390,10 @@ func (s *p2pCallService) InitiateCall(callerID, sessionID, instanceID, deviceID,
 	// Nothing is announced yet, so the call is dropped silently.
 	if f, err := s.friendChecker.GetByPair(ctx, callerID, receiverID); err != nil || f.Status != models.FriendshipStatusAccepted {
 		s.cleanupCall(call.ID)
-		return fmt.Errorf("%w: not friends", pkg.ErrForbidden)
+		if err != nil && !errors.Is(err, pkg.ErrNotFound) {
+			return fmt.Errorf("recheck friendship %s -> %s: %w", callerID, receiverID, err)
+		}
+		return errCallNotFriends
 	}
 
 	log.Printf("[p2p] call initiated: %s -> %s (type=%s, id=%s)", callerID, receiverID, callType, call.ID)

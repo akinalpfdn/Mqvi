@@ -144,7 +144,8 @@ type VoiceActivityCallback func(userID string)
 
 // ─── P2P Call Callback Types ───
 
-type P2PCallInitiateCallback func(callerID, sessionID, instanceID, deviceID string, data P2PCallInitiateData)
+// P2PCallInitiateCallback returns a P2PCallRefused* reason when no call started, "" otherwise.
+type P2PCallInitiateCallback func(callerID, sessionID, instanceID, deviceID string, data P2PCallInitiateData) string
 type P2PCallAcceptCallback func(userID, sessionID, instanceID, deviceID string, data P2PCallAcceptData)
 type P2PCallDeclineCallback func(userID, instanceID, deviceID string, data P2PCallDeclineData)
 type P2PCallEndCallback func(userID, instanceID, deviceID, callID string)
