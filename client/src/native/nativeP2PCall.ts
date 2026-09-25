@@ -41,8 +41,9 @@ type NativeP2PCallPlugin = {
   }): Promise<{ video: boolean }>;
   /** The page that now runs the call, and its hang-up key when it arrived after the start. */
   setOwner(options: { callId: string; instanceId?: string; endKey?: string }): Promise<void>;
-  acceptRemoteOffer(options: { sdp: string }): Promise<void>;
-  acceptRemoteAnswer(options: { sdp: string }): Promise<void>;
+  /** applied is false when nothing was set: an offer ignored in glare, an answer that failed. */
+  acceptRemoteOffer(options: { sdp: string }): Promise<{ applied: boolean }>;
+  acceptRemoteAnswer(options: { sdp: string }): Promise<{ applied: boolean }>;
   addIceCandidate(options: { candidate: string; sdpMid?: string; sdpMLineIndex?: number }): Promise<void>;
   setMicEnabled(options: { enabled: boolean }): Promise<void>;
   setRemoteVolume(options: { volume: number }): Promise<void>;

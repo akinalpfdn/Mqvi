@@ -240,11 +240,12 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         // Both sides offered at once: the caller's offer wins, and the peer answers it instead.
+        // Nothing was applied, and the page must know: candidates still have no description to join.
         lock.lock()
         let offering = makingOffer
         lock.unlock()
         if isCallerNow() && (offering || pc.signalingState != .stable) {
-            call.resolve()
+            call.resolve(["applied": false])
             return
         }
         let offer = LKRTCSessionDescription(type: .offer, sdp: sdp)
@@ -265,7 +266,7 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
                         return
                     }
                     self.emitLocalDescription(from: pc, type: "answer", sdp: answer.sdp)
-                    call.resolve()
+                    call.resolve(["applied": true])
                 }
             }
         }
@@ -284,8 +285,10 @@ public class NativeP2PCallPlugin: CAPPlugin, CAPBridgedPlugin {
             if let error {
                 // A late answer against a stable state is survivable; the call keeps running.
                 print("[p2p-native] setRemoteDescription(answer): \(error.localizedDescription)")
+                call.resolve(["applied": false])
+                return
             }
-            call.resolve()
+            call.resolve(["applied": true])
         }
     }
 

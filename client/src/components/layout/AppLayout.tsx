@@ -28,6 +28,7 @@ import SettingsModal from "../settings/SettingsModal";
 import VoiceProvider from "../voice/VoiceProvider";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import { useVoice } from "../../hooks/useVoice";
+import { useToggleActiveMute } from "../../hooks/useActiveMic";
 import { useVoiceSuspensionBlocker } from "../../hooks/useVoiceSuspensionBlocker";
 import { useIdleDetection } from "../../hooks/useIdleDetection";
 import { useVoiceActivityReporter } from "../../hooks/useVoiceActivityReporter";
@@ -215,11 +216,13 @@ function AppLayout() {
     }
   }, [selectedChannelId]);
 
-  const { joinVoice, leaveVoice, toggleMute, toggleDeafen, toggleScreenShare } = useVoice({
+  const { joinVoice, leaveVoice, toggleMute: toggleVoiceMute, toggleDeafen, toggleScreenShare } = useVoice({
     sendVoiceJoin,
     sendVoiceLeave,
     sendVoiceStateUpdate,
   });
+  // Every mute control below (user bar, shortcuts, /mute) acts on the live microphone: a call's too.
+  const toggleMute = useToggleActiveMute(toggleVoiceMute);
 
   // Hold off OS app suspension for as long as the user is in a call (Electron only).
   useVoiceSuspensionBlocker();

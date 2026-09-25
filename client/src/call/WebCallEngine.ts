@@ -618,6 +618,9 @@ export class WebCallEngine implements CallMediaEngine {
     pc.onnegotiationneeded = async () => {
       if (!isCurrent()) return;
       if (this.makingOffer || pc.signalingState !== "stable") return;
+      // The receiver answers first. Its control channel and microphone set this off while the
+      // caller's offer is still unanswered, and offering then puts both sides in glare.
+      if (!this.opts?.isCaller && !pc.remoteDescription) return;
       try {
         this.makingOffer = true;
         const offer = await pc.createOffer();

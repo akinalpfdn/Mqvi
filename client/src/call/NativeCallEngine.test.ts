@@ -9,8 +9,8 @@ const { plugin, listeners, fetchIceServersForRecovery, fetchIceServers } = vi.ho
     fetchIceServersForRecovery: vi.fn(),
     plugin: {
       start: vi.fn(async () => ({ video: false })),
-      acceptRemoteOffer: vi.fn(async () => {}),
-      acceptRemoteAnswer: vi.fn(async () => {}),
+      acceptRemoteOffer: vi.fn(async () => ({ applied: true })),
+      acceptRemoteAnswer: vi.fn(async () => ({ applied: true })),
       addIceCandidate: vi.fn(async () => {}),
       setMicEnabled: vi.fn(async () => {}),
       setRemoteVolume: vi.fn(async () => {}),
@@ -216,6 +216,34 @@ describe("native engine recovery", () => {
       sdpMid: "0",
       sdpMLineIndex: 0,
     });
+  });
+});
+
+// The peer offered while this side, the caller, still waited on its answer: the native side keeps
+// its own offer and ignores the peer's. Candidates handed over then have no description to join.
+describe("native engine when the native side sets no description", () => {
+  const cand = { candidate: "cand-1", sdpMid: "0", sdpMLineIndex: 0 };
+
+  it("should hold candidates past an offer ignored in glare, and release them with the answer", async () => {
+    const { engine } = await engineFor(true);
+    plugin.acceptRemoteOffer.mockResolvedValueOnce({ applied: false });
+
+    await engine.acceptRemoteOffer("peer-offer");
+    await engine.addIceCandidate(cand);
+    expect(plugin.addIceCandidate).not.toHaveBeenCalled();
+
+    await engine.acceptRemoteAnswer("answer-sdp");
+    expect(plugin.addIceCandidate).toHaveBeenCalledWith(cand);
+  });
+
+  it("should hold candidates when the answer could not be applied", async () => {
+    const { engine } = await engineFor(true);
+    plugin.acceptRemoteAnswer.mockResolvedValueOnce({ applied: false });
+
+    await engine.acceptRemoteAnswer("rejected-answer");
+    await engine.addIceCandidate(cand);
+
+    expect(plugin.addIceCandidate).not.toHaveBeenCalled();
   });
 });
 
@@ -584,16 +612,17 @@ describe("native engine offers", () => {
     plugin.acceptRemoteOffer
       .mockImplementationOnce(
         () =>
-          new Promise<void>((resolve) => {
+          new Promise<{ applied: boolean }>((resolve) => {
             order.push("start:1");
             finishFirst = () => {
               order.push("end:1");
-              resolve();
+              resolve({ applied: true });
             };
           }),
       )
       .mockImplementationOnce(async () => {
         order.push("start:2");
+        return { applied: true };
       });
 
     const first = engine.acceptRemoteOffer("offer-1");

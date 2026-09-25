@@ -145,6 +145,38 @@ describe("web engine receiving offers", () => {
   });
 });
 
+/** A caller's offer is answered before the receiver offers anything of its own. */
+describe("web engine answering a caller's first offer", () => {
+  // The engine installs the handler; the fake only declares it null.
+  const negotiationNeeded = () => (built[0].onnegotiationneeded as unknown as () => Promise<void>)();
+
+  it("should not offer while the microphone opens, when its control channel asks to negotiate", async () => {
+    let grantMic: (stream: MediaStream) => void = () => {};
+    getUserMedia.mockImplementation(() => new Promise<MediaStream>((resolve) => { grantMic = resolve; }));
+    const { engine, ev } = await receiver();
+
+    const answering = engine.acceptRemoteOffer("caller-offer");
+    await vi.waitFor(() => expect(getUserMedia).toHaveBeenCalled());
+    // What the browser does for a data channel on a fresh connection.
+    await negotiationNeeded();
+    expect(built[0].createOffer).not.toHaveBeenCalled();
+
+    grantMic(emptyStream);
+    await answering;
+    expect(ev.onLocalDescription).toHaveBeenCalledTimes(1);
+    expect(ev.onLocalDescription).toHaveBeenCalledWith({ type: "answer", sdp: "answer-sdp" });
+  });
+
+  it("should still renegotiate once it has answered", async () => {
+    const { engine, ev } = await receiver();
+    await engine.acceptRemoteOffer("caller-offer");
+
+    await negotiationNeeded();
+
+    expect(ev.onLocalDescription).toHaveBeenLastCalledWith({ type: "offer", sdp: "offer-sdp" });
+  });
+});
+
 /** A mute made before the stream exists reaches it. */
 describe("web engine mute before the microphone is open", () => {
   it("should open the stream with the microphone already muted", async () => {

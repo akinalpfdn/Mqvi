@@ -225,14 +225,20 @@ export class NativeCallEngine implements CallMediaEngine {
 
   private async applyRemoteOffer(sdp: string): Promise<void> {
     if (!(await this.waitUntilStarted())) return;
-    await NativeP2PCall.acceptRemoteOffer({ sdp });
-    this.hasRemoteDescription = true;
-    await this.flushCandidates();
+    const { applied } = await NativeP2PCall.acceptRemoteOffer({ sdp });
+    await this.remoteDescriptionSet(applied);
   }
 
   async acceptRemoteAnswer(sdp: string): Promise<void> {
     if (!(await this.waitUntilStarted())) return;
-    await NativeP2PCall.acceptRemoteAnswer({ sdp });
+    const { applied } = await NativeP2PCall.acceptRemoteAnswer({ sdp });
+    await this.remoteDescriptionSet(applied);
+  }
+
+  /** Candidates are released only to a description the native side really holds. An offer it
+   * ignored in glare holds none, and a candidate added then is rejected and lost. */
+  private async remoteDescriptionSet(applied: boolean): Promise<void> {
+    if (!applied) return;
     this.hasRemoteDescription = true;
     await this.flushCandidates();
   }
