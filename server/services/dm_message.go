@@ -110,15 +110,8 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 	sender, _ := s.userRepo.GetByID(ctx, userID)
 	isPlatformAdmin := sender != nil && sender.IsPlatformAdmin
 
-	// Bidirectional block check — platform admins bypass
-	if !isPlatformAdmin && s.blockChecker != nil {
-		blocked, err := s.blockChecker.IsBlocked(ctx, userID, otherUserID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to check block status: %w", err)
-		}
-		if blocked {
-			return nil, fmt.Errorf("%w: cannot send message to blocked user", pkg.ErrForbidden)
-		}
+	if err := s.rejectIfBlocked(ctx, isPlatformAdmin, userID, otherUserID); err != nil {
+		return nil, err
 	}
 
 	// DM privacy + request enforcement
@@ -354,6 +347,10 @@ func (s *dmService) EditMessage(ctx context.Context, userID, messageID string, r
 
 	if msg.UserID != userID {
 		return nil, fmt.Errorf("%w: you can only edit your own messages", pkg.ErrForbidden)
+	}
+
+	if err := s.rejectIfBlockedInChannel(ctx, userID, channel); err != nil {
+		return nil, err
 	}
 
 	// An edit writes `content` without touching encryption_version or ciphertext, so a plaintext

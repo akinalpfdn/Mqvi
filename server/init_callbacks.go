@@ -10,12 +10,17 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
+// dmTypingRouter decides who sees a DM typing indicator.
+type dmTypingRouter interface {
+	TypingRecipient(ctx context.Context, senderUserID, channelID string) (string, error)
+}
+
 // registerHubCallbacks wires Hub events to service layer logic.
 // Callbacks run in separate goroutines (launched by Hub) to avoid mutex deadlock.
 func registerHubCallbacks(
 	hub *ws.Hub,
 	userRepo repository.UserRepository,
-	dmRepo repository.DMRepository,
+	dmTyping dmTypingRouter,
 	voiceService services.VoiceService,
 	p2pCallService services.P2PCallService,
 	channelRepo repository.ChannelRepository,
@@ -264,16 +269,9 @@ func registerHubCallbacks(
 	// ─── DM Typing Callback ───
 
 	hub.OnDMTyping(func(senderUserID, senderUsername, dmChannelID string) {
-		channel, err := dmRepo.GetChannelByID(context.Background(), dmChannelID)
+		otherUserID, err := dmTyping.TypingRecipient(context.Background(), senderUserID, dmChannelID)
 		if err != nil {
 			return
-		}
-		if channel.User1ID != senderUserID && channel.User2ID != senderUserID {
-			return
-		}
-		otherUserID := channel.User1ID
-		if otherUserID == senderUserID {
-			otherUserID = channel.User2ID
 		}
 		hub.BroadcastToUser(otherUserID, ws.Event{
 			Op: ws.OpDMTypingStart,

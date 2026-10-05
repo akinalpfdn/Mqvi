@@ -129,7 +129,7 @@ func main() {
 	svcs.Auth.SetAppLogger(svcs.AppLog)
 
 	// 11. Hub callbacks (must be after services, before hub.Run)
-	registerHubCallbacks(hub, repos.User, repos.DM, svcs.Voice, svcs.P2PCall, repos.Channel, repos.Server, svcs.ChannelPermission)
+	registerHubCallbacks(hub, repos.User, svcs.DM, svcs.Voice, svcs.P2PCall, repos.Channel, repos.Server, svcs.ChannelPermission)
 
 	go hub.Run()
 

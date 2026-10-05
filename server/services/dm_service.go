@@ -38,6 +38,9 @@ type DMService interface {
 	// DeleteMessageAsModerator removes a DM message for platform moderation; the admin is not a participant.
 	DeleteMessageAsModerator(ctx context.Context, messageID string) error
 
+	// TypingRecipient is the user to show senderUserID's typing to; an error means show nobody.
+	TypingRecipient(ctx context.Context, senderUserID, channelID string) (string, error)
+
 	AcceptRequest(ctx context.Context, userID, channelID string) error
 	DeclineRequest(ctx context.Context, userID, channelID string) error
 	AcceptPendingChannels(ctx context.Context, userA, userB string) error
@@ -120,6 +123,51 @@ func (s *dmService) verifyChannelMembership(ctx context.Context, userID, channel
 		return nil, fmt.Errorf("%w: not a member of this DM channel", pkg.ErrForbidden)
 	}
 	return channel, nil
+}
+
+// rejectIfBlocked stops userID reaching otherUserID while a block stands in either direction.
+// Platform admins are exempt, as everywhere in DMs.
+func (s *dmService) rejectIfBlocked(ctx context.Context, isPlatformAdmin bool, userID, otherUserID string) error {
+	if isPlatformAdmin || s.blockChecker == nil {
+		return nil
+	}
+	blocked, err := s.blockChecker.IsBlocked(ctx, userID, otherUserID)
+	if err != nil {
+		return fmt.Errorf("failed to check block status: %w", err)
+	}
+	if blocked {
+		return fmt.Errorf("%w: cannot interact with a blocked user", pkg.ErrForbidden)
+	}
+	return nil
+}
+
+// rejectIfBlockedInChannel is rejectIfBlocked for an action inside an existing conversation.
+func (s *dmService) rejectIfBlockedInChannel(ctx context.Context, userID string, channel *models.DMChannel) error {
+	sender, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("failed to look up sender: %w", err)
+	}
+	otherUserID := channel.User1ID
+	if otherUserID == userID {
+		otherUserID = channel.User2ID
+	}
+	return s.rejectIfBlocked(ctx, sender.IsPlatformAdmin, userID, otherUserID)
+}
+
+// TypingRecipient is who sees senderUserID typing in the conversation: nobody outside it, and
+// nobody across a block.
+func (s *dmService) TypingRecipient(ctx context.Context, senderUserID, channelID string) (string, error) {
+	channel, err := s.verifyChannelMembership(ctx, senderUserID, channelID)
+	if err != nil {
+		return "", err
+	}
+	if err := s.rejectIfBlockedInChannel(ctx, senderUserID, channel); err != nil {
+		return "", err
+	}
+	if channel.User1ID == senderUserID {
+		return channel.User2ID, nil
+	}
+	return channel.User1ID, nil
 }
 
 func (s *dmService) verifyMessageAccess(ctx context.Context, userID, messageID string) (*models.DMMessage, *models.DMChannel, error) {
