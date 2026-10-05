@@ -33,7 +33,7 @@
   "delStep3": "Under Delete account, tap the delete button.",
   "delStep4": "Confirm the deletion in the dialog.",
   "delDataTitle": "What is deleted, and when",
-  "delData1": "Grace period: your account is deactivated immediately. For 30 days you can restore it by logging in again with your password.",
+  "delData1": "Deletion is permanent. You are signed out immediately, and the deletion completes after 30 days; until then you can cancel it by logging in again with your password.",
   "delData2": "After 30 days: your profile information, uploaded files, push notification tokens, and personal data are permanently deleted.",
   "delData3": "What is kept: your past messages remain for conversation continuity but are shown anonymously as \"Deleted User\". Direct message conversations remain visible to the other participant.",
   "delPartialTitle": "Delete some data without deleting your account",

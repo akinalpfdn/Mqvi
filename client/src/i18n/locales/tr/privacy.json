@@ -33,7 +33,7 @@
   "delStep3": "Hesabı sil bölümünde sil butonuna dokun.",
   "delStep4": "Açılan pencerede silmeyi onayla.",
   "delDataTitle": "Neler silinir, ne zaman",
-  "delData1": "Bekleme süresi: hesabın anında devre dışı kalır. 30 gün boyunca şifrenle tekrar giriş yaparak geri yükleyebilirsin.",
+  "delData1": "Silme kalıcıdır. Hemen çıkış yapılır ve silme 30 gün sonra tamamlanır; o zamana kadar şifrenle tekrar giriş yaparak iptal edebilirsin.",
   "delData2": "30 gün sonra: profil bilgilerin, yüklediğin dosyalar, bildirim token'ların ve kişisel verilerin kalıcı olarak silinir.",
   "delData3": "Korunanlar: geçmiş mesajların sohbet bütünlüğü için kalır ancak \"Silinmiş Kullanıcı\" olarak anonim gösterilir. Özel mesaj sohbetleri diğer katılımcı için görünür kalır.",
   "delPartialTitle": "Hesabını silmeden bazı verileri sil",
