@@ -298,6 +298,10 @@ select option:disabled {
 .ch-tree-server-icon { width:24px;height:24px;border-radius:6px;flex-shrink:0;object-fit:cover; }
 .ch-tree-server-icon-fallback { width:24px;height:24px;border-radius:6px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex-shrink:0; }
 .ch-tree-server-name { flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+/* The verified badge sits right after the name, clear of the unread count on the right. */
+.ch-tree-server-title { flex:1;min-width:0;display:flex;align-items:center;gap:6px; }
+.ch-tree-server-title .ch-tree-server-name { flex:0 1 auto;min-width:0; }
+.ch-tree-server-title .disc-badge-verified { flex-shrink:0; }
 .ch-tree-server-badge { background:var(--red);color:#fff;font-size:11px;font-weight:700;border-radius:10px;padding:1px 6px;min-width:18px;text-align:center;flex-shrink:0;line-height:16px; }
 
 /* Join-requests call-to-action — under the active server header, perm-holders only when count>0 */

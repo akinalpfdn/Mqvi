@@ -361,8 +361,10 @@ function ServerList({
                           {srv.name.charAt(0).toUpperCase()}
                         </span>
                       )}
-                      <span className="ch-tree-server-name">{srv.name}</span>
-                      {srv.verified && <VerifiedBadge size={13} />}
+                      <span className="ch-tree-server-title">
+                        <span className="ch-tree-server-name">{srv.name}</span>
+                        {srv.verified && <VerifiedBadge size={13} />}
+                      </span>
                       {!mutedServerIds.has(srv.id) && (() => {
                         const total = getServerUnreadTotal(srv.id);
                         return total > 0 ? (
