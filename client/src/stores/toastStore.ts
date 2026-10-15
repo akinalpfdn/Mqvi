@@ -7,6 +7,8 @@
 
 import { create } from "zustand";
 
+import { randomId } from "../utils/randomId";
+
 type ToastType = "success" | "error" | "warning" | "info";
 
 type Toast = {
@@ -37,7 +39,7 @@ export const useToastStore = create<ToastState>((set, get) => ({
   toasts: [],
 
   addToast: (type, message, duration = DEFAULT_DURATION) => {
-    const id = crypto.randomUUID();
+    const id = randomId();
 
     const toast: Toast = {
       id,

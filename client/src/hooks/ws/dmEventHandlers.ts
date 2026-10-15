@@ -4,6 +4,7 @@
  */
 
 import { useDMStore } from "../../stores/dmStore";
+import { useBlockStore } from "../../stores/blockStore";
 import { useAuthStore } from "../../stores/authStore";
 import { isAppInForeground } from "../../stores/appFocusStore";
 import { useE2EEStore } from "../../stores/e2eeStore";
@@ -199,6 +200,7 @@ export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
 
     case "dm_typing_start": {
       const data = msg.d as { user_id: string; username: string; dm_channel_id: string };
+      if (useBlockStore.getState().isBlocked(data.user_id)) return true;
       useDMStore.getState().handleDMTypingStart(data.dm_channel_id, data.username);
       return true;
     }

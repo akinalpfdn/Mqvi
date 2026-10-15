@@ -34,15 +34,23 @@ func (r *sqliteReadStateRepo) Upsert(ctx context.Context, userID, channelID, mes
 	return nil
 }
 
+// blockedAuthorFilter excludes readers who blocked the author: a blocked user's
+// message is hidden client-side, so it must not count as unread either.
+// Bind the author id once for the subquery. friendships: user_id = blocker.
+const blockedAuthorFilter = `
+		  AND user_id NOT IN (
+		      SELECT user_id FROM friendships WHERE status = 'blocked' AND friend_id = ?
+		  )`
+
 // IncrementUnreadCounts bumps unread_count for every existing channel_reads
-// row in this channel except the message author's.
+// row in this channel except the message author's and anyone who blocked them.
 func (r *sqliteReadStateRepo) IncrementUnreadCounts(ctx context.Context, channelID, excludeUserID string) error {
 	query := `
 		UPDATE channel_reads
 		SET unread_count = unread_count + 1
-		WHERE channel_id = ? AND user_id != ?`
+		WHERE channel_id = ? AND user_id != ?` + blockedAuthorFilter
 
-	_, err := r.db.ExecContext(ctx, query, channelID, excludeUserID)
+	_, err := r.db.ExecContext(ctx, query, channelID, excludeUserID, excludeUserID)
 	if err != nil {
 		return fmt.Errorf("failed to increment unread counts: %w", err)
 	}
@@ -52,6 +60,14 @@ func (r *sqliteReadStateRepo) IncrementUnreadCounts(ctx context.Context, channel
 // DecrementUnreadForDeleted lowers unread_count by 1 on every channel_reads row
 // whose owner had the deleted message counted as unread. CASE guard keeps the
 // counter from going negative if state is ever out of sync.
+//
+// Readers who blocked the author before the message existed never had it counted
+// (IncrementUnreadCounts skips them), so they are excluded; a block placed after
+// the message still owes the decrement. Known drift, accepted: an unblock deletes
+// the friendship row, so a later delete of a message that was never counted for
+// that reader lowers their counter by one (and the reverse: a message hidden at
+// arrival becomes visible but was never counted). Both self-heal on the next
+// mark-as-read, which resets the counter to zero.
 func (r *sqliteReadStateRepo) DecrementUnreadForDeleted(ctx context.Context, channelID, authorID string, deletedAt time.Time) error {
 	query := `
 		UPDATE channel_reads
@@ -61,9 +77,21 @@ func (r *sqliteReadStateRepo) DecrementUnreadForDeleted(ctx context.Context, cha
 		  AND (
 		      last_read_message_id IS NULL
 		      OR ? > (SELECT created_at FROM messages WHERE id = last_read_message_id)
+		  )
+		  AND user_id NOT IN (
+		      SELECT user_id FROM friendships
+		      WHERE status = 'blocked' AND friend_id = ? AND created_at < ?
 		  )`
 
-	_, err := r.db.ExecContext(ctx, query, channelID, authorID, deletedAt)
+	// friendships.created_at is always written from Go as a bound time.Time (never
+	// CURRENT_TIMESTAMP), so binding the cut-off the same way — same driver, same layout,
+	// both UTC — keeps the text comparison in chronological order without a Go-side round
+	// trip per delete. messages.created_at is second-precision while blocks carry
+	// nanoseconds, so the cut-off is the end of the message's second: a block inside that
+	// second counts as "before" (conservative — a counter that may never have risen is not
+	// lowered). TestDecrementUnreadForDeleted_BlockTiming pins this against the real driver.
+	blockCutoff := deletedAt.UTC().Truncate(time.Second).Add(time.Second)
+	_, err := r.db.ExecContext(ctx, query, channelID, authorID, deletedAt, authorID, blockCutoff)
 	if err != nil {
 		return fmt.Errorf("failed to decrement unread counts on delete: %w", err)
 	}
@@ -80,7 +108,11 @@ func (r *sqliteReadStateRepo) GetUnreadCounts(ctx context.Context, userID, serve
 			            THEN cr.unread_count
 			            ELSE (SELECT COUNT(*) FROM messages m
 			                  WHERE m.channel_id = c.id
-			                    AND m.user_id != ?)
+			                    AND m.user_id != ?
+			                    AND m.user_id NOT IN (
+			                        SELECT friend_id FROM friendships
+			                        WHERE status = 'blocked' AND user_id = ?
+			                    ))
 			       END as unread_count,
 			       cr.last_mention_seen_at as last_mention_seen_at,
 			       cr.last_mention_seen_message_id as last_mention_seen_message_id
@@ -89,7 +121,7 @@ func (r *sqliteReadStateRepo) GetUnreadCounts(ctx context.Context, userID, serve
 			WHERE c.type = 'text' AND c.server_id = ?
 		) WHERE unread_count > 0 OR last_mention_seen_at IS NOT NULL`
 
-	rows, err := r.db.QueryContext(ctx, query, userID, userID, serverID)
+	rows, err := r.db.QueryContext(ctx, query, userID, userID, userID, serverID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get unread counts: %w", err)
 	}

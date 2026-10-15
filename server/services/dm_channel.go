@@ -69,6 +69,11 @@ func (s *dmService) GetOrCreateChannel(ctx context.Context, userID, otherUserID 
 		}
 	}
 
+	// Opening a conversation tells the other side and shares presence both ways.
+	if err := s.rejectIfBlocked(ctx, isPlatformAdmin, userID, otherUserID); err != nil {
+		return nil, err
+	}
+
 	// Channel always starts as "accepted" — pending status is set on first message in SendMessage
 	channel := &models.DMChannel{
 		User1ID: user1,

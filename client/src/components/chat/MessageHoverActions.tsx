@@ -1,4 +1,4 @@
-/** MessageHoverActions — Floating action bar shown on hover (reply, react, pin, edit, delete). */
+/** MessageHoverActions — Floating action bar shown on hover (reply, react, pin, edit, delete, report). */
 
 import { useTranslation } from "react-i18next";
 import EmojiPicker from "../shared/EmojiPicker";
@@ -15,6 +15,9 @@ type MessageHoverActionsProps = {
   onPinToggle: () => void;
   onEditStart: () => void;
   onDelete: () => void;
+  onReport: () => void;
+  /** Report is offered on other users' messages only (never own, never deleted authors). */
+  showReport: boolean;
   /** Optional feature toggles — default true; voice chat passes false to hide. */
   showReply?: boolean;
   showReactions?: boolean;
@@ -33,6 +36,8 @@ function MessageHoverActions({
   onPinToggle,
   onEditStart,
   onDelete,
+  onReport,
+  showReport,
   showReply = true,
   showReactions = true,
   showPin = true,
@@ -82,6 +87,13 @@ function MessageHoverActions({
         <button onClick={onDelete} title={t("deleteMessage")}>
           <svg style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+        </button>
+      )}
+      {showReport && (
+        <button onClick={onReport} title={t("reportMessage")}>
+          <svg style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 21V4m0 0h12l-2 4 2 4H4" />
           </svg>
         </button>
       )}

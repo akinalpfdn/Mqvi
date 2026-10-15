@@ -137,6 +137,20 @@ const (
 	// OpP2PCallResume — the client reconnected and is still in the call. Media is peer-to-peer, so
 	// the socket dying was a blip, not a hang-up. Rebinds the call to the new connection.
 	OpP2PCallResume = "p2p_call_resume"
+	// OpP2PCallAdopt — a reloaded iOS page takes over the call the page before it ran, whose
+	// native media never stopped; OpP2PCallAdopted hands it the call when it may.
+	OpP2PCallAdopt   = "p2p_call_adopt"
+	OpP2PCallAdopted = "p2p_call_adopted"
+	// OpP2PCallError — sent to the connection that dialled when no call started, with the reason.
+	OpP2PCallError = "p2p_call_error"
+)
+
+// P2PCallErrorData.Reason values. A client that does not know one shows the generic failure.
+const (
+	P2PCallRefusedNotFriends  = "not_friends"
+	P2PCallRefusedUnavailable = "unavailable"
+	P2PCallRefusedInCall      = "already_in_call"
+	P2PCallRefusedFailed      = "failed"
 )
 
 // E2EE operations
@@ -335,10 +349,22 @@ type P2PCallResumeData struct {
 	CallID string `json:"call_id"`
 }
 
+// P2PCallAdoptData names the call and the page instance that ran it.
+type P2PCallAdoptData struct {
+	CallID     string `json:"call_id"`
+	InstanceID string `json:"instance_id"`
+}
+
+// P2PCallErrorData says why a p2p_call_initiate started no call.
+type P2PCallErrorData struct {
+	ReceiverID string `json:"receiver_id"`
+	Reason     string `json:"reason"`
+}
+
 // P2PSignalData carries WebRTC SDP/ICE data. Server relays without inspecting.
 type P2PSignalData struct {
 	CallID    string `json:"call_id"`
-	Type      string `json:"type"`                // "offer", "answer", "ice-candidate", "ice-restart"
+	Type      string `json:"type"`                // "offer", "answer", "ice-candidate", "ice-restart", "video-on", "video-off", "video-query"
 	SDP       string `json:"sdp,omitempty"`
 	Candidate any    `json:"candidate,omitempty"`
 }
@@ -347,4 +373,11 @@ type P2PSignalData struct {
 // ends whatever call the user is in (the old behaviour).
 type P2PCallEndData struct {
 	CallID string `json:"call_id,omitempty"`
+
+	// InstanceID is set only by a page hanging up the call the page before it ran (an iOS
+	// reload): that page's instance holds the call. It is the client's word, not proof — any app
+	// of the user could name the owner. That is the intended limit: the owner check stops a stale
+	// app ending an answered call by accident (stale apps never send this), it is not a security
+	// boundary, and it never lets anyone end another user's call.
+	InstanceID string `json:"instance_id,omitempty"`
 }

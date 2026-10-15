@@ -51,6 +51,23 @@ func (r *sqliteFriendshipRepo) GetByID(ctx context.Context, id string) (*models.
 	return &f, nil
 }
 
+func (r *sqliteFriendshipRepo) GetDirected(ctx context.Context, userID, friendID string) (*models.Friendship, error) {
+	query := `SELECT id, user_id, friend_id, status, created_at, updated_at
+	          FROM friendships WHERE user_id = ? AND friend_id = ?`
+
+	var f models.Friendship
+	err := r.db.QueryRowContext(ctx, query, userID, friendID).Scan(
+		&f.ID, &f.UserID, &f.FriendID, &f.Status, &f.CreatedAt, &f.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("%w: friendship %s -> %s", pkg.ErrNotFound, userID, friendID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("friendship get directed: %w", err)
+	}
+	return &f, nil
+}
+
 // GetByPair returns the friendship between two users (direction-agnostic).
 func (r *sqliteFriendshipRepo) GetByPair(ctx context.Context, userID, friendID string) (*models.Friendship, error) {
 	query := `SELECT id, user_id, friend_id, status, created_at, updated_at

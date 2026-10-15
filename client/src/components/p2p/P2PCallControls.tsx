@@ -6,6 +6,7 @@
 
 import { useTranslation } from "react-i18next";
 import { useP2PCallStore } from "../../stores/p2pCallStore";
+import { isCapacitor } from "../../utils/constants";
 
 type P2PCallControlsProps = {
   minimal?: boolean;
@@ -20,11 +21,19 @@ function P2PCallControls({ minimal = false }: P2PCallControlsProps) {
   const toggleMute = useP2PCallStore((s) => s.toggleMute);
   const toggleVideo = useP2PCallStore((s) => s.toggleVideo);
   const toggleScreenShare = useP2PCallStore((s) => s.toggleScreenShare);
+  const switchCamera = useP2PCallStore((s) => s.switchCamera);
+  const isNativeVideo = useP2PCallStore((s) => s.isNativeVideo);
   const endCall = useP2PCallStore((s) => s.endCall);
   const declineCall = useP2PCallStore((s) => s.declineCall);
 
   const isVideo = activeCall?.call_type === "video";
   const isRinging = activeCall?.status === "ringing";
+  // Only a phone or tablet has two cameras to flip between, and sharing a screen has no camera
+  // to flip at all.
+  const canSwitchCamera = isCapacitor() && isVideo && isVideoOn && !isScreenSharing;
+  // A natively drawn call has no screen capture behind it: iOS shares a screen through the
+  // broadcast extension, which is wired to channel voice, not to a p2p peer connection.
+  const canShareScreen = !isNativeVideo;
 
   function handleEnd() {
     if (isRinging && activeCall) {
@@ -72,15 +81,29 @@ function P2PCallControls({ minimal = false }: P2PCallControlsProps) {
             </button>
           )}
 
-          <button
-            className={`p2p-ctrl-btn ${isScreenSharing ? "active" : ""}`}
-            onClick={toggleScreenShare}
-            title={t("screenShare")}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z" />
-            </svg>
-          </button>
+          {canSwitchCamera && (
+            <button
+              className="p2p-ctrl-btn"
+              onClick={switchCamera}
+              title={t("switchCamera")}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20 5h-3.17L15 3H9L7.17 5H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm-8 12a5 5 0 0 1-4.9-4H5.5l2.5-2.5L10.5 13H8.6a3.4 3.4 0 0 0 6.3.9l1.4 1.02A5 5 0 0 1 12 17zm4.9-5.5L14.4 9h1.9a3.4 3.4 0 0 0-6.3-.9L8.6 7.08A5 5 0 0 1 16.9 11h1.6l-1.6 1.6z" />
+              </svg>
+            </button>
+          )}
+
+          {canShareScreen && (
+            <button
+              className={`p2p-ctrl-btn ${isScreenSharing ? "active" : ""}`}
+              onClick={toggleScreenShare}
+              title={t("screenShare")}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z" />
+              </svg>
+            </button>
+          )}
         </>
       )}
 

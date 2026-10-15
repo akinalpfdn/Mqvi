@@ -110,6 +110,8 @@ function ReportServerModal({ serverId, serverName, onClose }: Props) {
       onClose();
     } else if (res.error?.includes("already")) {
       addToast("warning", t("alreadyReported"));
+    } else if (res.error?.includes("too many")) {
+      addToast("warning", t("reportRateLimited"));
       onClose();
     } else {
       addToast("error", res.error ?? tDisc("reportError"));

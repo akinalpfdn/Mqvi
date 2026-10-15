@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"sync"
@@ -106,7 +107,7 @@ type UserDisconnectCallback func(userID string, audience []string)
 
 // SessionDisconnectCallback fires on EVERY connection close, with the connection that died.
 // A call is owned by a connection, not a user — see p2pCallService.HandleSessionDisconnect.
-type SessionDisconnectCallback func(userID, sessionID string)
+type SessionDisconnectCallback func(userID, sessionID string, nativeMedia bool)
 
 // ─── Voice Callback Types ───
 
@@ -143,11 +144,13 @@ type VoiceActivityCallback func(userID string)
 
 // ─── P2P Call Callback Types ───
 
-type P2PCallInitiateCallback func(callerID, sessionID string, data P2PCallInitiateData)
-type P2PCallAcceptCallback func(userID, sessionID, deviceID string, data P2PCallAcceptData)
-type P2PCallDeclineCallback func(userID, deviceID string, data P2PCallDeclineData)
-type P2PCallEndCallback func(userID, deviceID, callID string)
-type P2PCallResumeCallback func(userID, sessionID, callID string)
+// P2PCallInitiateCallback returns a P2PCallRefused* reason when no call started, "" otherwise.
+type P2PCallInitiateCallback func(callerID, sessionID, instanceID, deviceID string, data P2PCallInitiateData) string
+type P2PCallAcceptCallback func(userID, sessionID, instanceID, deviceID string, data P2PCallAcceptData)
+type P2PCallDeclineCallback func(userID, instanceID, deviceID string, data P2PCallDeclineData)
+type P2PCallEndCallback func(userID, instanceID, deviceID, callID string)
+type P2PCallResumeCallback func(userID, sessionID, instanceID, callID string)
+type P2PCallAdoptCallback func(userID, sessionID, instanceID, deviceID string, data P2PCallAdoptData)
 
 // P2PSignalCallback — WebRTC signaling data relayed to the other peer.
 type P2PSignalCallback func(senderID, senderSessionID string, data P2PSignalData)
@@ -235,6 +238,7 @@ type Hub struct {
 	onP2PCallDecline  P2PCallDeclineCallback
 	onP2PCallEnd      P2PCallEndCallback
 	onP2PCallResume   P2PCallResumeCallback
+	onP2PCallAdopt    P2PCallAdoptCallback
 	onP2PSignal       P2PSignalCallback
 
 	// Channel typing callback — set in main.go
@@ -425,7 +429,14 @@ func (h *Hub) removeClient(client *Client) {
 	// device stays signed in is left in the call forever — and, because an accepted call has no
 	// ring timer, nothing ever cleans it up.
 	if removed && h.onSessionDisconnect != nil {
-		go h.onSessionDisconnect(client.userID, client.sessionID)
+		go func() {
+			// Outside the hub lock and event loop; use a fresh, bounded context because the
+			// handshake request is already over. Revoked registrations also take effect here.
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			nativeMedia := nativeMediaClaim(ctx, client.nativeMedia, client.userID, client.deviceID, client.nativeDevices)
+			h.onSessionDisconnect(client.userID, client.sessionID, nativeMedia)
+		}()
 	}
 
 	if fullyDisconnected && h.onUserFullyDisconnected != nil {
@@ -970,6 +981,10 @@ func (h *Hub) OnP2PCallEnd(cb P2PCallEndCallback) {
 
 func (h *Hub) OnP2PCallResume(cb P2PCallResumeCallback) {
 	h.onP2PCallResume = cb
+}
+
+func (h *Hub) OnP2PCallAdopt(cb P2PCallAdoptCallback) {
+	h.onP2PCallAdopt = cb
 }
 
 func (h *Hub) OnP2PSignal(cb P2PSignalCallback) {

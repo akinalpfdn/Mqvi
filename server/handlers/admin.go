@@ -21,14 +21,15 @@ type ScreenShareStatsProvider interface {
 }
 
 type AdminHandler struct {
-	livekitAdminService   services.LiveKitAdminService
-	metricsHistoryService services.MetricsHistoryService
-	adminUserService      services.AdminUserService
-	adminServerService    services.AdminServerService
-	reportService         services.ReportService
-	appLogService         services.AppLogService
-	badgeService          services.SettingsBadgeService
-	screenShareStats      ScreenShareStatsProvider
+	livekitAdminService     services.LiveKitAdminService
+	metricsHistoryService   services.MetricsHistoryService
+	adminUserService        services.AdminUserService
+	adminServerService      services.AdminServerService
+	reportService           services.ReportService
+	reportModerationService services.ReportModerationService
+	appLogService           services.AppLogService
+	badgeService            services.SettingsBadgeService
+	screenShareStats        ScreenShareStatsProvider
 }
 
 func NewAdminHandler(
@@ -37,19 +38,21 @@ func NewAdminHandler(
 	adminUserService services.AdminUserService,
 	adminServerService services.AdminServerService,
 	reportService services.ReportService,
+	reportModerationService services.ReportModerationService,
 	appLogService services.AppLogService,
 	badgeService services.SettingsBadgeService,
 	screenShareStats ScreenShareStatsProvider,
 ) *AdminHandler {
 	return &AdminHandler{
-		livekitAdminService:   livekitAdminService,
-		metricsHistoryService: metricsHistoryService,
-		adminUserService:      adminUserService,
-		adminServerService:    adminServerService,
-		reportService:         reportService,
-		appLogService:         appLogService,
-		badgeService:          badgeService,
-		screenShareStats:      screenShareStats,
+		livekitAdminService:     livekitAdminService,
+		metricsHistoryService:   metricsHistoryService,
+		adminUserService:        adminUserService,
+		adminServerService:      adminServerService,
+		reportService:           reportService,
+		reportModerationService: reportModerationService,
+		appLogService:           appLogService,
+		badgeService:            badgeService,
+		screenShareStats:        screenShareStats,
 	}
 }
 
@@ -767,4 +770,27 @@ func (h *AdminHandler) UpdateServerReportStatus(w http.ResponseWriter, r *http.R
 	}
 
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "report status updated"})
+}
+
+// DeleteReportedMessage -- DELETE /api/admin/reports/{id}/message
+// Removes the reported message for everyone and resolves the report.
+func (h *AdminHandler) DeleteReportedMessage(w http.ResponseWriter, r *http.Request) {
+	admin, ok := r.Context().Value(ctxkeys.User).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	reportID := r.PathValue("id")
+	if reportID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "report id is required")
+		return
+	}
+
+	if err := h.reportModerationService.DeleteReportedMessage(r.Context(), reportID, admin.ID); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+
+	pkg.JSON(w, http.StatusOK, map[string]string{"message": "reported message deleted"})
 }

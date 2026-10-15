@@ -251,6 +251,13 @@ export async function updateReportStatus(reportId: string, status: string) {
   });
 }
 
+/** Deletes the message a report points at (channel, DM or voice) and resolves the report. */
+export async function deleteReportedMessage(reportId: string) {
+  return apiClient<{ message: string }>(`/admin/reports/${reportId}/message`, {
+    method: "DELETE",
+  });
+}
+
 export async function listAdminServerReports(status?: string) {
   const query = status ? `?status=${status}&limit=100` : "?limit=100";
   return apiClient<{ reports: AdminServerReportItem[]; total: number }>(

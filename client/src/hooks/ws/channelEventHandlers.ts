@@ -9,6 +9,7 @@ import { useServerStore } from "../../stores/serverStore";
 import { useReadStateStore } from "../../stores/readStateStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useUIStore } from "../../stores/uiStore";
+import { useBlockStore } from "../../stores/blockStore";
 import { usePinStore } from "../../stores/pinStore";
 import { useChannelPermissionStore } from "../../stores/channelPermissionStore";
 import { useE2EEStore } from "../../stores/e2eeStore";
@@ -103,6 +104,8 @@ export async function handleChannelEvent(msg: WSMessage): Promise<boolean> {
       if (isViewingThisChannel) {
         useReadStateStore.getState().markAsRead(message.channel_id, message.id);
       } else {
+        // Blocked author: stored (collapsed in the list) but never raises unread, sound, or flash.
+        if (useBlockStore.getState().isBlocked(message.user_id)) return true;
         const isServerMuted = msgServerId ? useServerStore.getState().isServerMuted(msgServerId) : false;
         const isChannelMuted = useChannelStore.getState().mutedChannelIds.has(message.channel_id);
         if (!isServerMuted && !isChannelMuted) {
@@ -181,7 +184,11 @@ export async function handleChannelEvent(msg: WSMessage): Promise<boolean> {
 
       if (reactionData.added) {
         const myId = useAuthStore.getState().user?.id;
-        if (reactionData.message_author_id === myId && reactionData.actor_id !== myId) {
+        if (
+          reactionData.message_author_id === myId &&
+          reactionData.actor_id !== myId &&
+          !useBlockStore.getState().isBlocked(reactionData.actor_id)
+        ) {
           const uiState = useUIStore.getState();
           const panel = uiState.panels[uiState.activePanelId];
           const activeTab = panel?.tabs.find((tab) => tab.id === panel.activeTabId);

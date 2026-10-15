@@ -12,6 +12,7 @@ import i18n, { changeLanguage, resolveLanguage, type Language, SUPPORTED_LANGUAG
 import { useE2EEStore } from "./e2eeStore";
 import { usePreferencesStore } from "./preferencesStore";
 import { useVoiceStore } from "./voiceStore";
+import { endP2PCallForLogout } from "./shared/p2pCallControl";
 import { useSettingsStore } from "./settingsStore";
 import { unregisterCurrentPushToken, clearCachedPushToken } from "../utils/pushToken";
 import { resetMarkReadTracking } from "./shared/markReadTracking";
@@ -182,6 +183,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   cancelAccountDeleted: () => set({ accountDeleted: null }),
 
   logout: async () => {
+    // End any call: its screen goes with the session, and nothing else would stop the
+    // microphone it holds. Isolated so a failing teardown cannot stop the logout itself.
+    try {
+      endP2PCallForLogout();
+    } catch (err) {
+      console.error("[authStore] logout: call teardown failed", err);
+    }
+
     // Leave voice channel first
     const voiceState = useVoiceStore.getState();
     if (voiceState.currentVoiceChannelId) {
@@ -229,6 +238,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     resetMarkReadTracking(); // cannot throw; belongs with the guaranteed teardown
 
     // Best-effort local cleanup, each isolated so one failure can't skip the rest.
+    try {
+      endP2PCallForLogout();
+    } catch (err) {
+      console.error("[authStore] forceLogout: call teardown failed", err);
+    }
     try {
       const voiceState = useVoiceStore.getState();
       if (voiceState.currentVoiceChannelId) {

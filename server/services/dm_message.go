@@ -110,15 +110,8 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 	sender, _ := s.userRepo.GetByID(ctx, userID)
 	isPlatformAdmin := sender != nil && sender.IsPlatformAdmin
 
-	// Bidirectional block check — platform admins bypass
-	if !isPlatformAdmin && s.blockChecker != nil {
-		blocked, err := s.blockChecker.IsBlocked(ctx, userID, otherUserID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to check block status: %w", err)
-		}
-		if blocked {
-			return nil, fmt.Errorf("%w: cannot send message to blocked user", pkg.ErrForbidden)
-		}
+	if err := s.rejectIfBlocked(ctx, isPlatformAdmin, userID, otherUserID); err != nil {
+		return nil, err
 	}
 
 	// DM privacy + request enforcement
@@ -356,6 +349,10 @@ func (s *dmService) EditMessage(ctx context.Context, userID, messageID string, r
 		return nil, fmt.Errorf("%w: you can only edit your own messages", pkg.ErrForbidden)
 	}
 
+	if err := s.rejectIfBlockedInChannel(ctx, userID, channel); err != nil {
+		return nil, err
+	}
+
 	// An edit writes `content` without touching encryption_version or ciphertext, so a plaintext
 	// edit of an encrypted message leaves readable text beside the ciphertext the UI still shows.
 	if err := enforceDMEncryptionPolicy(channel, req.EncryptionVersion); err != nil {
@@ -393,6 +390,26 @@ func (s *dmService) DeleteMessage(ctx context.Context, userID, messageID string)
 	if msg.UserID != userID {
 		return fmt.Errorf("%w: you can only delete your own messages", pkg.ErrForbidden)
 	}
+
+	return s.deleteDMMessage(ctx, msg, channel)
+}
+
+// DeleteMessageAsModerator is the report-handling path; no membership check.
+func (s *dmService) DeleteMessageAsModerator(ctx context.Context, messageID string) error {
+	msg, err := s.dmRepo.GetMessageByID(ctx, messageID)
+	if err != nil {
+		return err
+	}
+	channel, err := s.dmRepo.GetChannelByID(ctx, msg.DMChannelID)
+	if err != nil {
+		return err
+	}
+	return s.deleteDMMessage(ctx, msg, channel)
+}
+
+// deleteDMMessage is the shared core: files, row, quota, broadcast to both participants.
+func (s *dmService) deleteDMMessage(ctx context.Context, msg *models.DMMessage, channel *models.DMChannel) error {
+	messageID := msg.ID
 
 	// Collect attachment info before delete (CASCADE removes attachment rows)
 	var attachmentBytes int64

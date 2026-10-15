@@ -3,8 +3,9 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 // Module-level imports of p2pCallStore — stub them so the store loads in isolation.
 vi.mock("../api/calls", () => ({ fetchIceServers: vi.fn(), fetchIceServersForRecovery: vi.fn() }));
 vi.mock("../i18n", () => ({ default: { t: (k: string) => k } }));
+const { addToast } = vi.hoisted(() => ({ addToast: vi.fn() }));
 vi.mock("./toastStore", () => ({
-  useToastStore: { getState: () => ({ addToast: vi.fn() }) },
+  useToastStore: { getState: () => ({ addToast }) },
 }));
 
 import { useP2PCallStore } from "./p2pCallStore";
@@ -29,15 +30,14 @@ function makeCall(overrides: Partial<P2PCall>): P2PCall {
 }
 
 beforeEach(() => {
+  addToast.mockClear();
   useP2PCallStore.setState({
     activeCall: null,
     incomingCall: null,
     localStream: null,
     remoteStream: null,
-    peerConnection: null,
+    engine: null,
     _durationInterval: null,
-    _pendingCandidates: [],
-    _triggerIceRestart: null,
   });
 });
 
@@ -79,23 +79,47 @@ describe("handleCallBusy — stale-busy protection", () => {
   });
 });
 
+describe("handleCallError — a refused call says why", () => {
+  it("names the reason the server gave", () => {
+    useP2PCallStore.getState().handleCallError({ receiver_id: "X", reason: "not_friends" });
+    expect(addToast).toHaveBeenCalledWith("warning", "common:callNotFriends");
+  });
+
+  it("shows a reason it does not know as a failure", () => {
+    useP2PCallStore.getState().handleCallError({ receiver_id: "X", reason: "from_a_newer_server" });
+    expect(addToast).toHaveBeenCalledWith("error", "common:callFailed");
+  });
+
+  it("leaves the call already on screen alone", () => {
+    useP2PCallStore.setState({ activeCall: makeCall({ id: "B", status: "active" }) });
+    useP2PCallStore.getState().handleCallError({ receiver_id: "X", reason: "already_in_call" });
+    expect(useP2PCallStore.getState().activeCall?.id).toBe("B");
+    expect(addToast).toHaveBeenCalledWith("warning", "common:callAlreadyInCall");
+  });
+});
+
 describe("handleSignal — ice-restart dispatch", () => {
-  it("drives recovery via _triggerIceRestart when the call id matches", () => {
-    const trigger = vi.fn();
-    useP2PCallStore.setState({ activeCall: makeCall({ id: "A", status: "active" }), _triggerIceRestart: trigger });
+  function engineWithRestart() {
+    const restartIce = vi.fn();
+    return { restartIce, engine: { restartIce } as never };
+  }
+
+  it("asks the engine to restart ICE when the call id matches", () => {
+    const { restartIce, engine } = engineWithRestart();
+    useP2PCallStore.setState({ activeCall: makeCall({ id: "A", status: "active" }), engine });
     void useP2PCallStore.getState().handleSignal({ call_id: "A", type: "ice-restart" });
-    expect(trigger).toHaveBeenCalledTimes(1);
+    expect(restartIce).toHaveBeenCalledTimes(1);
   });
 
   it("ignores an ice-restart for a different call", () => {
-    const trigger = vi.fn();
-    useP2PCallStore.setState({ activeCall: makeCall({ id: "A", status: "active" }), _triggerIceRestart: trigger });
+    const { restartIce, engine } = engineWithRestart();
+    useP2PCallStore.setState({ activeCall: makeCall({ id: "A", status: "active" }), engine });
     void useP2PCallStore.getState().handleSignal({ call_id: "B", type: "ice-restart" });
-    expect(trigger).not.toHaveBeenCalled();
+    expect(restartIce).not.toHaveBeenCalled();
   });
 
-  it("is a no-op on the receiver (no recovery trigger set)", () => {
-    useP2PCallStore.setState({ activeCall: makeCall({ id: "A", status: "active" }), _triggerIceRestart: null });
+  it("is a no-op when there is no engine yet", () => {
+    useP2PCallStore.setState({ activeCall: makeCall({ id: "A", status: "active" }), engine: null });
     expect(() => void useP2PCallStore.getState().handleSignal({ call_id: "A", type: "ice-restart" })).not.toThrow();
   });
 });

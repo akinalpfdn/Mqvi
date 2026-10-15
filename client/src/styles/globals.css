@@ -472,6 +472,20 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .ch-tree-voice-user[draggable="true"] { cursor:grab;user-select:none; }
 .ch-tree-voice-user[draggable="true"]:active { cursor:grabbing; }
 .ch-tree-voice-user.vu-dragging { opacity:0.35; }
+
+/* Long press opens these rows' menus on iOS; the system's text selection and callout must not open
+   first. The inline rename field inside a row stays editable. */
+.ch-tree-server-header,.ch-tree-item,.ch-tree-cat-header,.ch-tree-voice-user {
+  -webkit-touch-callout:none;-webkit-user-select:none;user-select:none;
+}
+/* iPad lifts an image under a held finger for dragging, which takes the touch from the long press. */
+.ch-tree-server-header img,.ch-tree-item img,.ch-tree-cat-header img,.ch-tree-voice-user img { -webkit-user-drag:none; }
+/* The voice room's tiles open the same menu by long press. */
+.voice-participant,.voice-participant-compact {
+  -webkit-touch-callout:none;-webkit-user-select:none;user-select:none;
+}
+.voice-participant img,.voice-participant-compact img { -webkit-user-drag:none; }
+.ch-tree-inline-rename { -webkit-user-select:text;user-select:text; }
 /* Voice channel drop target highlight */
 .ch-tree-item.voice.voice-drop-target { background:color-mix(in srgb, var(--primary) 18%, transparent);box-shadow:inset 0 0 0 1.5px var(--primary);border-radius:5px; }
 
@@ -901,6 +915,9 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .msg-reply-author { font-weight:600;color:var(--t1);white-space:nowrap; }
 .msg-reply-content { color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .msg-reply-deleted { color:var(--t3);font-style:italic; }
+.msg-blocked-row { display:flex;align-items:center;gap:10px;padding:6px 16px;font-size:13px;color:var(--t3);font-style:italic; }
+.msg-blocked-row button { background:none;border:none;padding:0;font-size:13px;color:var(--t2);text-decoration:underline;cursor:pointer; }
+.msg-blocked-row button:hover { color:var(--t0); }
 
 /* Scroll-to highlight animation */
 .msg-highlight { background:var(--primary-s);transition:background 2s ease-out; }
@@ -2295,7 +2312,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
   padding:7px 12px;color:var(--t1);border-bottom:1px solid var(--b1);
   white-space:nowrap;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;
 }
-.admin-report-table tbody tr { transition:background .08s; }
+.admin-report-table tbody tr { transition:background .08s;cursor:pointer; }
 .admin-report-table tbody tr:hover td { background:var(--bg-h); }
 
 /* ── Description cell — truncated with ellipsis ── */
@@ -2367,6 +2384,23 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .admin-report-no-attach {
   color:var(--t3);font-size:14px;text-align:center;padding:24px 0;
 }
+
+/* ── Report detail modal ── */
+.admin-report-detail {
+  display:flex;flex-direction:column;gap:18px;max-height:70vh;overflow-y:auto;padding:4px 0;
+}
+.admin-report-detail-meta {
+  display:grid;grid-template-columns:max-content 1fr;gap:8px 16px;margin:0;font-size:14px;
+}
+.admin-report-detail-meta dt { color:var(--t2);font-weight:600; }
+.admin-report-detail-meta dd { margin:0;color:var(--t1);min-width:0;overflow-wrap:anywhere; }
+.admin-report-detail-label { margin:0 0 6px;font-size:13px;font-weight:600;color:var(--t2); }
+.admin-report-detail-text {
+  margin:0;font-size:14px;line-height:1.6;color:var(--t1);white-space:pre-wrap;overflow-wrap:anywhere;
+}
+.admin-report-detail-text.admin-report-text-muted { color:var(--t3); }
+.admin-report-detail-hint { margin:6px 0 0;font-size:13px;color:var(--t3); }
+.admin-report-detail-attachments { display:flex;flex-direction:column;gap:16px; }
 
 /* ── Platform Ban Dialog ── */
 .platform-ban-dialog { max-width:440px; }
@@ -2526,6 +2560,9 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .modal-title { font-size:18px;font-weight:700;color:var(--t0); }
 .modal-text { font-size:14px;color:var(--t2);margin-bottom:20px;line-height:1.5; }
 .modal-actions { display:flex;gap:8px;justify-content:flex-end; }
+.block-confirm-check { display:flex;align-items:flex-start;gap:10px;margin:-8px 0 20px;font-size:13px;color:var(--t1);cursor:pointer;line-height:1.5; }
+.block-confirm-check input[type="checkbox"] { margin-top:3px;width:16px;height:16px;flex-shrink:0;accent-color:var(--primary);cursor:pointer; }
+.block-confirm-hint { display:block;font-size:13px;color:var(--t3); }
 
 /* ═══════════════════════════════════════
    VOICE ROOM (LiveKit)
@@ -2985,6 +3022,8 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .report-textarea { width:100%;min-height:80px;padding:10px 12px;background:var(--input-bg);border:1px solid var(--input-border);border-radius:6px;color:var(--t0);font-size:16px;resize:vertical;outline:none;transition:border-color .15s; }
 .report-textarea::placeholder { color:var(--t3); }
 .report-textarea:focus { border-color:var(--primary); }
+.report-share-notice { margin:8px 0 0;font-size:13px;color:var(--t3);line-height:1.45; }
+.report-message-excerpt { margin:0;padding:10px 12px;background:var(--input-bg);border-left:3px solid var(--danger);border-radius:6px;color:var(--t1);font-size:14px;line-height:1.45;white-space:pre-wrap;word-break:break-word;max-height:120px;overflow-y:auto; }
 .report-actions { display:flex;gap:8px;justify-content:flex-end;margin-top:8px; }
 .report-btn { padding:8px 20px;border-radius:6px;font-size:14px;font-weight:500;cursor:pointer;border:none;transition:background .12s,opacity .12s; }
 .report-btn-cancel { background:transparent;color:var(--t1);border:1px solid var(--b2); }
@@ -3231,6 +3270,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .p2p-media-area { position:relative;flex:1;width:100%;min-height:0;display:flex;align-items:center;justify-content:center;border-radius:12px;overflow:hidden;background:var(--bg-1); }
 .p2p-avatar-large { display:flex;align-items:center;justify-content:center; }
 .p2p-remote-video { width:100%;height:100%;object-fit:contain;background:var(--bg-0); }
+.p2p-native-surface { position:absolute;inset:0;background:var(--bg-0); }
 .p2p-stream-overlay { position:absolute;inset:0;opacity:0;transition:opacity .2s;pointer-events:none;z-index:2; }
 .p2p-media-area:hover .p2p-stream-overlay { opacity:1; }
 /* Positioned by .media-controls, not by itself — see the flex stack. */
@@ -3241,7 +3281,9 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .p2p-local-video-wrap.dragging { cursor:grabbing;box-shadow:0 4px 20px rgba(0,0,0,.4); }
 .p2p-local-video-wrap.swappable { cursor:pointer; }
 .p2p-local-video-wrap.swappable.dragging { cursor:grabbing; }
-.p2p-local-video-wrap video { display:block;width:auto;height:120px;max-width:45vw;object-fit:contain;background:var(--bg-0);border-radius:8px;border:2px solid var(--b2); }
+/* --pip-aspect is set from the feed's own shape when the picture is drawn natively, where this
+   element carries no source to be measured. With a stream it stays auto: the video sizes itself. */
+.p2p-local-video-wrap video { display:block;width:auto;height:120px;max-width:45vw;aspect-ratio:var(--pip-aspect,auto);object-fit:contain;background:var(--bg-0);border-radius:8px;border:2px solid var(--b2); }
 @media (orientation:portrait) { .p2p-local-video-wrap video { height:160px; } }
 
 /* Duration */

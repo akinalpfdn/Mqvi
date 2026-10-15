@@ -37,6 +37,16 @@ type VoiceStatesProvider interface {
 // just tapped a push) still gets the incoming-call overlay.
 type IncomingCallProvider interface {
 	PendingIncomingCall(userID string) *models.P2PCallBroadcast
+	// ReleaseReplacedApp ends a call held by an app this device has since restarted, unless the
+	// new app still holds that call's native media (heldCallID) and is about to adopt it.
+	ReleaseReplacedApp(userID, instanceID, deviceID, heldCallID string)
+}
+
+// NativeDeviceChecker tells whether a device really is an app whose call media runs natively —
+// it has a VoIP push token registered. Without it, any client could claim `native_media` and hold
+// a call open on the server for hours after closing its socket.
+type NativeDeviceChecker interface {
+	HasVoIPToken(ctx context.Context, userID, deviceID string) bool
 }
 
 // UserInfoProvider fetches user profile from DB for Hub cache.
@@ -125,6 +135,7 @@ type Handler struct {
 	urlSigner            URLSigner
 	presencePeers        PresencePeerProvider
 	incomingCallProvider IncomingCallProvider
+	nativeDevices        NativeDeviceChecker
 
 	// Handshake rate limit. Nil means unlimited, which is what the tests and any caller that has
 	// not wired it get. The concurrent-socket cap lives on the hub — see SetConnectionLimits.
@@ -162,6 +173,21 @@ func (h *Handler) SetPresencePeerProvider(p PresencePeerProvider) {
 // incoming call on connect. Set post-construction to avoid a ws->services dependency.
 func (h *Handler) SetIncomingCallProvider(p IncomingCallProvider) {
 	h.incomingCallProvider = p
+}
+
+// nativeMediaClaim: the flag is the client's word, and it buys hours of server-side call state.
+// Believed only for a device that registered a VoIP token, unless nothing can check it.
+func nativeMediaClaim(ctx context.Context, claimed bool, userID, deviceID string, checker NativeDeviceChecker) bool {
+	if !claimed || checker == nil {
+		return claimed
+	}
+	return checker.HasVoIPToken(ctx, userID, deviceID)
+}
+
+// SetNativeDeviceChecker wires the check behind the `native_media` claim. Unset, the claim is
+// taken as it comes — a deployment with no push configured has nothing to check it against.
+func (h *Handler) SetNativeDeviceChecker(c NativeDeviceChecker) {
+	h.nativeDevices = c
 }
 
 func NewHandler(
@@ -309,6 +335,10 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	if len(deviceID) > 64 {
 		deviceID = ""
 	}
+	instanceID := r.URL.Query().Get("instance_id")
+	if len(instanceID) > 64 {
+		instanceID = ""
+	}
 
 	client := &Client{
 		hub:           h.hub,
@@ -316,6 +346,9 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		userID:        claims.UserID,
 		sessionID:     uuid.New().String(),
 		deviceID:      deviceID,
+		instanceID:    instanceID,
+		nativeMedia:   r.URL.Query().Get("native_media") == "1",
+		nativeDevices: h.nativeDevices,
 		send:          make(chan []byte, sendBufferSize),
 		events:        make(chan Event, eventQueueSize),
 		done:          make(chan struct{}),
@@ -460,6 +493,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	// Re-deliver a ringing incoming call so a receiver who connects after missing the
 	// live event (was offline / tapped a push notification) still sees the overlay.
 	if h.incomingCallProvider != nil {
+		h.incomingCallProvider.ReleaseReplacedApp(claims.UserID, instanceID, deviceID, r.URL.Query().Get("holds_call"))
 		if bc := h.incomingCallProvider.PendingIncomingCall(claims.UserID); bc != nil {
 			client.sendEvent(Event{Op: OpP2PCallInitiate, Data: bc})
 		}

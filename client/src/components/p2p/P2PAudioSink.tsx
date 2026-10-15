@@ -13,6 +13,9 @@ import { useP2PCallStore } from "../../stores/p2pCallStore";
 function P2PAudioSink() {
   const remoteStream = useP2PCallStore((s) => s.remoteStream);
   const remoteVolume = useP2PCallStore((s) => s.remoteVolume);
+  // Deafened plays nothing and keeps the volume setting for after.
+  const isDeafened = useP2PCallStore((s) => s.isDeafened);
+  const volume = isDeafened ? 0 : remoteVolume;
 
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -43,14 +46,14 @@ function P2PAudioSink() {
     const audioEl = audioRef.current;
     if (!audioEl) return;
 
-    if (!remoteStream || remoteVolume <= 100) {
+    if (!remoteStream || volume <= 100) {
       teardownGain();
       audioEl.muted = false;
-      audioEl.volume = remoteStream ? Math.max(0, remoteVolume) / 100 : 1;
+      audioEl.volume = remoteStream ? Math.max(0, volume) / 100 : 1;
       return;
     }
 
-    // remoteVolume > 100 — amplify via Web Audio; the <audio> stays muted so the gain graph is the
+    // volume > 100 — amplify via Web Audio; the <audio> stays muted so the gain graph is the
     // sole output (no doubled audio). On any Web Audio failure, fall back to the unmuted element at
     // full volume so audio is never lost.
     try {
@@ -69,7 +72,7 @@ function P2PAudioSink() {
         gainNodeRef.current = gain;
         sourceStreamRef.current = remoteStream;
       }
-      if (gainNodeRef.current) gainNodeRef.current.gain.value = remoteVolume / 100;
+      if (gainNodeRef.current) gainNodeRef.current.gain.value = volume / 100;
       audioEl.muted = true;
       audioEl.volume = 1;
       void ctx.resume();
@@ -79,7 +82,7 @@ function P2PAudioSink() {
       audioEl.muted = false;
       audioEl.volume = 1;
     }
-  }, [remoteStream, remoteVolume, teardownGain]);
+  }, [remoteStream, volume, teardownGain]);
 
   useEffect(() => () => teardownGain(), [teardownGain]);
 

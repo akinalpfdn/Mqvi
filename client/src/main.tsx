@@ -7,6 +7,8 @@ import App from "./App";
 import ErrorBoundary from "./components/shared/ErrorBoundary";
 import { isNativeApp } from "./utils/constants";
 import { configureMobileUI, initAppLifecycle } from "./utils/nativePlugins";
+import { discardOrphanedNativeCall, findAdoptableNativeCall } from "./native/nativeP2PCall";
+import { useP2PCallStore } from "./stores/p2pCallStore";
 import { initAppFocus } from "./utils/appFocus";
 
 // Native shells (Electron file://, Capacitor capacitor://) don't support HTML5 History API.
@@ -18,6 +20,21 @@ configureMobileUI();
 
 // Initialize app lifecycle listeners (background/foreground, back button) — no-op on web/Electron
 initAppLifecycle();
+
+// iOS: a reload leaves the native call plugin running whatever call the old page had — no-op
+// elsewhere. A call whose media is still alive (the page died, not the call) is taken over;
+// anything else is hung up.
+useP2PCallStore.setState({
+  _previousPageCallChecked: (async () => {
+    const adoptable = await findAdoptableNativeCall();
+    if (adoptable) {
+      useP2PCallStore.getState().holdAdoptableCall(adoptable);
+      return;
+    }
+    const orphan = await discardOrphanedNativeCall();
+    if (orphan) useP2PCallStore.getState().endOrphanedCall(orphan.callId, orphan.instanceId);
+  })(),
+});
 
 // "Is the user in front of the app?" — every platform. The DM read loop depends on it.
 initAppFocus();

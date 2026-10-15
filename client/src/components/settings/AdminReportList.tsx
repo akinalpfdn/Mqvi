@@ -11,7 +11,8 @@ import { useToastStore } from "../../stores/toastStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useDMStore } from "../../stores/dmStore";
 import { useUIStore } from "../../stores/uiStore";
-import { listAdminReports, updateReportStatus, platformBanUser, hardDeleteUser } from "../../api/admin";
+import { listAdminReports, updateReportStatus, platformBanUser, hardDeleteUser, deleteReportedMessage } from "../../api/admin";
+import { useConfirm } from "../../hooks/useConfirm";
 import { useSettingsBadgeStore } from "../../stores/settingsBadgeStore";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { useAttachmentViewer } from "../../hooks/useAttachmentViewer";
@@ -31,6 +32,7 @@ type SortKey =
   | "reported_username"
   | "reason"
   | "description"
+  | "message"
   | "attachments"
   | "created_at"
   | "status";
@@ -49,6 +51,7 @@ const COLUMNS: ColumnDef[] = [
   { key: "reported_username", labelKey: "platformReportReported", defaultWidth: 140, minWidth: 100, sortable: true, align: "left" },
   { key: "reason", labelKey: "platformReportReason", defaultWidth: 140, minWidth: 100, sortable: true, align: "left" },
   { key: "description", labelKey: "platformReportDescription", defaultWidth: 250, minWidth: 120, sortable: false, align: "left" },
+  { key: "message", labelKey: "platformReportMessage", defaultWidth: 220, minWidth: 120, sortable: false, align: "left" },
   { key: "attachments", labelKey: "platformReportFiles", defaultWidth: 70, minWidth: 55, sortable: true, align: "center" },
   { key: "created_at", labelKey: "platformReportDate", defaultWidth: 155, minWidth: 120, sortable: true, align: "left" },
   { key: "status", labelKey: "platformReportStatus", defaultWidth: 180, minWidth: 140, sortable: true, align: "left" },
@@ -123,11 +126,25 @@ const STATUS_KEY_MAP: Record<string, string> = {
   dismissed: "platformReportStatusDismissed",
 };
 
+function refersToMessage(report: AdminReportListItem): boolean {
+  return !!(report.message_id || report.dm_message_id || report.voice_message_id);
+}
+
+/** Who took the excerpt: the server from stored text, or the reporter for E2EE content. */
+function excerptHintKey(report: AdminReportListItem): string {
+  return report.excerpt_source === "server" ? "platformReportMessageHintServer" : "platformReportMessageHintClient";
+}
+
+function userLabel(displayName: string | null, username: string): string {
+  return displayName ? `${displayName} (@${username})` : `@${username}`;
+}
+
 // --- Component ---
 
 function AdminReportList() {
   const { t } = useTranslation("settings");
   const addToast = useToastStore((s) => s.addToast);
+  const confirm = useConfirm();
   const { menuState, openMenu, closeMenu } = useContextMenu();
   const openAttachment = useAttachmentViewer();
 
@@ -141,6 +158,9 @@ function AdminReportList() {
 
   // --- Attachment modal state ---
   const [attachModalReport, setAttachModalReport] = useState<AdminReportListItem | null>(null);
+
+  // --- Detail modal: an id, so it always shows the row as last fetched ---
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   // --- Table state ---
   const [searchQuery, setSearchQuery] = useState("");
@@ -194,12 +214,15 @@ function AdminReportList() {
         (r) =>
           r.reporter_username.toLowerCase().includes(q) ||
           r.reported_username.toLowerCase().includes(q) ||
-          r.description.toLowerCase().includes(q),
+          r.description.toLowerCase().includes(q) ||
+          (r.message_excerpt?.toLowerCase().includes(q) ?? false),
       );
     }
 
     return [...list].sort((a, b) => compareSortValue(a, b, sortKey, sortDir));
   }, [reports, searchQuery, sortKey, sortDir]);
+
+  const detailReport = detailId ? reports.find((r) => r.id === detailId) ?? null : null;
 
   // --- Sort handler ---
   function handleSort(key: SortKey) {
@@ -280,6 +303,15 @@ function AdminReportList() {
       onClick: () => handleSendDM(report.reported_user_id, report.reported_display_name ?? report.reported_username),
     });
 
+    if (refersToMessage(report)) {
+      items.push({
+        label: t("platformReportDeleteMessage"),
+        danger: true,
+        separator: true,
+        onClick: () => handleDeleteReportedMessage(report),
+      });
+    }
+
     items.push({
       label: t("platformReportBanReported"),
       danger: true,
@@ -294,6 +326,22 @@ function AdminReportList() {
     });
 
     return items;
+  }
+
+  async function handleDeleteReportedMessage(report: AdminReportListItem) {
+    const ok = await confirm({
+      message: t("platformReportDeleteMessageConfirm"),
+      confirmLabel: t("platformReportDeleteMessage"),
+      danger: true,
+    });
+    if (!ok) return;
+    const res = await deleteReportedMessage(report.id);
+    if (res.success) {
+      addToast("success", t("platformReportDeleteMessageSuccess"));
+      fetchReports();
+    } else {
+      addToast("error", t("platformReportDeleteMessageError"));
+    }
   }
 
   async function handleSendDM(userId: string, displayName: string) {
@@ -423,6 +471,35 @@ function AdminReportList() {
 
   // --- Status badge (for non-editable display, not used in table but useful for reference) ---
 
+  // --- Attachment items, shared by the attachment and detail modals ---
+  function renderAttachmentItems(attachments: AdminReportListItem["attachments"]) {
+    return attachments.map((att) => (
+      <div key={att.id} className="admin-report-attach-item">
+        {att.mime_type?.startsWith("image/") ? (
+          <img
+            src={resolveAssetUrl(att.file_url)}
+            alt={att.filename}
+            className="admin-report-attach-img"
+            onClick={() => openAttachment(att)}
+          />
+        ) : (
+          <a
+            href={resolveAssetUrl(att.file_url)}
+            rel="noopener noreferrer"
+            className="admin-report-attach-link"
+            onClick={(e) => openAttachment(att, e)}
+          >
+            {att.filename}
+          </a>
+        )}
+        <div className="admin-report-attach-info">
+          <span>{att.filename}</span>
+          {att.file_size !== null && <span>{formatFileSize(att.file_size)}</span>}
+        </div>
+      </div>
+    ));
+  }
+
   // --- Render cell ---
   function renderCell(report: AdminReportListItem, colKey: SortKey) {
     switch (colKey) {
@@ -449,6 +526,21 @@ function AdminReportList() {
             {report.description}
           </span>
         );
+
+      case "message": {
+        if (!refersToMessage(report)) {
+          return <span className="admin-report-text-muted">{"\u2014"}</span>;
+        }
+        const excerpt = report.message_excerpt ?? "";
+        return (
+          <span
+            className="admin-report-desc-cell"
+            title={`${excerpt}\n\n${t(excerptHintKey(report))}`}
+          >
+            {excerpt || <span className="admin-report-text-muted">{t("platformReportMessageNoText")}</span>}
+          </span>
+        );
+      }
 
       case "attachments": {
         const count = report.attachments.length;
@@ -479,7 +571,8 @@ function AdminReportList() {
           : report.status;
 
         return (
-          <div className="admin-report-status-cell">
+          // Editing the status must not also open the row's details.
+          <div className="admin-report-status-cell" onClick={(e) => e.stopPropagation()}>
             <select
               className="admin-report-status-select"
               value={currentStatus}
@@ -600,6 +693,12 @@ function AdminReportList() {
               {filteredReports.map((report) => (
                 <tr
                   key={report.id}
+                  tabIndex={0}
+                  onClick={() => setDetailId(report.id)}
+                  onKeyDown={(e) => {
+                    // Only the row itself: Enter on the status select inside it is the select's.
+                    if (e.key === "Enter" && e.target === e.currentTarget) setDetailId(report.id);
+                  }}
                   onContextMenu={(e) => {
                     const items = buildContextItems(report);
                     if (items.length > 0) openMenu(e, items);
@@ -650,34 +749,62 @@ function AdminReportList() {
       >
         {attachModalReport && attachModalReport.attachments.length > 0 ? (
           <div className="admin-report-attach-modal">
-            {attachModalReport.attachments.map((att) => (
-              <div key={att.id} className="admin-report-attach-item">
-                {att.mime_type?.startsWith("image/") ? (
-                  <img
-                    src={resolveAssetUrl(att.file_url)}
-                    alt={att.filename}
-                    className="admin-report-attach-img"
-                    onClick={() => openAttachment(att)}
-                  />
-                ) : (
-                  <a
-                    href={resolveAssetUrl(att.file_url)}
-                    rel="noopener noreferrer"
-                    className="admin-report-attach-link"
-                    onClick={(e) => openAttachment(att, e)}
-                  >
-                    {att.filename}
-                  </a>
-                )}
-                <div className="admin-report-attach-info">
-                  <span>{att.filename}</span>
-                  {att.file_size !== null && <span>{formatFileSize(att.file_size)}</span>}
-                </div>
-              </div>
-            ))}
+            {renderAttachmentItems(attachModalReport.attachments)}
           </div>
         ) : (
           <p className="admin-report-no-attach">{t("platformReportNoAttachments")}</p>
+        )}
+      </Modal>
+
+      {/* Detail Modal — the full text the table can only truncate */}
+      <Modal
+        isOpen={!!detailReport}
+        onClose={() => setDetailId(null)}
+        title={t("platformReportDetails")}
+      >
+        {detailReport && (
+          <div className="admin-report-detail">
+            <dl className="admin-report-detail-meta">
+              <dt>{t("platformReportReporter")}</dt>
+              <dd>{userLabel(detailReport.reporter_display_name, detailReport.reporter_username)}</dd>
+              <dt>{t("platformReportReported")}</dt>
+              <dd>{userLabel(detailReport.reported_display_name, detailReport.reported_username)}</dd>
+              <dt>{t("platformReportReason")}</dt>
+              <dd>{reasonBadge(detailReport.reason)}</dd>
+              <dt>{t("platformReportDate")}</dt>
+              <dd>{formatDateTime(detailReport.created_at)}</dd>
+              <dt>{t("platformReportStatus")}</dt>
+              <dd>{t(STATUS_KEY_MAP[detailReport.status] ?? detailReport.status)}</dd>
+            </dl>
+
+            <section>
+              <h4 className="admin-report-detail-label">{t("platformReportDescription")}</h4>
+              <p className="admin-report-detail-text">{detailReport.description}</p>
+            </section>
+
+            {refersToMessage(detailReport) && (
+              <section>
+                <h4 className="admin-report-detail-label">{t("platformReportMessage")}</h4>
+                {detailReport.message_excerpt ? (
+                  <p className="admin-report-detail-text">{detailReport.message_excerpt}</p>
+                ) : (
+                  <p className="admin-report-detail-text admin-report-text-muted">
+                    {t("platformReportMessageNoText")}
+                  </p>
+                )}
+                <p className="admin-report-detail-hint">{t(excerptHintKey(detailReport))}</p>
+              </section>
+            )}
+
+            {detailReport.attachments.length > 0 && (
+              <section>
+                <h4 className="admin-report-detail-label">{t("platformReportFiles")}</h4>
+                <div className="admin-report-detail-attachments">
+                  {renderAttachmentItems(detailReport.attachments)}
+                </div>
+              </section>
+            )}
+          </div>
         )}
       </Modal>
     </div>

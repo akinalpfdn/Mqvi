@@ -26,13 +26,14 @@ import {
   WS_HEARTBEAT_PROBE_INTERVAL,
   WS_HEARTBEAT_MAX_MISS,
   WS_MAX_RECONNECT_ATTEMPTS,
+  getCapacitorPlatform,
 } from "../utils/constants";
 import type { WSMessage, UserStatus } from "../types";
 import { handleChannelEvent } from "./ws/channelEventHandlers";
 import { handleDMEvent } from "./ws/dmEventHandlers";
 import { handleVoiceEvent } from "./ws/voiceEventHandlers";
 import { handleSystemEvent } from "./ws/systemEventHandlers";
-import { getDeviceId } from "../utils/deviceId";
+import { getDeviceId, INSTANCE_ID } from "../utils/deviceId";
 import type { WSHandlerContext } from "./ws/types";
 
 /**
@@ -54,6 +55,38 @@ const ONLINE_RECONNECT_MIN_INTERVAL = 5_000;
 
 /** Typing throttle (ms) — prevents flooding same channel */
 const TYPING_THROTTLE = 3_000;
+
+/** Call teardown ops kept until the server confirms them (see sendWS). */
+const QUEUED_CALL_OPS = new Set(["p2p_call_decline", "p2p_call_end"]);
+/**
+ * As long as the server holds an iOS call whose app is away. A replay can only end the call it
+ * names, so erring long costs a rejected op; erring short leaves both users busy.
+ */
+const QUEUED_CALL_OP_TTL = 4 * 60 * 60 * 1000;
+const MAX_QUEUED_CALL_OPS = 8;
+const PREVIOUS_CALL_CHECK_WAIT_MS = 2_000;
+
+type QueuedCallOp = { op: string; data: { call_id: string }; at: number };
+
+function namedCallId(data: unknown): string | null {
+  const id = (data as { call_id?: unknown } | undefined)?.call_id;
+  return typeof id === "string" && id !== "" ? id : null;
+}
+
+/**
+ * A kept teardown is done once the server reports its call ended, or held by another app (this
+ * app's end was refused, and there is nothing left for it to end).
+ */
+function settleCallOps(queue: QueuedCallOp[], msg: WSMessage): QueuedCallOp[] {
+  if (msg.op !== "p2p_call_end" && msg.op !== "p2p_call_decline" && msg.op !== "p2p_call_accept") return queue;
+  const data = msg.d as { call_id?: string; accepted_by_instance?: string } | undefined;
+  const callId = namedCallId(data);
+  if (!callId) return queue;
+  if (msg.op === "p2p_call_accept" && (!data?.accepted_by_instance || data.accepted_by_instance === INSTANCE_ID)) {
+    return queue;
+  }
+  return queue.filter((item) => item.data.call_id !== callId);
+}
 
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null);
@@ -268,9 +301,13 @@ export function useWebSocket() {
     []
   );
 
+  const pendingCallOpsRef = useRef<QueuedCallOp[]>([]);
+
   /**
-   * sendWS — Generic WS sender, used by P2P call store.
-   * Single function instead of per-event helpers since store knows its own op codes.
+   * Sender for the call store. A call teardown is kept and replayed on every open until the
+   * server confirms it: a page back from suspension can hold an OPEN socket that is dead, and a
+   * hang-up written into it is lost. Only teardowns naming their call are kept (a replay can end
+   * nothing else); a replayed initiate or accept would act on a call long gone.
    */
   const sendWS = useCallback((op: string, data?: unknown) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -278,6 +315,11 @@ export function useWebSocket() {
         JSON.stringify({ op, d: data })
       );
     }
+    const callId = QUEUED_CALL_OPS.has(op) ? namedCallId(data) : null;
+    if (!callId) return;
+    const queue = pendingCallOpsRef.current.filter((item) => item.op !== op || item.data.call_id !== callId);
+    queue.push({ op, data: data as QueuedCallOp["data"], at: Date.now() });
+    pendingCallOpsRef.current = queue.slice(-MAX_QUEUED_CALL_OPS);
   }, []);
 
   // Register WS sender in P2P call store
@@ -368,6 +410,14 @@ export function useWebSocket() {
         return;
       }
 
+      // The URL says whether this page holds the previous page's call, so that must be known.
+      // Bounded: a native call that never answers must not keep the app offline.
+      await Promise.race([
+        useP2PCallStore.getState()._previousPageCallChecked.catch(() => {}),
+        new Promise<void>((resolve) => setTimeout(resolve, PREVIOUS_CALL_CHECK_WAIT_MS)),
+      ]);
+      if (activeConnectionIdRef.current !== myId) return;
+
       cleanupTimers();
       if (wsRef.current) {
         wsRef.current.close();
@@ -377,9 +427,15 @@ export function useWebSocket() {
       let socket: WebSocket;
       try {
         // device_id lets the server address ONE of the user's devices — so it can skip the one
-        // that just answered a call when it tells the rest to stop ringing.
+        // that just answered a call when it tells the rest to stop ringing. instance_id lets only
+        // this app take its call back after a reconnect.
+        const heldCall = useP2PCallStore.getState()._adoptCandidate?.callId;
         socket = new WebSocket(
-          `${WS_URL}?token=${token}&device_id=${encodeURIComponent(getDeviceId())}`,
+          `${WS_URL}?token=${token}&device_id=${encodeURIComponent(getDeviceId())}&instance_id=${INSTANCE_ID}` +
+            // iOS call media is native and outlives this page's suspension in the background.
+            (getCapacitorPlatform() === "ios" ? "&native_media=1" : "") +
+            // A call the previous page left running, which this page is about to take over.
+            (heldCall ? `&holds_call=${encodeURIComponent(heldCall)}` : ""),
         );
       } catch (err) {
         // A malformed WS_URL throws synchronously. Without this the hook would sit on
@@ -400,6 +456,13 @@ export function useWebSocket() {
         heartbeatProbingRef.current = false;
 
         startHeartbeat(WS_HEARTBEAT_INTERVAL);
+
+        // Replay every call teardown the server has not confirmed; see sendWS.
+        const live = pendingCallOpsRef.current.filter((item) => Date.now() - item.at <= QUEUED_CALL_OP_TTL);
+        pendingCallOpsRef.current = live;
+        for (const item of live) {
+          socket.send(JSON.stringify({ op: item.op, d: item.data }));
+        }
 
         // Proactive token refresh every 10min while WS is open.
         // Access token expires at 15min — 10min gives 5min buffer.
@@ -440,6 +503,7 @@ export function useWebSocket() {
           return;
         }
 
+        pendingCallOpsRef.current = settleCallOps(pendingCallOpsRef.current, msg);
         // Route via ref for closure freshness
         routeEventRef.current(msg);
       };

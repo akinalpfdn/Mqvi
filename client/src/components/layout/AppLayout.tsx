@@ -28,6 +28,7 @@ import SettingsModal from "../settings/SettingsModal";
 import VoiceProvider from "../voice/VoiceProvider";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import { useVoice } from "../../hooks/useVoice";
+import { useToggleActiveDeafen, useToggleActiveMute } from "../../hooks/useActiveAudio";
 import { useVoiceSuspensionBlocker } from "../../hooks/useVoiceSuspensionBlocker";
 import { useIdleDetection } from "../../hooks/useIdleDetection";
 import { useVoiceActivityReporter } from "../../hooks/useVoiceActivityReporter";
@@ -54,6 +55,7 @@ import { useMemberStore } from "../../stores/memberStore";
 import { useRoleStore } from "../../stores/roleStore";
 import { useUIStore, type TabServerInfo } from "../../stores/uiStore";
 import { useVoiceStore } from "../../stores/voiceStore";
+import { registerVoiceLeave } from "../../stores/shared/voiceControl";
 import { useMessageStore } from "../../stores/messageStore";
 import { useReadStateStore } from "../../stores/readStateStore";
 import { useInviteStore } from "../../stores/inviteStore";
@@ -214,11 +216,15 @@ function AppLayout() {
     }
   }, [selectedChannelId]);
 
-  const { joinVoice, leaveVoice, toggleMute, toggleDeafen, toggleScreenShare } = useVoice({
+  const { joinVoice, leaveVoice, toggleMute: toggleVoiceMute, toggleDeafen: toggleVoiceDeafen, toggleScreenShare } = useVoice({
     sendVoiceJoin,
     sendVoiceLeave,
     sendVoiceStateUpdate,
   });
+  // Every mute and deafen control below (user bar, shortcuts, /mute, /deafen) acts on the live
+  // audio: a call's too.
+  const toggleMute = useToggleActiveMute(toggleVoiceMute);
+  const toggleDeafen = useToggleActiveDeafen(toggleVoiceDeafen);
 
   // Hold off OS app suspension for as long as the user is in a call (Electron only).
   useVoiceSuspensionBlocker();
@@ -234,8 +240,13 @@ function AppLayout() {
   // Register leaveVoice so uiStore.closeTab can trigger voice disconnect
   useEffect(() => {
     useVoiceStore.getState().registerOnLeave(leaveVoice);
+    // A starting call needs the audio session channel voice is holding.
+    registerVoiceLeave(() => {
+      if (useVoiceStore.getState().currentVoiceChannelId) leaveVoice();
+    });
     return () => {
       useVoiceStore.getState().registerOnLeave(null);
+      registerVoiceLeave(null);
     };
   }, [leaveVoice]);
 

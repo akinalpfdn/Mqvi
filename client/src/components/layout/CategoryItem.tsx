@@ -1,5 +1,6 @@
 import type { ReactNode, RefObject } from "react";
 import { useTranslation } from "react-i18next";
+import { useLongPressContextMenu } from "../../hooks/useLongPressContextMenu";
 
 type CategoryItemProps = {
   category: { id: string; name: string };
@@ -63,6 +64,8 @@ function CategoryItem({
   children,
 }: CategoryItemProps) {
   const { t: tCh } = useTranslation("channels");
+  // iOS has no right click and never turns a long press into one.
+  const longPressMenu = useLongPressContextMenu();
 
   return (
     <div className="ch-tree-category">
@@ -88,6 +91,7 @@ function CategoryItem({
             className="ch-tree-cat-header"
             onClick={onToggle}
             onContextMenu={onContextMenu}
+            {...longPressMenu}
           >
             <Chevron expanded={expanded} />
             {isRenaming ? (

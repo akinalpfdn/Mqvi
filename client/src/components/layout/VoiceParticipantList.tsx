@@ -4,6 +4,7 @@ import { useAuthStore } from "../../stores/authStore";
 import { useSoundboardStore } from "../../stores/soundboardStore";
 import { useUIStore, type TabServerInfo } from "../../stores/uiStore";
 import Avatar from "../shared/Avatar";
+import { useLongPressContextMenu } from "../../hooks/useLongPressContextMenu";
 import type { VoiceState, User } from "../../types";
 
 type VoiceParticipantListProps = {
@@ -46,6 +47,8 @@ function VoiceParticipantList({
   const screenShareViewers = useVoiceStore((s) => s.screenShareViewers);
   const toggleWatchScreenShare = useVoiceStore((s) => s.toggleWatchScreenShare);
   const currentVoiceChannelId = useVoiceStore((s) => s.currentVoiceChannelId);
+  // iOS has no right click and never turns a long press into one.
+  const longPressMenu = useLongPressContextMenu();
   const playingSound = useSoundboardStore((s) => s.playingSound);
   const openTab = useUIStore((s) => s.openTab);
 
@@ -71,6 +74,7 @@ function VoiceParticipantList({
             onDragStart={(e) => onDragStart(e, p.user_id, channelId)}
             onDragEnd={onDragEnd}
             title={(isMe || canMoveMembers) ? tVoice("dragToMove") : undefined}
+            {...longPressMenu}
             onContextMenu={(e) => {
               if (isMe) return;
               e.preventDefault();

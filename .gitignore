@@ -148,6 +148,12 @@ CLAUDE.md
 DECISIONS.md
 
 # ========================
+# Codex instructions and working knowledge (private, synced manually)
+# ========================
+/AGENTS.md
+/codex/
+
+# ========================
 # Store listing (private ASO strategy)
 # ========================
 STORE-LISTING.md

@@ -17,6 +17,9 @@ func (s *dmService) ToggleReaction(ctx context.Context, userID, messageID, emoji
 	if err != nil {
 		return err
 	}
+	if err := s.rejectIfBlockedInChannel(ctx, userID, channel); err != nil {
+		return err
+	}
 
 	_, err = s.dmRepo.ToggleReaction(ctx, messageID, userID, emoji)
 	if err != nil {
@@ -47,6 +50,9 @@ func (s *dmService) PinMessage(ctx context.Context, userID, messageID string) er
 	if err != nil {
 		return err
 	}
+	if err := s.rejectIfBlockedInChannel(ctx, userID, channel); err != nil {
+		return err
+	}
 
 	if err := s.dmRepo.PinMessage(ctx, messageID); err != nil {
 		return fmt.Errorf("failed to pin DM message: %w", err)
@@ -75,6 +81,9 @@ func (s *dmService) PinMessage(ctx context.Context, userID, messageID string) er
 func (s *dmService) UnpinMessage(ctx context.Context, userID, messageID string) error {
 	msg, channel, err := s.verifyMessageAccess(ctx, userID, messageID)
 	if err != nil {
+		return err
+	}
+	if err := s.rejectIfBlockedInChannel(ctx, userID, channel); err != nil {
 		return err
 	}
 

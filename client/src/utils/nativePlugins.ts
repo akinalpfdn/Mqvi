@@ -9,6 +9,7 @@ import { StatusBar, Style } from "@capacitor/status-bar";
 import { isCapacitor, getCapacitorPlatform } from "./constants";
 import { handleBack } from "./backStack";
 import { initKeyboardScroll } from "./keyboardScroll";
+import type { RemoteAudioGains } from "./remoteAudioGain";
 import { ensureFreshToken } from "../api/client";
 
 // ─── VoiceCallService Plugin ───
@@ -167,8 +168,11 @@ interface NativeVoicePluginInterface {
   disconnect(): Promise<{ disconnected: boolean }>;
   setMicEnabled(opts: { enabled: boolean }): Promise<{ micEnabled: boolean }>;
   setDeafened(opts: { deafened: boolean }): Promise<{ deafened: boolean }>;
+  setRemoteVolumes(opts: RemoteAudioGains): Promise<void>;
   isConnected(): Promise<{ connected: boolean }>;
   addListener(event: "nativeVoiceDisconnected", handler: (data: { error: string }) => void): Promise<{ remove: () => void }>;
+  /** Everyone speaking now, this device included; sent whole on every change. */
+  addListener(event: "nativeVoiceActiveSpeakers", handler: (data: { userIds: string[] }) => void): Promise<{ remove: () => void }>;
 }
 
 const NativeVoice = registerPlugin<NativeVoicePluginInterface>("NativeVoice");
@@ -185,10 +189,23 @@ export async function nativeVoiceConnect(url: string, token: string, isMuted: bo
   return result.connected;
 }
 
+/** The native voice disconnect in flight, if any; settles whether it succeeds or not. */
+let voiceReleased: Promise<void> = Promise.resolve();
+
 /** Disconnect native voice. */
 export async function nativeVoiceDisconnect(): Promise<void> {
   if (!useNativeVoice()) return;
-  await NativeVoice.disconnect();
+  const done = NativeVoice.disconnect();
+  voiceReleased = done.then(
+    () => undefined,
+    () => undefined,
+  );
+  await done;
+}
+
+/** Settles when a native voice disconnect in flight is done: LiveKit lets go of the session late. */
+export function nativeVoiceReleased(): Promise<void> {
+  return voiceReleased;
 }
 
 /** Set mic enabled/disabled on native voice. */
@@ -197,10 +214,23 @@ export async function nativeVoiceSetMic(enabled: boolean): Promise<void> {
   await NativeVoice.setMicEnabled({ enabled });
 }
 
+/** Everyone's playout volume in the native room: the numbers VoiceStateManager gives the page's room. */
+export async function nativeVoiceSetRemoteVolumes(gains: RemoteAudioGains): Promise<void> {
+  if (!useNativeVoice()) return;
+  await NativeVoice.setRemoteVolumes(gains);
+}
+
 /** Set deafened state on native voice. */
 export async function nativeVoiceSetDeafened(deafened: boolean): Promise<void> {
   if (!useNativeVoice()) return;
   await NativeVoice.setDeafened({ deafened });
+}
+
+/** Listen for who is speaking in the native room: the page has no LiveKit room of its own on iOS. */
+export async function onNativeVoiceActiveSpeakers(handler: (userIds: string[]) => void): Promise<() => void> {
+  if (!useNativeVoice()) return () => {};
+  const listener = await NativeVoice.addListener("nativeVoiceActiveSpeakers", (data) => handler(data.userIds));
+  return () => listener.remove();
 }
 
 /** Listen for unexpected native voice disconnect. */

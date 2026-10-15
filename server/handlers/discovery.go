@@ -32,6 +32,8 @@ type DiscoveryHandler struct {
 	urlSigner        services.FileURLSigner
 	maxUploadSize    int64
 	limiter          *ratelimit.MessageRateLimiter
+	// Reports email every platform admin; they get their own, much smaller budget.
+	reportLimiter *ratelimit.MessageRateLimiter
 }
 
 func NewDiscoveryHandler(
@@ -43,6 +45,7 @@ func NewDiscoveryHandler(
 	urlSigner services.FileURLSigner,
 	maxUploadSize int64,
 	limiter *ratelimit.MessageRateLimiter,
+	reportLimiter *ratelimit.MessageRateLimiter,
 ) *DiscoveryHandler {
 	return &DiscoveryHandler{
 		discoveryService: discoveryService,
@@ -53,13 +56,14 @@ func NewDiscoveryHandler(
 		urlSigner:        urlSigner,
 		maxUploadSize:    maxUploadSize,
 		limiter:          limiter,
+		reportLimiter:    reportLimiter,
 	}
 }
 
 // rateLimited writes a 429 (with Retry-After) and returns true when the user is over budget.
-func (h *DiscoveryHandler) rateLimited(w http.ResponseWriter, userID string) bool {
-	if h.limiter != nil && !h.limiter.Allow(userID) {
-		w.Header().Set("Retry-After", fmt.Sprintf("%d", h.limiter.CooldownSeconds(userID)))
+func (h *DiscoveryHandler) rateLimited(w http.ResponseWriter, limiter *ratelimit.MessageRateLimiter, userID string) bool {
+	if limiter != nil && !limiter.Allow(userID) {
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", limiter.CooldownSeconds(userID)))
 		pkg.ErrorWithMessage(w, http.StatusTooManyRequests, "too many requests, slow down")
 		return true
 	}
@@ -73,7 +77,7 @@ func (h *DiscoveryHandler) ListPublicServers(w http.ResponseWriter, r *http.Requ
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
-	if h.rateLimited(w, user.ID) {
+	if h.rateLimited(w, h.limiter, user.ID) {
 		return
 	}
 
@@ -132,7 +136,7 @@ func (h *DiscoveryHandler) JoinPublicServer(w http.ResponseWriter, r *http.Reque
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
-	if h.rateLimited(w, user.ID) {
+	if h.rateLimited(w, h.limiter, user.ID) {
 		return
 	}
 	serverID := r.PathValue("id")
@@ -162,9 +166,16 @@ func (h *DiscoveryHandler) ReportServer(w http.ResponseWriter, r *http.Request) 
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
-	if h.rateLimited(w, user.ID) {
+	if h.rateLimited(w, h.reportLimiter, user.ID) {
 		return
 	}
+	// Only a report actually filed counts; an invalid or duplicate one gives its slot back.
+	filed := false
+	defer func() {
+		if h.reportLimiter != nil && !filed {
+			h.reportLimiter.Refund(user.ID)
+		}
+	}()
 	serverID := r.PathValue("id")
 	if serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server id is required")
@@ -197,6 +208,7 @@ func (h *DiscoveryHandler) ReportServer(w http.ResponseWriter, r *http.Request) 
 		pkg.Error(w, err)
 		return
 	}
+	filed = true
 
 	// Evidence uploads are optional and best-effort — a failed upload never blocks the report.
 	if isMultipart(contentType) && r.MultipartForm != nil {

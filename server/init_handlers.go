@@ -49,6 +49,7 @@ type Handlers struct {
 	LiveKitWebhook    *handlers.LiveKitWebhookHandler
 	VoiceMessage      *handlers.VoiceMessageHandler
 	ICEServer         *handlers.ICEServerHandler
+	P2PHangup         *handlers.P2PHangupHandler
 	PushToken         *handlers.PushTokenHandler
 	Discovery         *handlers.DiscoveryHandler
 	AssetLinks        *handlers.AssetLinksHandler
@@ -67,7 +68,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Role:              handlers.NewRoleHandler(svcs.Role),
 		Voice:             handlers.NewVoiceHandler(svcs.Voice, urlSigner, limiters.ScreenShare, limiters.NoiseReduction),
 		Server:            handlers.NewServerHandler(svcs.Server),
-		Discovery:         handlers.NewDiscoveryHandler(svcs.Discovery, svcs.Server, svcs.Report, svcs.ServerReportUpload, svcs.Storage, urlSigner, cfg.Upload.MaxSize, limiters.Discovery),
+		Discovery:         handlers.NewDiscoveryHandler(svcs.Discovery, svcs.Server, svcs.Report, svcs.ServerReportUpload, svcs.Storage, urlSigner, cfg.Upload.MaxSize, limiters.Discovery, limiters.Report),
 		Invite:            handlers.NewInviteHandler(svcs.Invite),
 		Pin:               handlers.NewPinHandler(svcs.Pin),
 		Search:            handlers.NewSearchHandler(svcs.Search),
@@ -78,12 +79,12 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Friendship:        handlers.NewFriendshipHandler(svcs.Friendship),
 		Avatar:            handlers.NewAvatarHandler(repos.User, svcs.Member, svcs.Server, fileLocator, svcs.UploadPipeline, urlSigner),
 		Stats:             handlers.NewStatsHandler(repos.User),
-		Admin:             handlers.NewAdminHandler(svcs.LiveKitAdmin, svcs.MetricsHistory, svcs.AdminUser, svcs.AdminServer, svcs.Report, svcs.AppLog, svcs.SettingsBadge, svcs.Voice),
+		Admin:             handlers.NewAdminHandler(svcs.LiveKitAdmin, svcs.MetricsHistory, svcs.AdminUser, svcs.AdminServer, svcs.Report, svcs.ReportModeration, svcs.AppLog, svcs.SettingsBadge, svcs.Voice),
 		ServerMute:        handlers.NewServerMuteHandler(svcs.ServerMute),
 		ChannelMute:       handlers.NewChannelMuteHandler(svcs.ChannelMute),
 		DMSettings:        handlers.NewDMSettingsHandler(svcs.DMSettings),
 		Block:             handlers.NewBlockHandler(svcs.Block),
-		Report:            handlers.NewReportHandler(svcs.Report, svcs.ReportUpload, svcs.Storage, cfg.Upload.MaxSize, urlSigner),
+		Report:            handlers.NewReportHandler(svcs.Report, svcs.ReportUpload, svcs.Storage, cfg.Upload.MaxSize, limiters.Report, urlSigner),
 		Gif:               handlers.NewGifHandler(cfg.Klipy.APIKey),
 		AssetLinks:        handlers.NewAssetLinksHandler(cfg.AppLinks.AndroidPackage, cfg.AppLinks.AndroidFingerprints),
 		AASA:              handlers.NewAASAHandler(cfg.AppLinks.IOSAppID),
@@ -99,11 +100,14 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		LiveKitWebhook:    handlers.NewLiveKitWebhookHandler(repos.LiveKit, encryptionKey, svcs.AppLog, svcs.Voice),
 		VoiceMessage:      handlers.NewVoiceMessageHandler(svcs.VoiceMessage, svcs.UploadPipeline, urlSigner, limiters.Message, cfg.Upload.MaxSize),
 		ICEServer:         handlers.NewICEServerHandler(svcs.TURN, svcs.P2PCall, limiters.ICE),
+		P2PHangup:         handlers.NewP2PHangupHandler(svcs.P2PCall, limiters.Hangup),
 		PushToken:         handlers.NewPushTokenHandler(svcs.PushToken),
 		WS:                ws.NewHandler(hub, svcs.Auth, nil, svcs.Voice, repos.User, repos.Server, svcs.ServerMute, svcs.ChannelMute, urlSigner),
 	}
 	// Re-deliver a ringing incoming call to a receiver on (re)connect (offline/push tap).
 	h.WS.SetIncomingCallProvider(svcs.P2PCall)
+	// A connection claiming native call media is believed only if this device registered a VoIP token.
+	h.WS.SetNativeDeviceChecker(svcs.PushToken)
 	// Friends and DM partners get presence even with no server in common — see PHASE-56.
 	h.WS.SetPresencePeerProvider(repos.Friendship)
 	// Bound what one account can cost at the WS door: concurrent sockets, and handshake rate.

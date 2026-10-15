@@ -10,12 +10,17 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
+// dmTypingRouter decides who sees a DM typing indicator.
+type dmTypingRouter interface {
+	TypingRecipient(ctx context.Context, senderUserID, channelID string) (string, error)
+}
+
 // registerHubCallbacks wires Hub events to service layer logic.
 // Callbacks run in separate goroutines (launched by Hub) to avoid mutex deadlock.
 func registerHubCallbacks(
 	hub *ws.Hub,
 	userRepo repository.UserRepository,
-	dmRepo repository.DMRepository,
+	dmTyping dmTypingRouter,
 	voiceService services.VoiceService,
 	p2pCallService services.P2PCallService,
 	channelRepo repository.ChannelRepository,
@@ -89,8 +94,8 @@ func registerHubCallbacks(
 	// connection: if the socket carrying it dies while another device of the same user stays
 	// signed in, the last-disconnect hook never fires, and an accepted call has no ring timer to
 	// clean it up — so both parties stay "already in a call" until the server restarts.
-	hub.OnSessionDisconnect(func(userID, sessionID string) {
-		p2pCallService.HandleSessionDisconnect(userID, sessionID)
+	hub.OnSessionDisconnect(func(userID, sessionID string, nativeMedia bool) {
+		p2pCallService.HandleSessionDisconnect(userID, sessionID, nativeMedia)
 	})
 
 	hub.OnPresenceManualUpdate(func(userID string, status string, isAuto bool) {
@@ -185,30 +190,37 @@ func registerHubCallbacks(
 
 	// ─── P2P Call Callbacks ───
 
-	hub.OnP2PCallInitiate(func(callerID, sessionID string, data ws.P2PCallInitiateData) {
+	hub.OnP2PCallInitiate(func(callerID, sessionID, instanceID, deviceID string, data ws.P2PCallInitiateData) string {
 		callType := models.P2PCallType(data.CallType)
-		if err := p2pCallService.InitiateCall(callerID, sessionID, data.ReceiverID, callType); err != nil {
+		err := p2pCallService.InitiateCall(callerID, sessionID, instanceID, deviceID, data.ReceiverID, callType)
+		if err != nil {
 			log.Printf("[p2p] initiate error caller=%s receiver=%s: %v", callerID, data.ReceiverID, err)
 		}
+		return services.CallRefusal(err)
 	})
-	hub.OnP2PCallAccept(func(userID, sessionID, deviceID string, data ws.P2PCallAcceptData) {
-		if err := p2pCallService.AcceptCall(userID, sessionID, deviceID, data.CallID); err != nil {
+	hub.OnP2PCallAccept(func(userID, sessionID, instanceID, deviceID string, data ws.P2PCallAcceptData) {
+		if err := p2pCallService.AcceptCall(userID, sessionID, instanceID, deviceID, data.CallID); err != nil {
 			log.Printf("[p2p] accept error user=%s call=%s: %v", userID, data.CallID, err)
 		}
 	})
-	hub.OnP2PCallDecline(func(userID, deviceID string, data ws.P2PCallDeclineData) {
-		if err := p2pCallService.DeclineCall(userID, deviceID, data.CallID); err != nil {
+	hub.OnP2PCallDecline(func(userID, instanceID, deviceID string, data ws.P2PCallDeclineData) {
+		if err := p2pCallService.DeclineCall(userID, instanceID, deviceID, data.CallID); err != nil {
 			log.Printf("[p2p] decline error user=%s call=%s: %v", userID, data.CallID, err)
 		}
 	})
-	hub.OnP2PCallEnd(func(userID, deviceID, callID string) {
-		if err := p2pCallService.EndCall(userID, deviceID, callID); err != nil {
+	hub.OnP2PCallEnd(func(userID, instanceID, deviceID, callID string) {
+		if err := p2pCallService.EndCall(userID, instanceID, deviceID, callID); err != nil {
 			log.Printf("[p2p] end error user=%s: %v", userID, err)
 		}
 	})
-	hub.OnP2PCallResume(func(userID, sessionID, callID string) {
-		if err := p2pCallService.ResumeCall(userID, sessionID, callID); err != nil {
+	hub.OnP2PCallResume(func(userID, sessionID, instanceID, callID string) {
+		if err := p2pCallService.ResumeCall(userID, sessionID, instanceID, callID); err != nil {
 			log.Printf("[p2p] resume error user=%s call=%s: %v", userID, callID, err)
+		}
+	})
+	hub.OnP2PCallAdopt(func(userID, sessionID, instanceID, deviceID string, data ws.P2PCallAdoptData) {
+		if err := p2pCallService.AdoptCall(userID, sessionID, instanceID, deviceID, data.CallID, data.InstanceID); err != nil {
+			log.Printf("[p2p] adopt error user=%s call=%s: %v", userID, data.CallID, err)
 		}
 	})
 	hub.OnP2PSignal(func(senderID, senderSessionID string, data ws.P2PSignalData) {
@@ -257,16 +269,9 @@ func registerHubCallbacks(
 	// ─── DM Typing Callback ───
 
 	hub.OnDMTyping(func(senderUserID, senderUsername, dmChannelID string) {
-		channel, err := dmRepo.GetChannelByID(context.Background(), dmChannelID)
+		otherUserID, err := dmTyping.TypingRecipient(context.Background(), senderUserID, dmChannelID)
 		if err != nil {
 			return
-		}
-		if channel.User1ID != senderUserID && channel.User2ID != senderUserID {
-			return
-		}
-		otherUserID := channel.User1ID
-		if otherUserID == senderUserID {
-			otherUserID = channel.User2ID
 		}
 		hub.BroadcastToUser(otherUserID, ws.Event{
 			Op: ws.OpDMTypingStart,

@@ -28,15 +28,24 @@ type P2PCall struct {
 	CreatedAt  time.Time     `json:"created_at"`
 	AcceptedAt time.Time     `json:"accepted_at,omitempty"` // set when answered; basis for call duration
 
-	// A call is owned by two CONNECTIONS, not two users. A user signed in on several devices
-	// sees every event for the call on all of them, so without this the caller's idle phone
-	// also opens its microphone and sends a competing SDP offer, and a dropped socket cannot be
-	// matched to the call it was carrying.
-	//
-	// CallerSessionID is set at initiate. ReceiverSessionID is empty until someone accepts —
-	// the receiver's other devices are still ringing until then.
+	// A call is owned by two connections, not two users. ReceiverSessionID stays empty until an
+	// accept, while every device of the receiver still rings.
 	CallerSessionID   string `json:"-"`
 	ReceiverSessionID string `json:"-"`
+
+	// The running app behind each side (per page load); only it may take its call back.
+	CallerInstanceID   string `json:"-"`
+	ReceiverInstanceID string `json:"-"`
+	// The installation behind each side, to tell an app this device restarted from a live one.
+	CallerDeviceID   string `json:"-"`
+	ReceiverDeviceID string `json:"-"`
+
+	// A cancel push for a ring that never went out shows iOS a phantom call.
+	RingPushed bool `json:"-"`
+
+	// Per side, for the app's native layer to hang up over HTTP while its page is suspended.
+	CallerEndKey   string `json:"-"`
+	ReceiverEndKey string `json:"-"`
 }
 
 // P2PCallBroadcast — broadcast payload carrying both caller and receiver info.
@@ -59,6 +68,13 @@ type P2PCallBroadcast struct {
 	// instead of opening a microphone and negotiating a second, competing WebRTC session.
 	// Empty on the receiver's copy, and on any event from a server that predates this.
 	InitiatedBy string `json:"initiated_by,omitempty"`
+	// InitiatedByInstance names the running app that dialled. Unlike the session it survives a
+	// reconnect, so the app still recognises its own call if the broadcast lands on a new socket.
+	InitiatedByInstance string `json:"initiated_by_instance,omitempty"`
+	// AcceptedAt is sent only to a page adopting an answered call, to carry its duration on.
+	AcceptedAt *time.Time `json:"accepted_at,omitempty"`
+	// EndKey goes only in the caller's own copy: its key to hang up without the socket.
+	EndKey string `json:"end_key,omitempty"`
 }
 
 // P2PSignalPayload — WebRTC signaling data (SDP offer/answer or ICE candidate).

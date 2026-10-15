@@ -36,11 +36,17 @@ type BlockChecker interface {
 	IsBlocked(ctx context.Context, userA, userB string) (bool, error)
 }
 
+// CallEnder ends a call between two users, if there is one.
+type CallEnder interface {
+	EndCallBetween(userID, otherID string)
+}
+
 type blockService struct {
 	friendRepo repository.FriendshipRepository
 	userRepo   repository.UserRepository
 	hub        ws.BroadcastAndRegisterPeers
 	urlSigner  FileURLSigner
+	calls      CallEnder
 }
 
 func NewBlockService(
@@ -48,10 +54,12 @@ func NewBlockService(
 	userRepo repository.UserRepository,
 	hub ws.BroadcastAndRegisterPeers,
 	urlSigner FileURLSigner,
+	calls CallEnder,
 ) BlockService {
 	return &blockService{
 		friendRepo: friendRepo,
 		userRepo:   userRepo,
+		calls:      calls,
 		hub:        hub,
 		urlSigner:  urlSigner,
 	}
@@ -70,38 +78,35 @@ func (s *blockService) BlockUser(ctx context.Context, blockerID, targetID string
 		return fmt.Errorf("failed to look up user: %w", err)
 	}
 
-	existing, err := s.friendRepo.GetByPair(ctx, blockerID, targetID)
+	// Each direction owns its own row: blocking back never deletes the other side's block,
+	// so "their messages stay hidden" holds for both parties no matter who blocked last.
+	mine, err := s.friendRepo.GetDirected(ctx, blockerID, targetID)
+	if err != nil && !errors.Is(err, pkg.ErrNotFound) {
+		return err
+	}
+	if mine != nil && mine.Status == models.FriendshipStatusBlocked {
+		return fmt.Errorf("%w: user already blocked", pkg.ErrAlreadyExists)
+	}
+	theirs, err := s.friendRepo.GetDirected(ctx, targetID, blockerID)
 	if err != nil && !errors.Is(err, pkg.ErrNotFound) {
 		return err
 	}
 
-	if existing != nil {
-		if existing.Status == models.FriendshipStatusBlocked {
-			if existing.UserID == blockerID {
-				return fmt.Errorf("%w: user already blocked", pkg.ErrAlreadyExists)
-			}
-			// Other side already blocked us — delete and re-create with us as blocker
-			if err := s.friendRepo.Delete(ctx, existing.ID); err != nil {
-				return err
-			}
-		} else {
-			// pending or accepted — delete, then create blocked
-			if err := s.friendRepo.Delete(ctx, existing.ID); err != nil {
-				return err
-			}
-
-			// Notify the other party about friendship removal
-			otherID := existing.UserID
-			if existing.UserID == blockerID {
-				otherID = existing.FriendID
-			}
-			s.hub.BroadcastToUser(otherID, ws.Event{
-				Op: ws.OpFriendRemove,
-				Data: map[string]string{
-					"user_id": blockerID,
-				},
-			})
+	// A pending/accepted friendship lives in exactly one direction; end it and tell the other
+	// side. Their block row (if that is what "theirs" is) is left untouched.
+	for _, f := range []*models.Friendship{mine, theirs} {
+		if f == nil || f.Status == models.FriendshipStatusBlocked {
+			continue
 		}
+		if err := s.friendRepo.Delete(ctx, f.ID); err != nil {
+			return err
+		}
+		s.hub.BroadcastToUser(targetID, ws.Event{
+			Op: ws.OpFriendRemove,
+			Data: map[string]string{
+				"user_id": blockerID,
+			},
+		})
 	}
 
 	now := time.Now().UTC()
@@ -122,46 +127,47 @@ func (s *blockService) BlockUser(ctx context.Context, blockerID, targetID string
 	// would survive. Drop both sides.
 	s.hub.RemovePresencePeer(blockerID, targetID)
 
-	// Notify both parties
-	s.hub.BroadcastToUser(blockerID, ws.Event{
+	// Notify both parties with one shape — user_id is always the blocker — so every device
+	// of either side (blockStore.handleUserBlock) can tell which role it plays.
+	blockEvent := ws.Event{
 		Op: ws.OpUserBlock,
 		Data: map[string]string{
-			"user_id": targetID,
+			"user_id":         blockerID,
+			"blocked_user_id": targetID,
 		},
-	})
-	s.hub.BroadcastToUser(targetID, ws.Event{
-		Op: ws.OpUserBlock,
-		Data: map[string]string{
-			"user_id": blockerID,
-		},
-	})
+	}
+	s.hub.BroadcastToUser(blockerID, blockEvent)
+	s.hub.BroadcastToUser(targetID, blockEvent)
+
+	// A call already ringing or running between them does not stop by itself: the media is peer
+	// to peer and never passes the server again, so the blocked person could keep talking.
+	s.calls.EndCallBetween(blockerID, targetID)
 
 	return nil
 }
 
-// UnblockUser removes a block. Only the blocker (user_id) can unblock.
+// UnblockUser removes the caller's own block row. The other side's block, if any, survives.
 func (s *blockService) UnblockUser(ctx context.Context, blockerID, targetID string) error {
-	existing, err := s.friendRepo.GetByPair(ctx, blockerID, targetID)
+	mine, err := s.friendRepo.GetDirected(ctx, blockerID, targetID)
 	if err != nil {
+		if errors.Is(err, pkg.ErrNotFound) {
+			return fmt.Errorf("%w: user is not blocked", pkg.ErrBadRequest)
+		}
 		return err
 	}
-
-	if existing.Status != models.FriendshipStatusBlocked {
+	if mine.Status != models.FriendshipStatusBlocked {
 		return fmt.Errorf("%w: user is not blocked", pkg.ErrBadRequest)
 	}
 
-	if existing.UserID != blockerID {
-		return fmt.Errorf("%w: you can only unblock users you blocked", pkg.ErrForbidden)
-	}
-
-	if err := s.friendRepo.Delete(ctx, existing.ID); err != nil {
+	if err := s.friendRepo.Delete(ctx, mine.ID); err != nil {
 		return err
 	}
 
 	s.hub.BroadcastToUser(blockerID, ws.Event{
 		Op: ws.OpUserUnblock,
 		Data: map[string]string{
-			"user_id": targetID,
+			"user_id":           blockerID,
+			"unblocked_user_id": targetID,
 		},
 	})
 

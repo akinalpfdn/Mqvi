@@ -19,8 +19,9 @@ import { authorDisplayName, authorAvatarURL, isAuthorDeleted } from "../../utils
 import ContextMenu from "../shared/ContextMenu";
 import DMMuteDurationPicker from "../dm/DMMuteDurationPicker";
 import ReportModal from "../shared/ReportModal";
+import BlockConfirmDialog from "../shared/BlockConfirmDialog";
 import { useContextMenu, type ContextMenuItem } from "../../hooks/useContextMenu";
-import { useConfirm } from "../../hooks/useConfirm";
+import { useLongPressContextMenu } from "../../hooks/useLongPressContextMenu";
 import { useAuthStore } from "../../stores/authStore";
 import type { DMChannelWithUser, User } from "../../types";
 
@@ -35,7 +36,6 @@ function DMSection({ onShowUserCard }: DMSectionProps) {
   const expandedSections = useSidebarStore((s) => s.expandedSections);
   const openTab = useUIStore((s) => s.openTab);
   const addToast = useToastStore((s) => s.addToast);
-  const confirmDialog = useConfirm();
 
   const dmChannels = useDMStore((s) => s.channels);
   const selectedDMId = useDMStore((s) => s.selectedDMId);
@@ -62,12 +62,17 @@ function DMSection({ onShowUserCard }: DMSectionProps) {
   const initiateCall = useP2PCallStore((s) => s.initiateCall);
 
   const { menuState, openMenu, closeMenu } = useContextMenu();
+  // iOS has no right click and never turns a long press into one.
+  const longPressMenu = useLongPressContextMenu();
 
   const [mutePicker, setMutePicker] = useState<{
     channelId: string; x: number; y: number;
   } | null>(null);
 
   const [reportTarget, setReportTarget] = useState<{
+    userId: string; username: string;
+  } | null>(null);
+  const [blockTarget, setBlockTarget] = useState<{
     userId: string; username: string;
   } | null>(null);
 
@@ -217,15 +222,7 @@ function DMSection({ onShowUserCard }: DMSectionProps) {
     } else {
       items.push({
         label: tDM("blockUser"),
-        onClick: async () => {
-          const ok = await confirmDialog({
-            title: tDM("blockConfirmTitle", { username: name }),
-            message: tDM("blockConfirmMessage"),
-            confirmLabel: tDM("blockConfirmButton"),
-            danger: true,
-          });
-          if (ok) blockUser(user.id);
-        },
+        onClick: () => setBlockTarget({ userId: user.id, username: name }),
         danger: true,
       });
     }
@@ -307,6 +304,7 @@ function DMSection({ onShowUserCard }: DMSectionProps) {
                     className={`ch-tree-item ch-tree-dm${isActive ? " active" : ""}${unread > 0 ? " has-unread" : ""}${dm.is_muted ? " muted" : ""}`}
                     onClick={() => handleDMClick(dm.id, name)}
                     onContextMenu={(e) => handleDMContextMenu(e, dm)}
+                    {...longPressMenu}
                   >
                     <Avatar
                       name={name}
@@ -346,6 +344,20 @@ function DMSection({ onShowUserCard }: DMSectionProps) {
           x={mutePicker.x}
           y={mutePicker.y}
           onClose={() => setMutePicker(null)}
+        />
+      )}
+
+      {blockTarget && (
+        <BlockConfirmDialog
+          username={blockTarget.username}
+          onClose={() => setBlockTarget(null)}
+          onConfirm={async (alsoReport) => {
+            const target = blockTarget;
+            setBlockTarget(null);
+            // Block first; the report is optional and must not undo or delay the block.
+            const ok = await blockUser(target.userId);
+            if (ok && alsoReport) setReportTarget(target);
+          }}
         />
       )}
 

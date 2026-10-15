@@ -436,6 +436,12 @@ export type P2PCall = {
    * negotiating a second, competing WebRTC session. Absent from a server that predates it.
    */
   initiated_by?: string;
+  /** The running app that dialled; unlike the session it survives a reconnect. */
+  initiated_by_instance?: string;
+  /** In the caller's own copy only: its key to hang up without the socket (native layer). */
+  end_key?: string;
+  /** Sent only to a page adopting an answered call, to carry its duration on. */
+  accepted_at?: string;
 };
 
 /**
@@ -444,7 +450,16 @@ export type P2PCall = {
  */
 export type P2PSignalPayload = {
   call_id: string;
-  type: "offer" | "answer" | "ice-candidate" | "ice-restart";
+  /** video-on/off: the sender's picture state, which its track cannot convey. Relayed opaquely. */
+  type:
+    | "offer"
+    | "answer"
+    | "ice-candidate"
+    | "ice-restart"
+    | "video-on"
+    | "video-off"
+    /** Asks the peer to announce its picture again, after an outage that may have lost it. */
+    | "video-query";
   sdp?: string;
   candidate?: RTCIceCandidateInit;
 };
@@ -616,6 +631,13 @@ export type AdminReportListItem = {
   reporter_display_name: string | null;
   reported_username: string;
   reported_display_name: string | null;
+  /** Message-level reports only. excerpt_source: "server" = snapshot of stored plaintext,
+   *  "client" = reporter-supplied (E2EE), null = no text. */
+  message_id: string | null;
+  dm_message_id: string | null;
+  voice_message_id: string | null;
+  message_excerpt: string | null;
+  excerpt_source: "server" | "client" | null;
   attachments: ReportAttachment[];
 };
 

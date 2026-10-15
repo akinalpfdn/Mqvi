@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useP2PCallStore } from "../../stores/p2pCallStore";
 import { useAuthStore } from "../../stores/authStore";
+import { useNativeVideoLayout } from "../../hooks/useNativeVideoLayout";
 import { useIsTouch } from "../../hooks/useMediaQuery";
 import { useCinemaMode } from "../../hooks/useCinemaMode";
 import CinemaButton from "../shared/CinemaButton";
@@ -20,22 +21,49 @@ import P2PStreamContextMenu from "./P2PStreamContextMenu";
 
 // ─── Draggable Local PiP ───
 
-function DraggableVideo({ stream, onClick }: { stream: MediaStream; onClick?: () => void }) {
+/** Movement past this is a drag; anything less is a tap, and a tap must not move the box. */
+const DRAG_SLOP = 5;
+
+function DraggableVideo({
+  stream,
+  onClick,
+  onElement,
+}: {
+  /** Null when the picture is drawn natively; the box still positions it. */
+  stream: MediaStream | null;
+  onClick?: () => void;
+  onElement?: (el: HTMLDivElement | null) => void;
+}) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
-  const dragState = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+  // origX/origY stay null until the pointer actually moves: that is the moment the box leaves
+  // its corner, and a tap-to-swap must not be that moment.
+  const dragState = useRef<{
+    startX: number;
+    startY: number;
+    origX: number | null;
+    origY: number | null;
+  } | null>(null);
 
   const videoRef = useCallback(
     (node: HTMLVideoElement | null) => {
-      if (node && stream) node.srcObject = stream;
+      // Assigning null matters as much as assigning a stream: an element left holding the old
+      // one keeps showing its last frame after the feed is gone.
+      if (node) node.srcObject = stream ?? null;
     },
     [stream],
   );
 
-  // Clamp position within parent bounds
+  // The native layer needs this box's position, and only the parent knows what to do with it.
+  useEffect(() => {
+    onElement?.(wrapRef.current);
+    return () => onElement?.(null);
+  }, [onElement]);
+
+  // Clamp into the parent. Skipped while still pinned to a corner, which writing left/top would undo.
   const clamp = useCallback((el: HTMLDivElement) => {
     const parent = el.parentElement;
-    if (!parent) return;
+    if (!parent || !el.style.left) return;
     const pr = parent.getBoundingClientRect();
     const er = el.getBoundingClientRect();
     let x = parseInt(el.style.left || "0", 10);
@@ -51,25 +79,7 @@ function DraggableVideo({ stream, onClick }: { stream: MediaStream; onClick?: ()
     if (!el) return;
     e.preventDefault();
     el.setPointerCapture(e.pointerId);
-    setDragging(true);
-
-    // Switch from right/bottom positioning to left/top for drag
-    const parent = el.parentElement;
-    if (parent && !el.style.left) {
-      const pr = parent.getBoundingClientRect();
-      const er = el.getBoundingClientRect();
-      el.style.left = `${er.left - pr.left}px`;
-      el.style.top = `${er.top - pr.top}px`;
-      el.style.right = "auto";
-      el.style.bottom = "auto";
-    }
-
-    dragState.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      origX: parseInt(el.style.left || "0", 10),
-      origY: parseInt(el.style.top || "0", 10),
-    };
+    dragState.current = { startX: e.clientX, startY: e.clientY, origX: null, origY: null };
   }, []);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
@@ -78,9 +88,35 @@ function DraggableVideo({ stream, onClick }: { stream: MediaStream; onClick?: ()
     if (!el || !ds) return;
     const dx = e.clientX - ds.startX;
     const dy = e.clientY - ds.startY;
+
+    // Leave the corner only on a real drag: a tapped box pinned left grew past the edge on a swap.
+    if (ds.origX === null || ds.origY === null) {
+      if (Math.hypot(dx, dy) < DRAG_SLOP) return;
+      const parent = el.parentElement;
+      if (!parent) return;
+      const pr = parent.getBoundingClientRect();
+      const er = el.getBoundingClientRect();
+      el.style.left = `${er.left - pr.left}px`;
+      el.style.top = `${er.top - pr.top}px`;
+      el.style.right = "auto";
+      el.style.bottom = "auto";
+      ds.origX = parseInt(el.style.left, 10);
+      ds.origY = parseInt(el.style.top, 10);
+      setDragging(true);
+    }
+
     el.style.left = `${ds.origX + dx}px`;
     el.style.top = `${ds.origY + dy}px`;
     clamp(el);
+  }, [clamp]);
+
+  // A swap can widen the box; a dragged one is pulled back inside.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => clamp(el));
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [clamp]);
 
   const onPointerUp = useCallback(
@@ -89,7 +125,7 @@ function DraggableVideo({ stream, onClick }: { stream: MediaStream; onClick?: ()
       setDragging(false);
       dragState.current = null;
       // Tap (no meaningful movement) acts as a click → swap; a real drag does not.
-      if (onClick && ds && Math.hypot(e.clientX - ds.startX, e.clientY - ds.startY) < 5) {
+      if (onClick && ds && Math.hypot(e.clientX - ds.startX, e.clientY - ds.startY) < DRAG_SLOP) {
         onClick();
       }
     },
@@ -124,11 +160,23 @@ function P2PCallScreen() {
   const remoteStream = useP2PCallStore((s) => s.remoteStream);
   const callDuration = useP2PCallStore((s) => s.callDuration);
   const isVideoOn = useP2PCallStore((s) => s.isVideoOn);
+  const isNativeVideo = useP2PCallStore((s) => s.isNativeVideo);
+  const hasRemoteVideo = useP2PCallStore((s) => s.hasRemoteVideo);
+  const cameraFacing = useP2PCallStore((s) => s.cameraFacing);
   const currentUserId = useAuthStore((s) => s.user?.id);
+
+  // Boxes the native layer draws into. Refs as state: the hook has to re-run when they arrive.
+  const [bigEl, setBigEl] = useState<HTMLElement | null>(null);
+  const [pipEl, setPipEl] = useState<HTMLElement | null>(null);
+  const [mediaEl, setMediaEl] = useState<HTMLElement | null>(null);
 
   // Remote audio is rendered by P2PAudioSink at app level (survives tab switches); this screen
   // is visuals only. Every <video> here stays muted.
   const mediaAreaRef = useRef<HTMLDivElement>(null);
+  const attachMediaArea = useCallback((el: HTMLDivElement | null) => {
+    mediaAreaRef.current = el;
+    setMediaEl(el);
+  }, []);
   const isTouch = useIsTouch();
   const { isCinema, enter: enterCinema, exit: exitCinema } = useCinemaMode(mediaAreaRef);
 
@@ -174,8 +222,10 @@ function P2PCallScreen() {
   const isActive = activeCall?.status === "active";
   const isScreenSharing = useP2PCallStore((s) => s.isScreenSharing);
 
-  const hasRemoteVideo = remoteStream?.getVideoTracks().some((tr) => tr.enabled);
-  const hasLocalVideo = localStream?.getVideoTracks().some((tr) => tr.enabled);
+  // The peer's picture always comes from the store: a remote track's `enabled` is our setting.
+  const hasLocalVideo = isNativeVideo
+    ? isVideoOn
+    : localStream?.getVideoTracks().some((tr) => tr.enabled);
 
   // ─── Camera swap (WhatsApp-style) ───
   // The PiP always shows your own camera as the secondary view; when both peers
@@ -197,11 +247,24 @@ function P2PCallScreen() {
     if (bothHaveVideo) setIsSwapped((s) => !s);
   }, [bothHaveVideo]);
 
+  // Swapping does not move the tracks, it moves the boxes: the remote feed goes wherever the
+  // big box is, which after a swap is the small one.
+  useNativeVideoLayout({
+    active: isNativeVideo && !!activeCall && activeCall.status === "active" && !!(bigEl || pipEl),
+    // The media area itself, not the surface: the surface comes and goes with the peer's
+    // picture, and your own picture-in-picture has to stay bounded while it is gone.
+    clipEl: mediaEl,
+    remoteEl: effectiveSwapped ? pipEl : bigEl,
+    localEl: effectiveSwapped ? bigEl : pipEl,
+    // Your own face is shown mirrored, the way every call app does it; the back camera is not.
+    mirrorLocal: cameraFacing === "front",
+  });
+
   // The big feed's srcObject follows whichever stream is foregrounded (muted —
   // audio always comes from the hidden <audio> element).
   const bigVideoRef = useCallback(
     (node: HTMLVideoElement | null) => {
-      if (node && bigStream) node.srcObject = bigStream;
+      if (node) node.srcObject = bigStream ?? null;
     },
     [bigStream],
   );
@@ -248,12 +311,15 @@ function P2PCallScreen() {
       ) : isActive ? (
         <div className="p2p-call-screen p2p-active">
           <div
-            ref={mediaAreaRef}
+            ref={attachMediaArea}
             className={`p2p-media-area${isCinema ? " cinema" : ""}`}
             onContextMenu={handleContextMenu}
             onDoubleClick={handleDoubleClick}
           >
-            {bigHasVideo ? (
+            {isNativeVideo && bigHasVideo ? (
+              // Keyed on there being a picture, not the call type: a voice call can carry a screen share.
+              <div ref={setBigEl} className="p2p-remote-video p2p-native-surface" />
+            ) : bigHasVideo ? (
               <video
                 ref={bigVideoRef}
                 className="p2p-remote-video"
@@ -273,17 +339,18 @@ function P2PCallScreen() {
             )}
 
             {/* Floating PiP — your own camera; tap to swap when both are on camera */}
-            {localHasCam && pipStream && (
+            {localHasCam && (isNativeVideo || pipStream) && (
               <DraggableVideo
-                stream={pipStream}
+                stream={isNativeVideo ? null : pipStream}
                 onClick={bothHaveVideo ? handlePipClick : undefined}
+                onElement={isNativeVideo ? setPipEl : undefined}
               />
             )}
 
             {/* Hover overlay — fullscreen + cinema, stacked. A flex column, not two boxes with
                 offsets picked to miss each other: the gap is the browser's problem, and it
                 cannot get it wrong on a device we have never seen. */}
-            {bigHasVideo && (
+            {bigHasVideo && !isNativeVideo && (
               <div className="p2p-stream-overlay">
                 <div className="media-controls">
                 <button

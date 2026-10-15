@@ -35,15 +35,24 @@ const (
 
 // Report — time fields are strings because modernc.org/sqlite doesn't auto-convert to time.Time.
 type Report struct {
-	ID             string             `json:"id"`
-	ReporterID     string             `json:"reporter_id"`
-	ReportedUserID string             `json:"reported_user_id"`
-	Reason         ReportReason       `json:"reason"`
-	Description    string             `json:"description"`
-	Status         ReportStatus       `json:"status"`
-	ResolvedBy     *string            `json:"resolved_by"`
-	ResolvedAt     *string            `json:"resolved_at"`
-	CreatedAt      string             `json:"created_at"`
+	ID             string       `json:"id"`
+	ReporterID     string       `json:"reporter_id"`
+	ReportedUserID string       `json:"reported_user_id"`
+	Reason         ReportReason `json:"reason"`
+	Description    string       `json:"description"`
+	Status         ReportStatus `json:"status"`
+	ResolvedBy     *string      `json:"resolved_by"`
+	ResolvedAt     *string      `json:"resolved_at"`
+	CreatedAt      string       `json:"created_at"`
+	// Message context — set for message-level reports, nil for profile reports.
+	MessageID      *string `json:"message_id"`
+	DMMessageID    *string `json:"dm_message_id"`
+	VoiceMessageID *string `json:"voice_message_id"`
+	// MessageExcerpt is a snapshot of the reported text that outlives the message.
+	// ExcerptSource says who took it: "server" (copied from stored plaintext) or
+	// "client" (reporter-supplied, E2EE content the server cannot read).
+	MessageExcerpt *string            `json:"message_excerpt"`
+	ExcerptSource  *string            `json:"excerpt_source"`
 	Attachments    []ReportAttachment `json:"attachments"`
 }
 
@@ -118,9 +127,26 @@ type ServerReportWithInfo struct {
 	ServerName       string `json:"server_name"`
 }
 
+const MaxReportExcerptLength = 500
+
+const (
+	ExcerptSourceServer = "server"
+	ExcerptSourceClient = "client"
+)
+
 type CreateReportRequest struct {
 	Reason      string `json:"reason"`
 	Description string `json:"description"`
+	// Optional message context. At most one of the three ids.
+	MessageID      string `json:"message_id"`
+	DMMessageID    string `json:"dm_message_id"`
+	VoiceMessageID string `json:"voice_message_id"`
+	MessageExcerpt string `json:"message_excerpt"`
+}
+
+// HasMessageContext reports whether this is a message-level report.
+func (r *CreateReportRequest) HasMessageContext() bool {
+	return r.MessageID != "" || r.DMMessageID != "" || r.VoiceMessageID != ""
 }
 
 func (r *CreateReportRequest) Validate() error {
@@ -137,6 +163,26 @@ func (r *CreateReportRequest) Validate() error {
 	}
 	if descLen > 1000 {
 		return fmt.Errorf("description must be at most 1000 characters")
+	}
+
+	r.MessageID = strings.TrimSpace(r.MessageID)
+	r.DMMessageID = strings.TrimSpace(r.DMMessageID)
+	r.VoiceMessageID = strings.TrimSpace(r.VoiceMessageID)
+	r.MessageExcerpt = strings.TrimSpace(r.MessageExcerpt)
+	refs := 0
+	for _, id := range []string{r.MessageID, r.DMMessageID, r.VoiceMessageID} {
+		if id != "" {
+			refs++
+		}
+	}
+	if refs > 1 {
+		return fmt.Errorf("report may reference only one message")
+	}
+	if r.MessageExcerpt != "" && !r.HasMessageContext() {
+		return fmt.Errorf("message excerpt requires a message reference")
+	}
+	if utf8.RuneCountInString(r.MessageExcerpt) > MaxReportExcerptLength {
+		return fmt.Errorf("message excerpt must be at most %d characters", MaxReportExcerptLength)
 	}
 
 	return nil

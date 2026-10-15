@@ -102,7 +102,7 @@ func TestInitiateCallRejectsDuplicateCaller(t *testing.T) {
 		userCalls:     map[string]string{"caller": "existing"},
 	}
 
-	err := svc.InitiateCall("caller", "caller-sess", "receiver", models.P2PCallTypeVoice)
+	err := svc.InitiateCall("caller", "caller-sess", "", "", "receiver", models.P2PCallTypeVoice)
 	if !errors.Is(err, pkg.ErrBadRequest) {
 		t.Fatalf("expected ErrBadRequest when caller already in a call, got %v", err)
 	}
@@ -121,7 +121,7 @@ func TestInitiateCallRejectsBusyReceiver(t *testing.T) {
 		ringTimers:    map[string]*time.Timer{},
 	}
 
-	err := svc.InitiateCall("callerB", "callerB-sess", "receiver", models.P2PCallTypeVoice)
+	err := svc.InitiateCall("callerB", "callerB-sess", "", "", "receiver", models.P2PCallTypeVoice)
 	if !errors.Is(err, pkg.ErrBadRequest) {
 		t.Fatalf("expected busy error when receiver is already reserved, got %v", err)
 	}
@@ -138,7 +138,7 @@ func TestAcceptCallRejectsBusyReceiver(t *testing.T) {
 		userCalls: map[string]string{"c1": "A", "rcv": "A", "c2": "B"},
 	}
 
-	err := svc.AcceptCall("rcv", "phone-sess", "phone-dev", "B") // already in active call A
+	err := svc.AcceptCall("rcv", "phone-sess", "", "phone-dev", "B") // already in active call A
 	if !errors.Is(err, pkg.ErrBadRequest) {
 		t.Fatalf("expected ErrBadRequest when receiver already in a call, got %v", err)
 	}
@@ -148,7 +148,7 @@ func TestAcceptCallRejectsBusyReceiver(t *testing.T) {
 // before any dependency call, so no fakes needed).
 func TestInitiateCallRejectsInvalidType(t *testing.T) {
 	svc := &p2pCallService{}
-	err := svc.InitiateCall("caller", "caller-sess", "receiver", models.P2PCallType("screenshare"))
+	err := svc.InitiateCall("caller", "caller-sess", "", "", "receiver", models.P2PCallType("screenshare"))
 	if !errors.Is(err, pkg.ErrBadRequest) {
 		t.Fatalf("expected ErrBadRequest for invalid call type, got %v", err)
 	}
@@ -222,7 +222,7 @@ func TestCallLogging(t *testing.T) {
 	t.Run("declined by receiver", func(t *testing.T) {
 		rec := &recordingCallLogger{ch: make(chan models.CallMeta, 1)}
 		svc := newSvc(rec, map[string]*models.P2PCall{"x": ringing(models.P2PCallTypeVideo)}, map[string]string{"caller": "x", "rcv": "x"})
-		if err := svc.DeclineCall("rcv", "phone-dev", "x"); err != nil {
+		if err := svc.DeclineCall("rcv", "", "phone-dev", "x"); err != nil {
 			t.Fatal(err)
 		}
 		if m := waitCallLog(t, rec.ch); m.Outcome != models.CallOutcomeDeclined {
@@ -233,7 +233,7 @@ func TestCallLogging(t *testing.T) {
 	t.Run("missed when caller cancels ringing", func(t *testing.T) {
 		rec := &recordingCallLogger{ch: make(chan models.CallMeta, 1)}
 		svc := newSvc(rec, map[string]*models.P2PCall{"x": ringing(models.P2PCallTypeVoice)}, map[string]string{"caller": "x", "rcv": "x"})
-		if err := svc.DeclineCall("caller", "caller-dev", "x"); err != nil {
+		if err := svc.DeclineCall("caller", "", "caller-dev", "x"); err != nil {
 			t.Fatal(err)
 		}
 		if m := waitCallLog(t, rec.ch); m.Outcome != models.CallOutcomeMissed {
@@ -244,7 +244,7 @@ func TestCallLogging(t *testing.T) {
 	t.Run("completed with duration on end", func(t *testing.T) {
 		rec := &recordingCallLogger{ch: make(chan models.CallMeta, 1)}
 		svc := newSvc(rec, map[string]*models.P2PCall{"x": active(5 * time.Second)}, map[string]string{"caller": "x", "rcv": "x"})
-		if err := svc.EndCall("caller", "caller-dev", ""); err != nil {
+		if err := svc.EndCall("caller", "", "caller-dev", ""); err != nil {
 			t.Fatal(err)
 		}
 		m := waitCallLog(t, rec.ch)
@@ -259,7 +259,7 @@ func TestCallLogging(t *testing.T) {
 	t.Run("completed on disconnect during active call", func(t *testing.T) {
 		rec := &recordingCallLogger{ch: make(chan models.CallMeta, 1)}
 		svc := newSvc(rec, map[string]*models.P2PCall{"x": active(3 * time.Second)}, map[string]string{"caller": "x", "rcv": "x"})
-		svc.HandleSessionDisconnect("caller", "caller-sess")
+		svc.HandleSessionDisconnect("caller", "caller-sess", false)
 		if m := waitCallLog(t, rec.ch); m.Outcome != models.CallOutcomeCompleted {
 			t.Errorf("outcome=%q, want completed", m.Outcome)
 		}
@@ -353,7 +353,7 @@ func TestHandleDisconnectRingingReceiver(t *testing.T) {
 			userCalls:   map[string]string{"caller": "x", "rcv": "x"},
 			ringTimers:  map[string]*time.Timer{"x": time.AfterFunc(time.Hour, func() {})},
 		}
-		svc.HandleSessionDisconnect("rcv", "rcv-sess")
+		svc.HandleSessionDisconnect("rcv", "rcv-sess", false)
 		if _, ok := svc.activeCalls["x"]; !ok {
 			t.Error("ringing call must survive a receiver disconnect (mobile may answer via push)")
 		}
@@ -361,7 +361,7 @@ func TestHandleDisconnectRingingReceiver(t *testing.T) {
 			t.Error("receiver mapping must be kept so PendingIncomingCall can replay")
 		}
 		if _, ok := svc.ringTimers["x"]; !ok {
-			t.Error("ring timer must keep running to time out at 60s")
+			t.Error("ring timer must keep running so the ring still times out")
 		}
 	})
 
@@ -372,7 +372,7 @@ func TestHandleDisconnectRingingReceiver(t *testing.T) {
 			userCalls:   map[string]string{"caller": "x", "rcv": "x"},
 			ringTimers:  map[string]*time.Timer{"x": time.AfterFunc(time.Hour, func() {})},
 		}
-		svc.HandleSessionDisconnect("caller", "caller-sess")
+		svc.HandleSessionDisconnect("caller", "caller-sess", false)
 		if _, ok := svc.activeCalls["x"]; ok {
 			t.Error("caller leaving a ringing call must tear it down")
 		}
@@ -385,7 +385,7 @@ func TestHandleDisconnectRingingReceiver(t *testing.T) {
 			userCalls:   map[string]string{"caller": "x", "rcv": "x"},
 			ringTimers:  map[string]*time.Timer{},
 		}
-		svc.HandleSessionDisconnect("rcv", "rcv-sess")
+		svc.HandleSessionDisconnect("rcv", "rcv-sess", false)
 		if _, ok := svc.activeCalls["x"]; ok {
 			t.Error("an active call must tear down on any party disconnect")
 		}
@@ -440,11 +440,16 @@ type recordingPush struct {
 	mu        sync.Mutex
 	cancelled []string // receiverIDs told to stop ringing
 	excluded  []string // the device exempted from each cancel
+	rang      []string // call ids whose ring push was sent
 }
 
 func (p *recordingPush) NotifyDM(_, _, _ string, _ bool, _, _, _ string)           {}
 func (p *recordingPush) NotifyDMRead(_, _ string)                                  {}
-func (p *recordingPush) NotifyCall(_, _ string, _ models.P2PCallType, _, _ string) {}
+func (p *recordingPush) NotifyCall(_, _ string, _ models.P2PCallType, callID, _ string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.rang = append(p.rang, callID)
+}
 func (p *recordingPush) NotifyCallCancel(receiverID, _, excludeDeviceID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -464,17 +469,31 @@ func ringingCallService() (*p2pCallService, *recordingHub, *recordingPush) {
 	svc := &p2pCallService{
 		hub:          hub,
 		pushNotifier: push,
-		activeCalls:  map[string]*models.P2PCall{"x": {ID: "x", CallerID: "caller", ReceiverID: "rcv", Status: models.P2PCallStatusRinging}},
-		userCalls:    map[string]string{"caller": "x", "rcv": "x"},
-		ringTimers:   map[string]*time.Timer{"x": time.AfterFunc(time.Hour, func() {})},
+		// RingPushed as InitiateCall leaves a ringing call once its push has gone out.
+		activeCalls: map[string]*models.P2PCall{"x": {ID: "x", CallerID: "caller", ReceiverID: "rcv", Status: models.P2PCallStatusRinging, RingPushed: true}},
+		userCalls:   map[string]string{"caller": "x", "rcv": "x"},
+		ringTimers:  map[string]*time.Timer{"x": time.AfterFunc(time.Hour, func() {})},
 	}
 	return svc, hub, push
+}
+
+// A call ended before its ring was handed to push sends no cancel: iOS would show it as a call.
+func TestEndingACallWhoseRingNeverWentOutSendsNoCancelPush(t *testing.T) {
+	svc, _, push := ringingCallService()
+	svc.activeCalls["x"].RingPushed = false
+
+	if err := svc.EndCall("caller", "", "caller-dev", "x"); err != nil {
+		t.Fatalf("EndCall: %v", err)
+	}
+	if got, _ := push.cancels(); len(got) != 0 {
+		t.Fatalf("cancel push sent for a ring that never went out: %v", got)
+	}
 }
 
 func TestAcceptCallStopsSiblingDevices(t *testing.T) {
 	svc, hub, push := ringingCallService()
 
-	if err := svc.AcceptCall("rcv", "phone-sess", "phone-dev", "x"); err != nil {
+	if err := svc.AcceptCall("rcv", "phone-sess", "", "phone-dev", "x"); err != nil {
 		t.Fatalf("AcceptCall: %v", err)
 	}
 
@@ -494,6 +513,75 @@ func TestAcceptCallStopsSiblingDevices(t *testing.T) {
 	// A sibling with no live socket is ringing on the push — it needs the cancel.
 	if len(push.cancelled) != 1 || push.cancelled[0] != "rcv" {
 		t.Errorf("accept must cancel the receiver's ring push, got %v", push.cancelled)
+	}
+}
+
+// The app answered, then lost its socket before the confirmation arrived. Back on a new
+// connection it accepts again; rejecting that stranded the call until both ends timed out.
+func TestAcceptFromTheAnsweringAppOnANewConnectionReclaimsTheCall(t *testing.T) {
+	svc, hub, _ := ringingCallService()
+	svc.graceTimers = map[string]*time.Timer{}
+	if err := svc.AcceptCall("rcv", "old-sess", "app-1", "phone-dev", "x"); err != nil {
+		t.Fatalf("AcceptCall: %v", err)
+	}
+	svc.graceTimers[graceKey("x", "rcv")] = time.AfterFunc(time.Hour, func() {})
+
+	if err := svc.AcceptCall("rcv", "new-sess", "app-1", "phone-dev", "x"); err != nil {
+		t.Fatalf("re-accept from the same app: %v", err)
+	}
+
+	if got := svc.activeCalls["x"].ReceiverSessionID; got != "new-sess" {
+		t.Errorf("call still owned by %q, want new-sess", got)
+	}
+	if _, pending := svc.graceTimers[graceKey("x", "rcv")]; pending {
+		t.Error("the dead connection's teardown is still pending")
+	}
+	own := hub.eventsFor("rcv", ws.OpP2PCallAccept)
+	if data, _ := own[len(own)-1].Data.(map[string]string); data["accepted_by"] != "new-sess" || data["accepted_by_instance"] != "app-1" {
+		t.Errorf("new connection not told it holds the call, got %v", own[len(own)-1].Data)
+	}
+	signals := hub.eventsFor("caller", ws.OpP2PSignal)
+	if len(signals) != 1 || signals[0].Data.(ws.P2PSignalData).Type != "ice-restart" {
+		t.Errorf("caller not asked to resend its offer, got %v", signals)
+	}
+}
+
+// Two tabs of one browser share the device id. The one that did not answer must not take the
+// call from the live tab that did, and neither may another device or an app with no instance id.
+func TestAcceptOfAnAnsweredCallFromAnyOtherAppIsRejected(t *testing.T) {
+	cases := []struct{ name, instance, device string }{
+		{"another tab of the same install", "app-2", "phone-dev"},
+		{"another device", "app-3", "tablet-dev"},
+		{"a client with no instance id", "", "phone-dev"},
+	}
+	for _, c := range cases {
+		svc, _, _ := ringingCallService()
+		if err := svc.AcceptCall("rcv", "phone-sess", "app-1", "phone-dev", "x"); err != nil {
+			t.Fatalf("AcceptCall: %v", err)
+		}
+		if err := svc.AcceptCall("rcv", "other-sess", c.instance, c.device, "x"); !errors.Is(err, pkg.ErrBadRequest) {
+			t.Errorf("%s took an answered call: %v", c.name, err)
+		}
+		if got := svc.activeCalls["x"].ReceiverSessionID; got != "phone-sess" {
+			t.Errorf("%s moved the call to %q", c.name, got)
+		}
+	}
+}
+
+// An app that never answered this call is not in it, so it cannot resume it either.
+func TestResumeFromAnotherAppIsRejected(t *testing.T) {
+	svc, _, _ := ringingCallService()
+	if err := svc.AcceptCall("rcv", "phone-sess", "app-1", "phone-dev", "x"); err != nil {
+		t.Fatalf("AcceptCall: %v", err)
+	}
+	if err := svc.ResumeCall("rcv", "tab-sess", "app-2", "x"); !errors.Is(err, pkg.ErrForbidden) {
+		t.Errorf("another tab resumed the call: %v", err)
+	}
+	if err := svc.ResumeCall("rcv", "phone-sess-2", "app-1", "x"); err != nil {
+		t.Errorf("the answering app could not resume its call: %v", err)
+	}
+	if got := svc.activeCalls["x"].ReceiverSessionID; got != "phone-sess-2" {
+		t.Errorf("call owned by %q, want phone-sess-2", got)
 	}
 }
 
@@ -518,7 +606,7 @@ func TestConcurrentAcceptHasOneWinner(t *testing.T) {
 		go func(i int) {
 			defer done.Done()
 			start.Wait() // every goroutine is parked here until the gun goes off
-			errs[i] = svc.AcceptCall("rcv", fmt.Sprintf("sess-%d", i), fmt.Sprintf("dev-%d", i), "x")
+			errs[i] = svc.AcceptCall("rcv", fmt.Sprintf("sess-%d", i), "", fmt.Sprintf("dev-%d", i), "x")
 		}(i)
 	}
 	start.Done()
@@ -544,21 +632,25 @@ func TestConcurrentAcceptHasOneWinner(t *testing.T) {
 		t.Fatalf("%d devices were rejected, want %d", rejected, devices-1)
 	}
 
+	// The win is announced, and each loser is told again who holds the call. Every one of them
+	// must name the same winner, or a loser's device would think it answered.
 	own := hub.eventsFor("rcv", ws.OpP2PCallAccept)
-	if len(own) != 1 {
-		t.Fatalf("%d accept broadcasts — the losers' devices would each think they answered", len(own))
+	if len(own) != devices {
+		t.Fatalf("%d accept broadcasts, want %d (the win plus one answer per loser)", len(own), devices)
 	}
-	data, _ := own[0].Data.(map[string]string)
-	if want := fmt.Sprintf("sess-%d", winnerIdx); data["accepted_by"] != want {
-		t.Errorf("accepted_by is %q but the call was won by %q — the sibling devices would hang up the wrong one",
-			data["accepted_by"], want)
+	want := fmt.Sprintf("sess-%d", winnerIdx)
+	for _, e := range own {
+		if data, _ := e.Data.(map[string]string); data["accepted_by"] != want {
+			t.Errorf("accepted_by is %q but the call was won by %q — the sibling devices would hang up the wrong one",
+				data["accepted_by"], want)
+		}
 	}
 }
 
 func TestDeclineByReceiverStopsSiblingDevices(t *testing.T) {
 	svc, hub, push := ringingCallService()
 
-	if err := svc.DeclineCall("rcv", "phone-dev", "x"); err != nil {
+	if err := svc.DeclineCall("rcv", "", "phone-dev", "x"); err != nil {
 		t.Fatalf("DeclineCall: %v", err)
 	}
 
@@ -582,7 +674,7 @@ func TestDeclineByReceiverStopsSiblingDevices(t *testing.T) {
 func TestCallerCancelStopsOwnOtherDevices(t *testing.T) {
 	svc, hub, push := ringingCallService()
 
-	if err := svc.EndCall("caller", "caller-dev", ""); err != nil {
+	if err := svc.EndCall("caller", "", "caller-dev", ""); err != nil {
 		t.Fatalf("EndCall: %v", err)
 	}
 
@@ -615,7 +707,7 @@ func TestEndingAnActiveCallSendsNoCancelPush(t *testing.T) {
 		ringTimers:   map[string]*time.Timer{},
 	}
 
-	if err := svc.EndCall("rcv", "rcv-dev", ""); err != nil {
+	if err := svc.EndCall("rcv", "", "rcv-dev", ""); err != nil {
 		t.Fatalf("EndCall: %v", err)
 	}
 	if len(push.cancelled) != 0 {
@@ -633,7 +725,7 @@ func TestEndingAnActiveCallSendsNoCancelPush(t *testing.T) {
 func TestAcceptCallExemptsTheAnsweringDevice(t *testing.T) {
 	svc, _, push := ringingCallService()
 
-	if err := svc.AcceptCall("rcv", "phone-sess", "phone-dev", "x"); err != nil {
+	if err := svc.AcceptCall("rcv", "phone-sess", "", "phone-dev", "x"); err != nil {
 		t.Fatalf("AcceptCall: %v", err)
 	}
 
@@ -650,7 +742,7 @@ func TestAcceptCallExemptsTheAnsweringDevice(t *testing.T) {
 func TestCancelPushExemptsOnlyTheActingReceiverDevice(t *testing.T) {
 	t.Run("receiver declines", func(t *testing.T) {
 		svc, _, push := ringingCallService()
-		if err := svc.DeclineCall("rcv", "phone-dev", "x"); err != nil {
+		if err := svc.DeclineCall("rcv", "", "phone-dev", "x"); err != nil {
 			t.Fatal(err)
 		}
 		if len(push.excluded) != 1 || push.excluded[0] != "phone-dev" {
@@ -660,7 +752,7 @@ func TestCancelPushExemptsOnlyTheActingReceiverDevice(t *testing.T) {
 
 	t.Run("caller cancels", func(t *testing.T) {
 		svc, _, push := ringingCallService()
-		if err := svc.DeclineCall("caller", "caller-dev", "x"); err != nil {
+		if err := svc.DeclineCall("caller", "", "caller-dev", "x"); err != nil {
 			t.Fatal(err)
 		}
 		if len(push.excluded) != 1 || push.excluded[0] != "" {
@@ -687,11 +779,11 @@ func TestCancelPushExemptsOnlyTheActingReceiverDevice(t *testing.T) {
 func TestDeclineCannotKillAnAnsweredCall(t *testing.T) {
 	svc, hub, _ := ringingCallService()
 
-	if err := svc.AcceptCall("rcv", "phone-sess", "phone-dev", "x"); err != nil {
+	if err := svc.AcceptCall("rcv", "phone-sess", "", "phone-dev", "x"); err != nil {
 		t.Fatalf("AcceptCall: %v", err)
 	}
 
-	err := svc.DeclineCall("rcv", "desktop-dev", "x") // the stale desktop overlay
+	err := svc.DeclineCall("rcv", "", "desktop-dev", "x") // the stale desktop overlay
 	if !errors.Is(err, pkg.ErrBadRequest) {
 		t.Fatalf("declining an ACTIVE call must be rejected, got %v", err)
 	}
@@ -716,7 +808,7 @@ func TestInitiateNamesTheCallingSession(t *testing.T) {
 		ringTimers:  map[string]*time.Timer{},
 	}
 
-	if err := svc.InitiateCall("caller", "desktop-sess", "rcv", models.P2PCallTypeVoice); err != nil {
+	if err := svc.InitiateCall("caller", "desktop-sess", "desktop-app", "", "rcv", models.P2PCallTypeVoice); err != nil {
 		t.Fatalf("InitiateCall: %v", err)
 	}
 
@@ -731,6 +823,10 @@ func TestInitiateNamesTheCallingSession(t *testing.T) {
 	if bc.InitiatedBy != "desktop-sess" {
 		t.Errorf("initiated_by = %q, want desktop-sess — the caller's other devices cannot tell the call is not theirs", bc.InitiatedBy)
 	}
+	// The session changes on a reconnect; the app must still recognise its own call.
+	if bc.InitiatedByInstance != "desktop-app" {
+		t.Errorf("initiated_by_instance = %q, want desktop-app", bc.InitiatedByInstance)
+	}
 
 	// The receiver has no business knowing which of the caller's devices dialled.
 	theirs := hub.eventsFor("rcv", ws.OpP2PCallInitiate)
@@ -738,8 +834,8 @@ func TestInitiateNamesTheCallingSession(t *testing.T) {
 		t.Fatalf("receiver got %d initiate events, want 1", len(theirs))
 	}
 	rbc := theirs[0].Data.(models.P2PCallBroadcast)
-	if rbc.InitiatedBy != "" {
-		t.Errorf("the receiver's copy leaked initiated_by = %q", rbc.InitiatedBy)
+	if rbc.InitiatedBy != "" || rbc.InitiatedByInstance != "" {
+		t.Errorf("the receiver's copy leaked who dialled: %q / %q", rbc.InitiatedBy, rbc.InitiatedByInstance)
 	}
 }
 
@@ -748,7 +844,7 @@ func TestInitiateNamesTheCallingSession(t *testing.T) {
 // peer, clobbering the live media session.
 func TestRelaySignalRejectsASessionNotInTheCall(t *testing.T) {
 	svc, _, _ := ringingCallService()
-	if err := svc.AcceptCall("rcv", "phone-sess", "phone-dev", "x"); err != nil {
+	if err := svc.AcceptCall("rcv", "phone-sess", "", "phone-dev", "x"); err != nil {
 		t.Fatal(err)
 	}
 	svc.activeCalls["x"].CallerSessionID = "caller-sess"
@@ -773,11 +869,11 @@ func TestCallEndsWhenTheSessionCarryingItDies(t *testing.T) {
 	t.Run("the session in the call drops", func(t *testing.T) {
 		svc, _, _ := ringingCallService()
 		svc.activeCalls["x"].CallerSessionID = "caller-desktop"
-		if err := svc.AcceptCall("rcv", "phone-sess", "phone-dev", "x"); err != nil {
+		if err := svc.AcceptCall("rcv", "phone-sess", "", "phone-dev", "x"); err != nil {
 			t.Fatal(err)
 		}
 
-		svc.HandleSessionDisconnect("caller", "caller-desktop")
+		svc.HandleSessionDisconnect("caller", "caller-desktop", false)
 
 		if _, alive := svc.activeCalls["x"]; alive {
 			t.Error("the call outlived the connection carrying it — both parties stay busy forever")
@@ -790,11 +886,11 @@ func TestCallEndsWhenTheSessionCarryingItDies(t *testing.T) {
 	t.Run("a sibling device drops", func(t *testing.T) {
 		svc, _, _ := ringingCallService()
 		svc.activeCalls["x"].CallerSessionID = "caller-desktop"
-		if err := svc.AcceptCall("rcv", "phone-sess", "phone-dev", "x"); err != nil {
+		if err := svc.AcceptCall("rcv", "phone-sess", "", "phone-dev", "x"); err != nil {
 			t.Fatal(err)
 		}
 
-		svc.HandleSessionDisconnect("caller", "callers-idle-phone")
+		svc.HandleSessionDisconnect("caller", "callers-idle-phone", false)
 
 		if _, alive := svc.activeCalls["x"]; !alive {
 			t.Error("an idle sibling device disconnecting ended a call it was not in")

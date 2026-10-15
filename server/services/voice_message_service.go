@@ -29,6 +29,8 @@ type VoiceMessageService interface {
 	List(ctx context.Context, userID, channelID string, limit int) ([]models.VoiceMessage, error)
 	Update(ctx context.Context, userID, messageID string, req *models.UpdateVoiceMessageRequest) (*models.VoiceMessage, error)
 	Delete(ctx context.Context, userID, messageID string) error
+	// DeleteAsModerator removes a voice-chat message for platform moderation; no membership check.
+	DeleteAsModerator(ctx context.Context, messageID string) error
 	// AttachFile records an uploaded file against an existing voice message.
 	// Used by the handler after the upload pipeline stores the file on disk.
 	AttachFile(ctx context.Context, messageID, filename, fileURL string, fileSize int64, mimeType *string) (*models.VoiceMessageAttachment, error)
@@ -158,6 +160,22 @@ func (s *voiceMessageService) Delete(ctx context.Context, userID, messageID stri
 	if _, err := s.requireMember(userID, existing.ChannelID); err != nil {
 		return err
 	}
+
+	return s.deleteVoiceMessage(ctx, existing)
+}
+
+// DeleteAsModerator is the report-handling path; the admin is not in the voice channel.
+func (s *voiceMessageService) DeleteAsModerator(ctx context.Context, messageID string) error {
+	existing, err := s.repo.GetByID(ctx, messageID)
+	if err != nil {
+		return err
+	}
+	return s.deleteVoiceMessage(ctx, existing)
+}
+
+// deleteVoiceMessage is the shared core: files, row, broadcast to current participants.
+func (s *voiceMessageService) deleteVoiceMessage(ctx context.Context, existing *models.VoiceMessage) error {
+	messageID := existing.ID
 
 	// Grab attachment URLs before delete so we can purge files after the cascade.
 	atts, _ := s.repo.GetAttachmentsByMessageIDs(ctx, []string{messageID})

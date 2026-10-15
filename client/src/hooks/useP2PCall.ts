@@ -14,7 +14,6 @@ import { useEffect, useRef } from "react";
 import i18n from "i18next";
 import { useP2PCallStore } from "../stores/p2pCallStore";
 import { useAuthStore } from "../stores/authStore";
-import { useVoiceStore } from "../stores/voiceStore";
 import { useToastStore } from "../stores/toastStore";
 import { useUIStore } from "../stores/uiStore";
 
@@ -34,15 +33,8 @@ export function useP2PCall() {
         state.activeCall?.status === "active" &&
         prev.activeCall?.status === "ringing"
       ) {
-        const isCaller = state.activeCall.caller_id === userId;
-
-        // Leave voice channel if in one (P2P and voice channel conflict)
-        const voiceState = useVoiceStore.getState();
-        if (voiceState.currentVoiceChannelId && voiceState._onLeaveCallback) {
-          voiceState._onLeaveCallback();
-        }
-
-        state.startWebRTC(isCaller);
+        // startWebRTC leaves channel voice itself: the audio session cannot be shared.
+        state.startWebRTC(state.activeCall.caller_id === userId);
       }
     });
 

@@ -64,7 +64,8 @@ func TestNotifyCallCancel_SkipsTheDeviceThatActed(t *testing.T) {
 	}}
 	sink := &capturingAPNs{sent: make(chan string, 4)}
 
-	s := NewPushService(disabledFCM{}, sink, repo, nil, nil, nil, testPushConfig(0))
+	s := NewPushService(disabledFCM{}, sink, repo, fakeUsers{}, nil, nil, testPushConfig(0))
+	ring(t, s, sink, "call1", 2)
 	s.NotifyCallCancel("rcv", "call1", phone)
 
 	got := <-sink.sent
@@ -89,7 +90,8 @@ func TestNotifyCallCancel_StillReachesTokensWithNoDeviceID(t *testing.T) {
 	}}
 	sink := &capturingAPNs{sent: make(chan string, 4)}
 
-	s := NewPushService(disabledFCM{}, sink, repo, nil, nil, nil, testPushConfig(0))
+	s := NewPushService(disabledFCM{}, sink, repo, fakeUsers{}, nil, nil, testPushConfig(0))
+	ring(t, s, sink, "call1", 2)
 	s.NotifyCallCancel("rcv", "call1", phone)
 
 	if got := <-sink.sent; got != "voip-old" {
@@ -98,6 +100,44 @@ func TestNotifyCallCancel_StillReachesTokensWithNoDeviceID(t *testing.T) {
 }
 
 var _ apns.Sender = (*capturingAPNs)(nil)
+
+// ring sends a call's ring push and waits until it reached want tokens.
+func ring(t *testing.T, s PushNotifier, sink *capturingAPNs, callID string, want int) {
+	t.Helper()
+	s.NotifyCall("rcv", "Alice", models.P2PCallTypeVoice, callID, "alice")
+	for i := 0; i < want; i++ {
+		select {
+		case <-sink.sent:
+		case <-time.After(time.Second):
+			t.Fatalf("ring reached %d tokens, want %d", i, want)
+		}
+	}
+}
+
+// A cancel goes only where the ring went. A token registered after the ring, or one the ring
+// never reached (APNs down, lookup failed), would make CallKit flash a call that never rang.
+func TestNotifyCallCancel_OnlyReachesTheTokensTheRingReached(t *testing.T) {
+	repo := &fakeTokenRepo{tokens: []models.PushToken{
+		{Token: "voip-tablet", TokenType: models.PushTokenTypeAPNsVoIP, Platform: "ios"},
+	}}
+	sink := &capturingAPNs{sent: make(chan string, 4)}
+	s := NewPushService(disabledFCM{}, sink, repo, fakeUsers{}, nil, nil, testPushConfig(0))
+	ring(t, s, sink, "call5", 1)
+
+	repo.tokens = append(repo.tokens, models.PushToken{Token: "voip-new", TokenType: models.PushTokenTypeAPNsVoIP, Platform: "ios"})
+	s.NotifyCallCancel("rcv", "call5", "")
+	if got := <-sink.sent; got != "voip-tablet" {
+		t.Fatalf("cancel pushed %q, want voip-tablet", got)
+	}
+
+	// A call that never rang at all gets no cancel.
+	s.NotifyCallCancel("rcv", "never-rang", "")
+	select {
+	case tok := <-sink.sent:
+		t.Fatalf("cancel pushed %q for a call that never rang", tok)
+	case <-time.After(150 * time.Millisecond):
+	}
+}
 
 // ─── FIX-04: the read is PROVED, never claimed ───
 
@@ -135,8 +175,8 @@ func (c *capturingFCM) SendData(context.Context, []string, push.DataMessage) ([]
 
 type disabledAPNs struct{}
 
-func (disabledAPNs) Enabled() bool                                           { return false }
-func (disabledAPNs) SendVoIP(context.Context, string, map[string]any) error  { return nil }
+func (disabledAPNs) Enabled() bool                                          { return false }
+func (disabledAPNs) SendVoIP(context.Context, string, map[string]any) error { return nil }
 func (disabledAPNs) SendAlert(context.Context, string, string, map[string]any) error {
 	return nil
 }
@@ -617,5 +657,220 @@ func TestNotifyDM_SilentWhenPushWasNeverConfigured(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	if logs.Len() != 0 {
 		t.Errorf("push is not configured on this deployment, yet every message logged:\n%s", logs.String())
+	}
+}
+
+// invisibleUsers answers every lookup with a user who is invisible, which is the status that
+// makes NotifyCall withhold the ring push.
+type invisibleUsers struct{}
+
+func (invisibleUsers) GetByID(_ context.Context, id string) (*models.User, error) {
+	return &models.User{ID: id, Username: id, PrefStatus: models.UserStatusOffline}, nil
+}
+
+// The field bug this guards: with the ring push withheld for an invisible user, the cancel push
+// still went out. CallManager cannot ignore a VoIP push — it must report the call to CallKit
+// before ending it — so the device flashed a call screen for a call it never received.
+func TestNotifyCallCancel_SilentWhenTheRingPushWasSuppressed(t *testing.T) {
+	repo := &fakeTokenRepo{tokens: []models.PushToken{
+		{Token: "voip-tablet", TokenType: models.PushTokenTypeAPNsVoIP, Platform: "ios"},
+	}}
+	sink := &capturingAPNs{sent: make(chan string, 4)}
+	s := NewPushService(disabledFCM{}, sink, repo, invisibleUsers{}, nil, nil, testPushConfig(0))
+
+	s.NotifyCall("rcv", "Alice", models.P2PCallTypeVoice, "call1", "alice")
+	select {
+	case tok := <-sink.sent:
+		t.Fatalf("ring push went to %q although the receiver is invisible", tok)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	s.NotifyCallCancel("rcv", "call1", "")
+	select {
+	case tok := <-sink.sent:
+		t.Fatalf("cancel push went to %q for a call that never rang", tok)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	// A second cancel for the same call (declined elsewhere, then the ring timeout) stays silent.
+	s.NotifyCallCancel("rcv", "call1", "")
+	select {
+	case tok := <-sink.sent:
+		t.Fatalf("repeat cancel push went to %q", tok)
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+// The other half: an online receiver rings, and their cancel must still go out.
+func TestNotifyCall_RingsAndCancelsForAnOnlineReceiver(t *testing.T) {
+	repo := &fakeTokenRepo{tokens: []models.PushToken{
+		{Token: "voip-tablet", TokenType: models.PushTokenTypeAPNsVoIP, Platform: "ios"},
+	}}
+	sink := &capturingAPNs{sent: make(chan string, 4)}
+	s := NewPushService(disabledFCM{}, sink, repo, fakeUsers{}, nil, nil, testPushConfig(0))
+
+	s.NotifyCall("rcv", "Alice", models.P2PCallTypeVoice, "call2", "alice")
+	if got := <-sink.sent; got != "voip-tablet" {
+		t.Fatalf("ring pushed %q, want voip-tablet", got)
+	}
+
+	s.NotifyCallCancel("rcv", "call2", "")
+	if got := <-sink.sent; got != "voip-tablet" {
+		t.Fatalf("cancel pushed %q, want voip-tablet", got)
+	}
+}
+
+// heldUsers keeps every recipient lookup in flight until released: the ring is still deciding
+// whether to go out when the caller hangs up.
+type heldUsers struct {
+	release chan struct{}
+	status  models.UserStatus
+}
+
+func (u heldUsers) GetByID(ctx context.Context, id string) (*models.User, error) {
+	select {
+	case <-u.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return &models.User{ID: id, Username: id, PrefStatus: u.status}, nil
+}
+
+// orderedAPNs records whether each VoIP push was a ring or a cancel, in the order they left.
+type orderedAPNs struct{ sent chan string }
+
+func (o *orderedAPNs) Enabled() bool { return true }
+func (o *orderedAPNs) SendVoIP(_ context.Context, _ string, payload map[string]any) error {
+	if payload["cancel"] == true {
+		o.sent <- "cancel"
+	} else {
+		o.sent <- "ring"
+	}
+	return nil
+}
+func (o *orderedAPNs) SendAlert(context.Context, string, string, map[string]any) error {
+	return nil
+}
+func (o *orderedAPNs) SendBackground(context.Context, string, map[string]any) error { return nil }
+
+// A cancel racing a ring about to be withheld must not go out: iOS would flash a phantom call.
+func TestNotifyCallCancel_WaitsForAWithheldRingStillBeingDecided(t *testing.T) {
+	repo := &fakeTokenRepo{tokens: []models.PushToken{
+		{Token: "voip-tablet", TokenType: models.PushTokenTypeAPNsVoIP, Platform: "ios"},
+	}}
+	users := heldUsers{release: make(chan struct{}), status: models.UserStatusOffline}
+	sink := &orderedAPNs{sent: make(chan string, 4)}
+	s := NewPushService(disabledFCM{}, sink, repo, users, nil, nil, testPushConfig(0))
+
+	s.NotifyCall("rcv", "Alice", models.P2PCallTypeVoice, "call3", "alice")
+	s.NotifyCallCancel("rcv", "call3", "")
+
+	select {
+	case kind := <-sink.sent:
+		t.Fatalf("a %s went out before the ring was decided", kind)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(users.release)
+	select {
+	case kind := <-sink.sent:
+		t.Fatalf("a %s went out for a call whose ring was withheld", kind)
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+// A hang-up while the ring is still deciding stops both; a sent ring's cancel still follows it.
+func TestNotifyCallCancel_StopsARingStillBeingDecided(t *testing.T) {
+	repo := &fakeTokenRepo{tokens: []models.PushToken{
+		{Token: "voip-tablet", TokenType: models.PushTokenTypeAPNsVoIP, Platform: "ios"},
+	}}
+	users := heldUsers{release: make(chan struct{}), status: models.UserStatusOnline}
+	sink := &orderedAPNs{sent: make(chan string, 4)}
+	s := NewPushService(disabledFCM{}, sink, repo, users, nil, nil, testPushConfig(0))
+
+	s.NotifyCall("rcv", "Alice", models.P2PCallTypeVoice, "call4", "alice")
+	s.NotifyCallCancel("rcv", "call4", "")
+
+	close(users.release)
+	select {
+	case kind := <-sink.sent:
+		t.Fatalf("a %s went out for a call hung up before it could ring", kind)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// callAPNs records each VoIP push as "ring:<call>" or "cancel:<call>".
+type callAPNs struct{ sent chan string }
+
+func (c *callAPNs) Enabled() bool { return true }
+func (c *callAPNs) SendVoIP(_ context.Context, _ string, payload map[string]any) error {
+	kind := "ring"
+	if payload["cancel"] == true {
+		kind = "cancel"
+	}
+	c.sent <- fmt.Sprintf("%s:%v", kind, payload["call_id"])
+	return nil
+}
+func (c *callAPNs) SendAlert(context.Context, string, string, map[string]any) error { return nil }
+func (c *callAPNs) SendBackground(context.Context, string, map[string]any) error    { return nil }
+
+// A ring cancelled while queued behind a full pool sends nothing, and neither does its cancel.
+func TestNotifyCall_ARingCancelledWhileQueuedSendsNothing(t *testing.T) {
+	repo := &fakeTokenRepo{tokens: []models.PushToken{
+		{Token: "voip-tablet", TokenType: models.PushTokenTypeAPNsVoIP, Platform: "ios"},
+	}}
+	users := heldUsers{release: make(chan struct{}), status: models.UserStatusOnline}
+	sink := &callAPNs{sent: make(chan string, 16)}
+	cfg := testPushConfig(0)
+	s := NewPushService(disabledFCM{}, sink, repo, users, nil, nil, cfg)
+
+	// Fill every slot with rings stuck on their lookups.
+	for i := 0; i < cfg.MaxConcurrent; i++ {
+		s.NotifyCall("rcv", "Alice", models.P2PCallTypeVoice, fmt.Sprintf("busy%d", i), "alice")
+	}
+	time.Sleep(50 * time.Millisecond) // let them take the slots
+
+	// This ring queues behind them; the caller hangs up before it gets a slot.
+	s.NotifyCall("rcv", "Alice", models.P2PCallTypeVoice, "late", "alice")
+	s.NotifyCallCancel("rcv", "late", "")
+
+	close(users.release)
+	deadline := time.After(2 * time.Second)
+	rings := 0
+	for rings < cfg.MaxConcurrent {
+		select {
+		case got := <-sink.sent:
+			if strings.HasSuffix(got, ":late") {
+				t.Fatalf("%s went out for a call cancelled before it could ring", got)
+			}
+			rings++
+		case <-deadline:
+			t.Fatalf("only %d of the busy rings went out", rings)
+		}
+	}
+	select {
+	case got := <-sink.sent:
+		if strings.HasSuffix(got, ":late") {
+			t.Fatalf("%s went out for a call cancelled before it could ring", got)
+		}
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// The only proof the server has that a socket claiming native call media is the iOS app.
+func TestHasVoIPToken(t *testing.T) {
+	phone, tablet := "phone-dev", "tablet-dev"
+	repo := &fakeTokenRepo{tokens: []models.PushToken{
+		{Token: "voip-phone", TokenType: models.PushTokenTypeAPNsVoIP, Platform: "ios", DeviceID: &phone},
+		{Token: "fcm-tablet", TokenType: models.PushTokenTypeFCM, Platform: "android", DeviceID: &tablet},
+		{Token: "voip-old", TokenType: models.PushTokenTypeAPNsVoIP, Platform: "ios"},
+	}}
+	s := NewPushTokenService(repo)
+
+	cases := map[string]bool{phone: true, tablet: false, "unknown-dev": false, "": false}
+	for device, want := range cases {
+		if got := s.HasVoIPToken(context.Background(), "u1", device); got != want {
+			t.Errorf("device %q: got %v, want %v", device, got, want)
+		}
 	}
 }

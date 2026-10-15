@@ -6,10 +6,12 @@ import (
 	"log"
 	"mime/multipart"
 	"net/http"
+	"strconv"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/pkg/ctxkeys"
+	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/akinalp/mqvi/services"
 )
 
@@ -23,6 +25,9 @@ type ReportHandler struct {
 	storageService      services.StorageService
 	maxUploadSize       int64
 	urlSigner           services.FileURLSigner
+	// Every report emails all platform admins; without a limiter one user could
+	// turn a target's message history into an inbox flood.
+	limiter *ratelimit.MessageRateLimiter
 }
 
 func NewReportHandler(
@@ -30,6 +35,7 @@ func NewReportHandler(
 	reportUploadService services.ReportUploadService,
 	storageService services.StorageService,
 	maxUploadSize int64,
+	limiter *ratelimit.MessageRateLimiter,
 	urlSigner services.FileURLSigner,
 ) *ReportHandler {
 	return &ReportHandler{
@@ -37,6 +43,7 @@ func NewReportHandler(
 		reportUploadService: reportUploadService,
 		storageService:      storageService,
 		maxUploadSize:       maxUploadSize,
+		limiter:             limiter,
 		urlSigner:           urlSigner,
 	}
 }
@@ -57,6 +64,20 @@ func (h *ReportHandler) CreateReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.limiter != nil && !h.limiter.Allow(user.ID) {
+		retryAfter := h.limiter.CooldownSeconds(user.ID)
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+		pkg.ErrorWithMessage(w, http.StatusTooManyRequests, "too many reports, try again later")
+		return
+	}
+	// Only a report actually filed counts; an invalid or duplicate one gives its slot back.
+	filed := false
+	defer func() {
+		if h.limiter != nil && !filed {
+			h.limiter.Refund(user.ID)
+		}
+	}()
+
 	var req models.CreateReportRequest
 	contentType := r.Header.Get("Content-Type")
 
@@ -72,6 +93,10 @@ func (h *ReportHandler) CreateReport(w http.ResponseWriter, r *http.Request) {
 		}
 		req.Reason = r.FormValue("reason")
 		req.Description = r.FormValue("description")
+		req.MessageID = r.FormValue("message_id")
+		req.DMMessageID = r.FormValue("dm_message_id")
+		req.VoiceMessageID = r.FormValue("voice_message_id")
+		req.MessageExcerpt = r.FormValue("message_excerpt")
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
@@ -84,6 +109,7 @@ func (h *ReportHandler) CreateReport(w http.ResponseWriter, r *http.Request) {
 		pkg.Error(w, err)
 		return
 	}
+	filed = true
 
 	// Null protection -- return [] instead of null in JSON
 	report.Attachments = []models.ReportAttachment{}

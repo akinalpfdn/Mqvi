@@ -2,6 +2,7 @@ import UIKit
 import AVFoundation
 import UserNotifications
 import Capacitor
+import LiveKitWebRTC
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -9,22 +10,17 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Configure audio session for voice/video calls.
-        // .playAndRecord: simultaneous input + output (required for calls).
-        // .allowBluetooth: support AirPods / BT headsets.
-        // .defaultToSpeaker: route to speaker when no headphones connected.
-        // .mixWithOthers: don't interrupt other audio apps when not in a call.
+        // Category only, never setActive: a session the app activated itself left CallKit calls
+        // silent. Calls and channel voice activate it through WebRTC when they need it.
         let audioSession = AVAudioSession.sharedInstance()
         do {
             try audioSession.setCategory(
                 .playAndRecord,
                 mode: .voiceChat,
-                options: [.allowBluetooth, .allowBluetoothA2DP, .defaultToSpeaker, .mixWithOthers]
+                options: [.allowBluetoothHFP, .allowBluetoothA2DP, .defaultToSpeaker]
             )
-            // Minimize audio latency — 0.005s (5ms) buffer duration.
-            // Default is ~0.023s (23ms). Lower = less delay, especially in background.
+            // Minimize audio latency — 5ms buffer instead of the ~23ms default.
             try audioSession.setPreferredIOBufferDuration(0.005)
-            try audioSession.setActive(true)
         } catch {
             print("Failed to configure AVAudioSession: \(error.localizedDescription)")
         }
@@ -45,14 +41,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return true
     }
 
-    /// Reactivate audio session after interruption (e.g., phone call ends).
-    /// Without this, WebRTC audio stays muted after an interruption.
+    /// Reactivates the session after an interruption, only while a call or channel voice holds it:
+    /// doing it unconditionally stopped other apps' audio after every Siri or phone call.
     @objc private func handleAudioInterruption(_ notification: Notification) {
         guard let info = notification.userInfo,
               let typeValue = info[AVAudioSessionInterruptionTypeKey] as? UInt,
               let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
 
-        if type == .ended {
+        if type == .ended, LKRTCAudioSession.sharedInstance().isActive {
             do {
                 try AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
             } catch {

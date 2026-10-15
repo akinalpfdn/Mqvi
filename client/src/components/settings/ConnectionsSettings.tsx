@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import { useToastStore } from "../../stores/toastStore";
 import { useConfirm } from "../../hooks/useConfirm";
 import { SERVER_URL } from "../../utils/constants";
+import { randomId } from "../../utils/randomId";
 
 // ─── Types ───
 
@@ -119,7 +120,7 @@ function ConnectionsSettings() {
     }
 
     const newConn: SavedConnection = {
-      id: crypto.randomUUID(),
+      id: randomId(),
       name: trimmedName,
       url: trimmedUrl,
     };

@@ -5,8 +5,20 @@ const { ensureFreshToken } = vi.hoisted(() => ({ ensureFreshToken: vi.fn() }));
 
 vi.mock("../api/client", () => ({ ensureFreshToken }));
 vi.mock("../utils/nativePlugins", () => ({ APP_RESUME_EVENT: "mqvi:app-resume" }));
+const { sendWSRef, previousPageCall } = vi.hoisted(() => ({
+  sendWSRef: { current: null as null | ((op: string, data?: unknown) => void) },
+  previousPageCall: { checked: Promise.resolve() as Promise<void> },
+}));
 vi.mock("../stores/p2pCallStore", () => ({
-  useP2PCallStore: { getState: () => ({ registerSendWS: vi.fn() }) },
+  useP2PCallStore: {
+    getState: () => ({
+      registerSendWS: (fn: (op: string, data?: unknown) => void) => {
+        sendWSRef.current = fn;
+      },
+      _previousPageCallChecked: previousPageCall.checked,
+      _adoptCandidate: null,
+    }),
+  },
 }));
 vi.mock("../stores/voiceStore", () => ({
   useVoiceStore: { getState: () => ({ isMuted: false, isDeafened: false }) },
@@ -17,6 +29,7 @@ vi.mock("../utils/constants", () => ({
   WS_HEARTBEAT_PROBE_INTERVAL: 10_000,
   WS_HEARTBEAT_MAX_MISS: 3,
   WS_MAX_RECONNECT_ATTEMPTS: 7,
+  getCapacitorPlatform: () => "web",
 }));
 vi.mock("./ws/channelEventHandlers", () => ({ handleChannelEvent: async () => false }));
 vi.mock("./ws/dmEventHandlers", () => ({ handleDMEvent: async () => false }));
@@ -377,5 +390,143 @@ describe("useWebSocket resume probe", () => {
     await advance(30_000);
     expect(socket.heartbeats).toBe(3);
     expect(socket.readyState).not.toBe(OPEN);
+  });
+});
+
+/**
+ * A call declined from the native call UI is usually declined with no socket at all: the app was
+ * launched into the background by the VoIP push. Dropping that message leaves the caller ringing
+ * until the server's ring timeout.
+ */
+describe("useWebSocket call teardown queue", () => {
+  it("should deliver a decline that was sent before the socket opened", async () => {
+    renderHook(() => useWebSocket());
+    await advance(0);
+
+    act(() => {
+      sendWSRef.current?.("p2p_call_decline", { call_id: "c1" });
+    });
+    expect(latest().sent).toHaveLength(0);
+
+    await act(async () => {
+      latest().accept();
+    });
+
+    expect(latest().sent.map((s) => JSON.parse(s))).toContainEqual({
+      op: "p2p_call_decline",
+      d: { call_id: "c1" },
+    });
+  });
+
+  it("should not replay a teardown older than the server keeps an away call", async () => {
+    renderHook(() => useWebSocket());
+    await advance(0);
+
+    act(() => {
+      sendWSRef.current?.("p2p_call_end", { call_id: "c1" });
+    });
+    await advance(4 * 60 * 60 * 1000 + 1_000);
+
+    await act(async () => {
+      latest().accept();
+    });
+
+    expect(latest().sent.some((s) => JSON.parse(s).op === "p2p_call_end")).toBe(false);
+  });
+
+  // Back from suspension the socket can read OPEN and be dead: the hang-up written into it is
+  // lost, and the store has nothing left to resume. It goes again on the next connection.
+  it("should replay a teardown sent on a socket that turned out dead", async () => {
+    await connect();
+    act(() => {
+      sendWSRef.current?.("p2p_call_end", { call_id: "c1" });
+    });
+    const dead = latest();
+    expect(dead.sent.map((x) => JSON.parse(x).op)).toContain("p2p_call_end");
+
+    await act(async () => {
+      dead.drop();
+    });
+    await advance(60_000);
+    await act(async () => {
+      latest().accept();
+    });
+
+    expect(latest()).not.toBe(dead);
+    expect(latest().sent.map((x) => JSON.parse(x))).toContainEqual({ op: "p2p_call_end", d: { call_id: "c1" } });
+  });
+
+  it("should stop replaying once the server reports the call over", async () => {
+    await connect();
+    act(() => {
+      sendWSRef.current?.("p2p_call_end", { call_id: "c1" });
+    });
+    await act(async () => {
+      latest().deliver({ op: "p2p_call_end", d: { call_id: "c1" } });
+      latest().drop();
+    });
+    await advance(60_000);
+    await act(async () => {
+      latest().accept();
+    });
+
+    expect(latest().sent.some((x) => JSON.parse(x).op === "p2p_call_end")).toBe(false);
+  });
+
+  // Replayed later, an end that names no call would hang up whatever call came after.
+  it("should not keep an end that names no call", async () => {
+    renderHook(() => useWebSocket());
+    await advance(0);
+
+    act(() => {
+      sendWSRef.current?.("p2p_call_end");
+    });
+    await act(async () => {
+      latest().accept();
+    });
+
+    expect(latest().sent.some((x) => JSON.parse(x).op === "p2p_call_end")).toBe(false);
+  });
+
+  it("should drop everything else sent with no socket", async () => {
+    renderHook(() => useWebSocket());
+    await advance(0);
+
+    act(() => {
+      sendWSRef.current?.("p2p_call_initiate", { receiver_id: "them" });
+    });
+
+    await act(async () => {
+      latest().accept();
+    });
+
+    expect(latest().sent.some((s) => JSON.parse(s).op === "p2p_call_initiate")).toBe(false);
+  });
+});
+
+// The URL says whether this page holds the call the previous page left running; connecting before
+// that is known would let the server release a call this page is about to take over.
+describe("useWebSocket and a call the previous page left running", () => {
+  afterEach(() => {
+    previousPageCall.checked = Promise.resolve();
+  });
+
+  it("should not connect until the native side has been asked", async () => {
+    let settle: () => void = () => {};
+    previousPageCall.checked = new Promise<void>((resolve) => (settle = resolve));
+    renderHook(() => useWebSocket());
+    await advance(0);
+    expect(sockets()).toHaveLength(0);
+
+    await act(async () => settle());
+    await advance(0);
+    expect(sockets()).toHaveLength(1);
+  });
+
+  it("should connect anyway when the native side never answers", async () => {
+    previousPageCall.checked = new Promise<void>(() => {});
+    renderHook(() => useWebSocket());
+    await advance(2_000);
+    expect(sockets()).toHaveLength(1);
   });
 });

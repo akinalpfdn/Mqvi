@@ -27,6 +27,8 @@ function LegalModal({ type, onClose }: { type: "terms" | "privacy"; onClose: () 
     { title: t("accountTitle"), content: t("accountDesc") },
     { title: t("contentTitle"), content: t("contentDesc") },
     { title: t("conductTitle"), content: [t("conductDesc"), t("conductItem1"), t("conductItem2"), t("conductItem3"), t("conductItem4"), t("conductItem5")] },
+    { title: t("zeroToleranceTitle"), content: t("zeroToleranceDesc") },
+    { title: t("moderationTitle"), content: t("moderationDesc") },
     { title: t("ipTitle"), content: t("ipDesc") },
     { title: t("disclaimerTitle"), content: t("disclaimerDesc") },
     { title: t("liabilityTitle"), content: t("liabilityDesc") },

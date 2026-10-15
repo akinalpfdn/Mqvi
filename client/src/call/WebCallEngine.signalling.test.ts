@@ -1,0 +1,197 @@
+/** The web engine as receiver: back-to-back offers and rejected candidates. */
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+const { fetchIceServers, fetchIceServersForRecovery } = vi.hoisted(() => ({
+  fetchIceServers: vi.fn(), fetchIceServersForRecovery: vi.fn(),
+}));
+vi.mock("../api/calls", () => ({ fetchIceServers, fetchIceServersForRecovery }));
+
+import { WebCallEngine } from "./WebCallEngine";
+import type { CallEngineEvents } from "./CallMediaEngine";
+
+function fakePC() {
+  return {
+    connectionState: "new" as RTCPeerConnectionState,
+    signalingState: "stable" as RTCSignalingState,
+    remoteDescription: null as unknown,
+    onicecandidate: null,
+    ontrack: null,
+    onconnectionstatechange: null,
+    onnegotiationneeded: null,
+    restartIce: vi.fn(),
+    setConfiguration: vi.fn(),
+    getConfiguration: () => ({}),
+    close: vi.fn(),
+    addTrack: vi.fn(),
+    createDataChannel: () => ({ readyState: "connecting", send: vi.fn(), onmessage: null }),
+    getSenders: () => [],
+    getReceivers: () => [],
+    setRemoteDescription: vi.fn(async function (this: { remoteDescription: unknown }, d: unknown) {
+      this.remoteDescription = d;
+    }),
+    setLocalDescription: vi.fn(async () => {}),
+    createAnswer: vi.fn(async () => ({ type: "answer", sdp: "answer-sdp" })),
+    createOffer: vi.fn(async () => ({ type: "offer", sdp: "offer-sdp" })),
+    addIceCandidate: vi.fn<(candidate: { candidate: string }) => Promise<void>>(async () => {}),
+  };
+}
+
+const emptyStream = {
+  getTracks: () => [],
+  getAudioTracks: () => [],
+  getVideoTracks: () => [],
+} as unknown as MediaStream;
+
+const originals = {
+  pc: globalThis.RTCPeerConnection,
+  sd: globalThis.RTCSessionDescription,
+  ice: globalThis.RTCIceCandidate,
+};
+
+let built: ReturnType<typeof fakePC>[];
+let getUserMedia: ReturnType<typeof vi.fn>;
+
+function events() {
+  return {
+    onLocalDescription: vi.fn(),
+    onIceCandidate: vi.fn(),
+    onRemoteStream: vi.fn(),
+    onLocalStream: vi.fn(),
+    onRemoteVideo: vi.fn(),
+    onLocalVideo: vi.fn(),
+    onIceRestartNeeded: vi.fn(),
+    onScreenShareEnded: vi.fn(),
+    onConnectionLost: vi.fn(),
+    onPeerHungUp: vi.fn(),
+  } satisfies CallEngineEvents;
+}
+
+beforeEach(() => {
+  built = [];
+  fetchIceServers.mockReset().mockResolvedValue([]);
+  fetchIceServersForRecovery.mockReset().mockResolvedValue([{ urls: "turn:refreshed" }]);
+  globalThis.RTCPeerConnection = function FakeRTCPeerConnection() {
+    const pc = fakePC();
+    built.push(pc);
+    return pc;
+  } as unknown as typeof RTCPeerConnection;
+  globalThis.RTCSessionDescription = function FakeDescription(init: unknown) {
+    return init;
+  } as unknown as typeof RTCSessionDescription;
+  globalThis.RTCIceCandidate = function FakeCandidate(init: unknown) {
+    return init;
+  } as unknown as typeof RTCIceCandidate;
+  getUserMedia = vi.fn(async () => emptyStream);
+  Object.defineProperty(globalThis.navigator, "mediaDevices", {
+    value: { getUserMedia },
+    configurable: true,
+  });
+});
+
+afterEach(() => {
+  globalThis.RTCPeerConnection = originals.pc;
+  globalThis.RTCSessionDescription = originals.sd;
+  globalThis.RTCIceCandidate = originals.ice;
+});
+
+async function receiver() {
+  const ev = events();
+  const engine = new WebCallEngine(ev);
+  await engine.start({ callId: "c1", callType: "voice", isCaller: false });
+  return { engine, ev };
+}
+
+describe("web engine receiving offers", () => {
+  it("should restart for a disconnected peer even while locally connected", async () => {
+    const engine = new WebCallEngine(events());
+    try {
+      await engine.start({ callId: "c1", callType: "voice", isCaller: true });
+      built[0].connectionState = "connected";
+      engine.restartIce();
+      await vi.waitFor(() => expect(built[0].restartIce).toHaveBeenCalledTimes(1));
+      expect(built[0].setConfiguration).toHaveBeenCalledWith({ iceServers: [{ urls: "turn:refreshed" }] });
+    } finally {
+      engine.close();
+    }
+  });
+
+  it("should build one connection and ask for the microphone once when two offers arrive together", async () => {
+    const { engine, ev } = await receiver();
+
+    await Promise.all([engine.acceptRemoteOffer("offer-1"), engine.acceptRemoteOffer("offer-2")]);
+
+    expect(built).toHaveLength(1);
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    // The second offer renegotiates the same connection and is answered by it.
+    expect(built[0].setRemoteDescription).toHaveBeenCalledTimes(2);
+    expect(ev.onLocalDescription).toHaveBeenCalledTimes(2);
+  });
+
+  it("should still answer when a queued candidate is rejected", async () => {
+    const { engine, ev } = await receiver();
+    await engine.addIceCandidate({ candidate: "bad", sdpMid: "0", sdpMLineIndex: 0 });
+    await engine.addIceCandidate({ candidate: "good", sdpMid: "0", sdpMLineIndex: 0 });
+
+    const answering = engine.acceptRemoteOffer("offer-1");
+    // The connection exists once fetchIceServers resolves; reject only the bad candidate.
+    await vi.waitFor(() => expect(built).toHaveLength(1));
+    built[0].addIceCandidate.mockImplementation(async (c: { candidate: string }) => {
+      if (c.candidate === "bad") throw new Error("invalid candidate");
+    });
+    await answering;
+
+    expect(built[0].addIceCandidate).toHaveBeenCalledTimes(2);
+    expect(ev.onLocalDescription).toHaveBeenCalledWith({ type: "answer", sdp: "answer-sdp" });
+  });
+});
+
+/** A caller's offer is answered before the receiver offers anything of its own. */
+describe("web engine answering a caller's first offer", () => {
+  // The engine installs the handler; the fake only declares it null.
+  const negotiationNeeded = () => (built[0].onnegotiationneeded as unknown as () => Promise<void>)();
+
+  it("should not offer while the microphone opens, when its control channel asks to negotiate", async () => {
+    let grantMic: (stream: MediaStream) => void = () => {};
+    getUserMedia.mockImplementation(() => new Promise<MediaStream>((resolve) => { grantMic = resolve; }));
+    const { engine, ev } = await receiver();
+
+    const answering = engine.acceptRemoteOffer("caller-offer");
+    await vi.waitFor(() => expect(getUserMedia).toHaveBeenCalled());
+    // What the browser does for a data channel on a fresh connection.
+    await negotiationNeeded();
+    expect(built[0].createOffer).not.toHaveBeenCalled();
+
+    grantMic(emptyStream);
+    await answering;
+    expect(ev.onLocalDescription).toHaveBeenCalledTimes(1);
+    expect(ev.onLocalDescription).toHaveBeenCalledWith({ type: "answer", sdp: "answer-sdp" });
+  });
+
+  it("should still renegotiate once it has answered", async () => {
+    const { engine, ev } = await receiver();
+    await engine.acceptRemoteOffer("caller-offer");
+
+    await negotiationNeeded();
+
+    expect(ev.onLocalDescription).toHaveBeenLastCalledWith({ type: "offer", sdp: "offer-sdp" });
+  });
+});
+
+/** A mute made before the stream exists reaches it. */
+describe("web engine mute before the microphone is open", () => {
+  it("should open the stream with the microphone already muted", async () => {
+    const audio = { kind: "audio", enabled: true, stop: () => {} };
+    const stream = {
+      getTracks: () => [audio],
+      getAudioTracks: () => [audio],
+      getVideoTracks: () => [],
+    } as unknown as MediaStream;
+    getUserMedia.mockResolvedValue(stream);
+
+    const { engine } = await receiver();
+    engine.setMicEnabled(false);
+    await engine.acceptRemoteOffer("offer-1");
+
+    expect(audio.enabled).toBe(false);
+  });
+});

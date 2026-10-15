@@ -23,6 +23,8 @@ type MessageService interface {
 	BroadcastCreate(message *models.Message)
 	Update(ctx context.Context, id string, userID string, req *models.UpdateMessageRequest) (*models.Message, error)
 	Delete(ctx context.Context, serverID string, id string, userID string, userPermissions models.Permission) error
+	// DeleteAsModerator removes a message for platform moderation; no membership or permission check.
+	DeleteAsModerator(ctx context.Context, id string) error
 }
 
 type messageService struct {
@@ -497,6 +499,23 @@ func (s *messageService) Delete(ctx context.Context, serverID string, id string,
 	if message.UserID != userID && !userPermissions.Has(models.PermManageMessages) {
 		return fmt.Errorf("%w: you can only delete your own messages", pkg.ErrForbidden)
 	}
+
+	return s.deleteMessage(ctx, message)
+}
+
+// DeleteAsModerator is the report-handling path: the platform admin is usually not a
+// member of the server, so the server/permission gates of Delete do not apply.
+func (s *messageService) DeleteAsModerator(ctx context.Context, id string) error {
+	message, err := s.messageRepo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	return s.deleteMessage(ctx, message)
+}
+
+// deleteMessage is the shared core: files, row, quota, unread counters, broadcast.
+func (s *messageService) deleteMessage(ctx context.Context, message *models.Message) error {
+	id := message.ID
 
 	// Collect attachment info before delete (CASCADE removes attachment rows)
 	var attachmentBytes int64

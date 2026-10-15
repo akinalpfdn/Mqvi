@@ -50,6 +50,7 @@ type Services struct {
 	DMSettings         services.DMSettingsService
 	Block              services.BlockService
 	Report             services.ReportService
+	ReportModeration   services.ReportModerationService
 	ReportUpload       services.ReportUploadService
 	ServerReportUpload services.ServerReportUploadService
 	AdminUser          services.AdminUserService
@@ -80,7 +81,11 @@ type RateLimiters struct {
 	ForgotPwd *ratelimit.LoginRateLimiter
 	ResetPwd  *ratelimit.LoginRateLimiter
 	Feedback  *ratelimit.MessageRateLimiter
-	ICE       *ratelimit.MessageRateLimiter
+	// User + server reports: each one emails every platform admin.
+	Report *ratelimit.MessageRateLimiter
+	ICE    *ratelimit.MessageRateLimiter
+	// Keyed call hang-ups, per IP: the route has no session to limit by.
+	Hangup    *ratelimit.MessageRateLimiter
 	Discovery *ratelimit.MessageRateLimiter
 	// Screen-share token minting. Every call costs either a 4-hour JWT or an app_logs row, and
 	// nothing else bounded it.
@@ -197,7 +202,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	readStateService := services.NewReadStateService(repos.ReadState, channelPermService)
 
 	// BlockService before DMService (DMService uses it as BlockChecker)
-	blockService := services.NewBlockService(repos.Friendship, repos.User, hub, urlSigner)
+	blockService := services.NewBlockService(repos.Friendship, repos.User, hub, urlSigner, p2pCallService)
 
 	// DMSettingsService before DMService (DMService uses it as DMSettingsUnhider)
 	dmSettingsService := services.NewDMSettingsService(repos.DMSettings, repos.DM, hub)
@@ -236,7 +241,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	reactionService := services.NewReactionService(repos.Reaction, repos.Message, repos.Channel, hub, channelPermService)
 	serverMuteService := services.NewServerMuteService(repos.ServerMute)
 	channelMuteService := services.NewChannelMuteService(repos.ChannelMute)
-	reportService := services.NewReportService(repos.Report, repos.ServerReport, repos.User, repos.Server, urlSigner, emailSender)
+	reportService := services.NewReportService(repos.Report, repos.ServerReport, repos.User, repos.Server, repos.Message, repos.DM, repos.VoiceMessage, channelPermService, voiceService, urlSigner, emailSender)
 	reportUploadService := services.NewReportUploadService(repos.Report, uploadPipeline, cfg.Upload.MaxSize)
 	serverReportUploadService := services.NewServerReportUploadService(repos.ServerReport, uploadPipeline, cfg.Upload.MaxSize)
 
@@ -255,6 +260,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	feedbackService := services.NewFeedbackService(repos.Feedback, repos.User, fileLocator, storageService, emailSender)
 	settingsBadgeService := services.NewSettingsBadgeService(repos.User, repos.Feedback, repos.Report)
 	voiceMessageService := services.NewVoiceMessageService(repos.VoiceMessage, voiceService, hub, urlSigner, fileLocator)
+	reportModerationService := services.NewReportModerationService(repos.Report, messageService, dmService, voiceMessageService)
 	// Wipe ephemeral voice chat when the last participant leaves the channel.
 	// 5-minute timeout so a hung DB call can't leak the goroutine indefinitely.
 	voiceService.SetOnChannelEmpty(func(channelID string) {
@@ -292,7 +298,11 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	resetPwdLimiter := ratelimit.NewLoginRateLimiter(5, 5*time.Minute)                     // 5 reset attempts per 5 min per IP
 	feedbackLimiter := ratelimit.NewMessageRateLimiter(2, 1*time.Minute, 30*time.Second)   // 2 feedback per min, 30s cooldown
 	iceLimiter := ratelimit.NewMessageRateLimiter(20, 1*time.Minute, 30*time.Second)       // 20 ICE-server fetches per min, 30s cooldown
+	hangupLimiter := ratelimit.NewMessageRateLimiter(30, 1*time.Minute, 30*time.Second)    // 30 keyed hang-ups per min per IP
 	discoveryLimiter := ratelimit.NewMessageRateLimiter(60, 1*time.Minute, 10*time.Second) // 60 discovery browse/search/join per min per user
+	// Reports: 5 per 10 min per user. Cooldown equals the window on purpose — Allow restarts the
+	// window when a cooldown ends, so a shorter cooldown would make the real rate 5 per cooldown.
+	reportLimiter := ratelimit.NewMessageRateLimiter(5, 10*time.Minute, 10*time.Minute)
 	// Same shape as ICE: an authenticated, user-initiated credential mint. Generous on purpose —
 	// a share that fails makes people retry, and those are the users we least want to lock out.
 	screenShareLimiter := ratelimit.NewMessageRateLimiter(20, 1*time.Minute, 30*time.Second)
@@ -335,6 +345,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		DMSettings:         dmSettingsService,
 		Block:              blockService,
 		Report:             reportService,
+		ReportModeration:   reportModerationService,
 		ReportUpload:       reportUploadService,
 		ServerReportUpload: serverReportUploadService,
 		AdminUser:          adminUserService,
@@ -359,18 +370,20 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	}
 
 	limiters := &RateLimiters{
-		Login:       loginLimiter,
-		Message:     messageLimiter,
-		Register:    registerLimiter,
-		ForgotPwd:   forgotPwdLimiter,
-		ResetPwd:    resetPwdLimiter,
-		Feedback:    feedbackLimiter,
-		ICE:         iceLimiter,
-		Discovery:   discoveryLimiter,
+		Login:          loginLimiter,
+		Message:        messageLimiter,
+		Register:       registerLimiter,
+		ForgotPwd:      forgotPwdLimiter,
+		ResetPwd:       resetPwdLimiter,
+		Feedback:       feedbackLimiter,
+		Report:         reportLimiter,
+		ICE:            iceLimiter,
+		Hangup:         hangupLimiter,
+		Discovery:      discoveryLimiter,
 		ScreenShare:    screenShareLimiter,
 		NoiseReduction: noiseReductionLimiter,
-		DMRead:      dmReadLimiter,
-		ChannelRead: channelReadLimiter,
+		DMRead:         dmReadLimiter,
+		ChannelRead:    channelReadLimiter,
 	}
 
 	return svcs, limiters, metricsCollector

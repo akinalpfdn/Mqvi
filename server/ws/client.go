@@ -58,6 +58,16 @@ type Client struct {
 	// meant for them. Empty for clients that predate it.
 	deviceID string
 
+	// instanceID identifies the running APP behind this connection: one per page load, kept
+	// across reconnects, different in every tab and window. Only it can tell "the same app came
+	// back on a new socket" from "another tab of the same install". Empty for older clients.
+	instanceID string
+
+	// The claim is immutable, but registration is checked at disconnect: VoIP token sync can
+	// finish after the handshake. Freezing the verdict there cuts off healthy background calls.
+	nativeMedia   bool
+	nativeDevices NativeDeviceChecker
+
 	// events is the per-connection inbound queue drained by a single eventPump
 	// goroutine. ReadPump enqueues here (except heartbeat, handled inline) so a
 	// connection's events are processed strictly in arrival order — a voice_join
@@ -94,7 +104,6 @@ type Client struct {
 	// to determine the user's visible status (highest priority wins).
 	// Accessed under Hub.mu.
 	status string
-
 }
 
 // ReadPump reads messages from the WebSocket and dispatches events.
@@ -161,6 +170,7 @@ func init() {
 		OpP2PCallDecline:        (*Client).handleP2PCallDecline,
 		OpP2PCallEnd:            (*Client).handleP2PCallEnd,
 		OpP2PCallResume:         (*Client).handleP2PCallResume,
+		OpP2PCallAdopt:          (*Client).handleP2PCallAdopt,
 		OpP2PSignal:             (*Client).handleP2PSignal,
 	}
 }
@@ -498,8 +508,12 @@ func (c *Client) handleP2PCallInitiate(event Event) {
 		return
 	}
 
-	if c.hub.onP2PCallInitiate != nil {
-		c.hub.onP2PCallInitiate(c.userID, c.sessionID, data)
+	if c.hub.onP2PCallInitiate == nil {
+		return
+	}
+	// Only this connection is told: the user's other devices never saw the attempt.
+	if reason := c.hub.onP2PCallInitiate(c.userID, c.sessionID, c.instanceID, c.deviceID, data); reason != "" {
+		c.sendEvent(Event{Op: OpP2PCallError, Data: P2PCallErrorData{ReceiverID: data.ReceiverID, Reason: reason}})
 	}
 }
 
@@ -520,7 +534,7 @@ func (c *Client) handleP2PCallAccept(event Event) {
 	}
 
 	if c.hub.onP2PCallAccept != nil {
-		c.hub.onP2PCallAccept(c.userID, c.sessionID, c.deviceID, data)
+		c.hub.onP2PCallAccept(c.userID, c.sessionID, c.instanceID, c.deviceID, data)
 	}
 }
 
@@ -541,7 +555,7 @@ func (c *Client) handleP2PCallDecline(event Event) {
 	}
 
 	if c.hub.onP2PCallDecline != nil {
-		c.hub.onP2PCallDecline(c.userID, c.deviceID, data)
+		c.hub.onP2PCallDecline(c.userID, c.instanceID, c.deviceID, data)
 	}
 }
 
@@ -556,8 +570,31 @@ func (c *Client) handleP2PCallEnd(event Event) {
 		}
 	}
 	if c.hub.onP2PCallEnd != nil {
-		c.hub.onP2PCallEnd(c.userID, c.deviceID, data.CallID)
+		c.hub.onP2PCallEnd(c.userID, endingInstance(c.instanceID, data), c.deviceID, data.CallID)
 	}
+}
+
+func (c *Client) handleP2PCallAdopt(event Event) {
+	dataBytes, err := json.Marshal(event.Data)
+	if err != nil {
+		return
+	}
+	var data P2PCallAdoptData
+	if err := json.Unmarshal(dataBytes, &data); err != nil || data.CallID == "" || data.InstanceID == "" || len(data.InstanceID) > 64 {
+		return
+	}
+	if c.hub.onP2PCallAdopt != nil {
+		c.hub.onP2PCallAdopt(c.userID, c.sessionID, c.instanceID, c.deviceID, data)
+	}
+}
+
+// endingInstance is the app a hang-up speaks for: this connection's, unless it names the page it
+// replaced. Taken on the client's word — see P2PCallEndData.InstanceID for why that is enough.
+func endingInstance(connection string, data P2PCallEndData) string {
+	if data.InstanceID != "" && len(data.InstanceID) <= 64 {
+		return data.InstanceID
+	}
+	return connection
 }
 
 // handleP2PCallResume — this connection replaced the one that was carrying the call.
@@ -574,7 +611,7 @@ func (c *Client) handleP2PCallResume(event Event) {
 		return
 	}
 	if c.hub.onP2PCallResume != nil {
-		c.hub.onP2PCallResume(c.userID, c.sessionID, data.CallID)
+		c.hub.onP2PCallResume(c.userID, c.sessionID, c.instanceID, data.CallID)
 	}
 }
 

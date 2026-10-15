@@ -13,7 +13,8 @@ public class P2PCallPlugin: CAPPlugin, CAPBridgedPlugin, CallManagerListener {
     public let jsName = "P2PCall"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "getVoipToken", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "endCall", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "endCall", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setMuted", returnType: CAPPluginReturnPromise)
     ]
 
     public override func load() {
@@ -23,7 +24,10 @@ public class P2PCallPlugin: CAPPlugin, CAPBridgedPlugin, CallManagerListener {
     /// Returns the current VoIP token (JS calls this on mount in case the token event
     /// fired before the listener was added).
     @objc func getVoipToken(_ call: CAPPluginCall) {
-        call.resolve(["token": CallManager.shared.currentVoipToken() ?? ""])
+        // CallManager's state is main-queue only; plugin calls arrive on the bridge queue.
+        DispatchQueue.main.async {
+            call.resolve(["token": CallManager.shared.currentVoipToken() ?? ""])
+        }
     }
 
     /// Dismiss the CallKit call when the call ends/declines in the app.
@@ -32,8 +36,24 @@ public class P2PCallPlugin: CAPPlugin, CAPBridgedPlugin, CallManagerListener {
             call.reject("call_id is required")
             return
         }
-        CallManager.shared.endCall(callId: callId)
-        call.resolve()
+        let reason = call.getString("reason") ?? "remoteEnded"
+        DispatchQueue.main.async {
+            CallManager.shared.endCall(callId: callId, reason: reason)
+            call.resolve()
+        }
+    }
+
+    /// Mirror an in-app mute onto the system call screen.
+    @objc func setMuted(_ call: CAPPluginCall) {
+        guard let callId = call.getString("call_id") else {
+            call.reject("call_id is required")
+            return
+        }
+        let muted = call.getBool("muted") ?? false
+        DispatchQueue.main.async {
+            CallManager.shared.setMuted(callId: callId, muted: muted)
+            call.resolve()
+        }
     }
 
     // MARK: - CallManagerListener
@@ -48,5 +68,13 @@ public class P2PCallPlugin: CAPPlugin, CAPBridgedPlugin, CallManagerListener {
 
     func onCallEnded(callId: String) {
         notifyListeners("callEnded", data: ["call_id": callId], retainUntilConsumed: true)
+    }
+
+    func onCallMuted(callId: String, muted: Bool) {
+        notifyListeners("callMuted", data: ["call_id": callId, "muted": muted], retainUntilConsumed: true)
+    }
+
+    func onCallReported(callId: String) {
+        notifyListeners("callReported", data: ["call_id": callId], retainUntilConsumed: true)
     }
 }
