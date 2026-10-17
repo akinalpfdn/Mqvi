@@ -116,7 +116,10 @@ function GuideSpotlight() {
         missingSince = null;
         const rect = hit.element.getBoundingClientRect();
         if (!current || current.element !== hit.element || !sameRect(current.rect, rect)) {
-          current = { ...hit, rect };
+          // A control scrolled out of its list (a long channel list) is brought into view once;
+          // the dim would otherwise stop the user from scrolling to it. Scrolling opens nothing.
+          if (current?.element !== hit.element) hit.element.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+          current = { ...hit, rect: hit.element.getBoundingClientRect() };
           setShown(current);
         }
       }

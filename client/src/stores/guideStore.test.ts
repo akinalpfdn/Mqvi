@@ -74,4 +74,16 @@ describe("refreshing guide progress", () => {
     await vi.advanceTimersByTimeAsync(GUIDE_REFRESH_DELAY_MS * 2);
     expect(api.getGuide).not.toHaveBeenCalled();
   });
+
+  it("ignores an answer that arrives after sign-out (it belongs to the previous account)", async () => {
+    let answer: (v: unknown) => void = () => {};
+    api.getGuide.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    const loading = useGuideStore.getState().load();
+
+    useGuideStore.getState().reset(); // signed out; the next account signs in
+    answer({ success: true, data: { steps: { ...none, community: true }, hidden: false } });
+    await loading;
+
+    expect(useGuideStore.getState().steps).toBeNull();
+  });
 });

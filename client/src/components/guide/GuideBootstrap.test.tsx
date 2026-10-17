@@ -54,11 +54,11 @@ describe("the guide on sign-in", () => {
     expect(useAuthStore.getState().user?.has_seen_welcome).toBe(true);
   });
 
-  it("stays shut for an account that had it hidden (one from before the guide existed)", async () => {
+  it("stays shut for an account that had it hidden, and does not even ask the server", async () => {
     await signIn({ id: "u1", has_seen_welcome: false, guide_hidden: true });
 
     expect(mocks.openGuide).not.toHaveBeenCalled();
-    expect(mocks.dismissWelcome).toHaveBeenCalledTimes(1);
+    expect(mocks.getGuide).not.toHaveBeenCalled(); // reading the guide is a write on the server
   });
 
   it("does not open again on later sign-ins", async () => {

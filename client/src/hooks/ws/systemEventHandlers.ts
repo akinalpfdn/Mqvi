@@ -146,7 +146,8 @@ export async function handleSystemEvent(
       }
       // A reconnect may have missed what the user did elsewhere; the first connect is covered
       // by GuideBootstrap's own load.
-      if (useGuideStore.getState().steps) void useGuideStore.getState().load();
+      const guide = useGuideStore.getState();
+      if (guide.steps && !guide.hidden) void guide.load();
       return true;
     }
 

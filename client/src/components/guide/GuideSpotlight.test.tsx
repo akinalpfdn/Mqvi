@@ -62,6 +62,17 @@ describe("the spotlight", () => {
     expect(screen.getByText("spotlight.friend.add-friend-tab")).toBeTruthy();
   });
 
+  it("brings a control scrolled out of its list into view, once", () => {
+    const friends = control("friends");
+    const scrollIntoView = vi.fn();
+    friends.scrollIntoView = scrollIntoView;
+    start();
+    frames(5);
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
+  });
+
   it("ends when the user uses the last control", () => {
     control("friends");
     const input = control("add-friend-input");

@@ -14,6 +14,8 @@ export const GUIDE_REFRESH_DELAY_MS = 500;
 export const GUIDE_RETRY_DELAY_MS = 2000;
 
 const pending = new Map<GuideStepId, ReturnType<typeof setTimeout>>();
+/** Bumped on sign-out: an answer to a request from before it belongs to the previous account. */
+let generation = 0;
 
 type GuideStore = {
   /** Null until the first load. */
@@ -36,20 +38,23 @@ export const useGuideStore = create<GuideStore>((set, get) => ({
   seed: (hidden) => set({ hidden }),
 
   load: async () => {
+    const asked = generation;
     const res = await guideApi.getGuide();
-    if (res.success && res.data) set({ steps: res.data.steps, hidden: res.data.hidden });
+    if (asked === generation && res.success && res.data) set({ steps: res.data.steps, hidden: res.data.hidden });
   },
 
   setHidden: async (hidden) => {
+    const asked = generation;
     const res = await guideApi.setGuideHidden(hidden);
-    if (!res.success || !res.data) return false;
+    if (asked !== generation || !res.success || !res.data) return false;
     set({ steps: res.data.steps, hidden: res.data.hidden });
     return true;
   },
 
   markAppUsed: async () => {
+    const asked = generation;
     const res = await guideApi.markGuideAppUsed();
-    if (res.success && res.data) set({ steps: res.data.steps, hidden: res.data.hidden });
+    if (asked === generation && res.success && res.data) set({ steps: res.data.steps, hidden: res.data.hidden });
   },
 
   refreshFor: (step) => {
@@ -72,6 +77,7 @@ export const useGuideStore = create<GuideStore>((set, get) => ({
   },
 
   reset: () => {
+    generation++;
     pending.forEach(clearTimeout);
     pending.clear();
     set({ steps: null, hidden: false });

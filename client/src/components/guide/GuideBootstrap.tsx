@@ -27,8 +27,11 @@ function GuideBootstrap() {
 
   useEffect(() => {
     if (!userId) return;
-    useGuideStore.getState().seed(!!useAuthStore.getState().user?.guide_hidden);
-    void useGuideStore.getState().load();
+    const hiddenAtSignIn = !!useAuthStore.getState().user?.guide_hidden;
+    useGuideStore.getState().seed(hiddenAtSignIn);
+    // A hidden guide shows nothing, and reading its state is a write on the server: skip it
+    // until the guide is brought back (GuideRestore loads it then).
+    if (!hiddenAtSignIn) void useGuideStore.getState().load();
   }, [userId]);
 
   // The apps report themselves: running one is the "get the app" step.

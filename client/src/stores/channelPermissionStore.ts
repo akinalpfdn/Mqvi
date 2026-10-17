@@ -32,18 +32,22 @@ type ChannelPermissionState = {
   handleOverrideDelete: (channelID: string, roleID: string) => void;
 };
 
+/** Fetches in flight, so a second caller does not repeat one that has not answered yet. */
+const inFlight = new Set<string>();
+
 export const useChannelPermissionStore = create<ChannelPermissionState>(
   (set, get) => ({
     overridesByChannel: {},
     fetchedChannels: new Set(),
 
     fetchOverrides: async (channelID, explicitServerId?) => {
-      if (get().fetchedChannels.has(channelID)) return;
+      if (get().fetchedChannels.has(channelID) || inFlight.has(channelID)) return;
 
       const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
       if (!serverId) return;
 
-      const res = await channelPermApi.getOverrides(serverId, channelID);
+      inFlight.add(channelID);
+      const res = await channelPermApi.getOverrides(serverId, channelID).finally(() => inFlight.delete(channelID));
       if (res.data) {
         set((state) => ({
           overridesByChannel: {
