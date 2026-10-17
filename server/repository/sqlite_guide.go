@@ -25,6 +25,10 @@ const (
 	guideMessage
 	guideVoice
 	guideFriend
+	guideDM
+	guideProfile
+	guideRoles
+	guideApp
 )
 
 // GetState folds in every step the user's data shows now and returns what is stored, in one
@@ -43,9 +47,15 @@ func (r *sqliteGuideRepo) GetState(ctx context.Context, userID string) (*models.
 			| (CASE WHEN EXISTS(SELECT 1 FROM friendships
 				WHERE (status = 'accepted' AND (user_id = users.id OR friend_id = users.id))
 				   OR (status = 'pending' AND user_id = users.id)) THEN ? ELSE 0 END)
+			| (CASE WHEN EXISTS(SELECT 1 FROM dm_messages WHERE user_id = users.id) THEN ? ELSE 0 END)
+			| (CASE WHEN COALESCE(users.avatar_url, '') != '' THEN ? ELSE 0 END)
+			| (CASE WHEN EXISTS(SELECT 1 FROM roles r JOIN servers s ON s.id = r.server_id
+				WHERE s.owner_id = users.id AND r.is_default = 0 AND r.is_owner = 0) THEN ? ELSE 0 END)
+			| (CASE WHEN EXISTS(SELECT 1 FROM push_tokens
+				WHERE user_id = users.id AND platform IN ('android', 'ios')) THEN ? ELSE 0 END)
 		WHERE id = ?
 		RETURNING guide_done, guide_hidden`,
-		guideCommunity, guideMessage, guideVoice, guideFriend, userID,
+		guideCommunity, guideMessage, guideVoice, guideFriend, guideDM, guideProfile, guideRoles, guideApp, userID,
 	).Scan(&done, &s.Hidden)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("guide state for %s: %w", userID, pkg.ErrNotFound)
@@ -58,8 +68,29 @@ func (r *sqliteGuideRepo) GetState(ctx context.Context, userID string) (*models.
 		Message:   done&guideMessage != 0,
 		Voice:     done&guideVoice != 0,
 		Friend:    done&guideFriend != 0,
+		DM:        done&guideDM != 0,
+		Profile:   done&guideProfile != 0,
+		Roles:     done&guideRoles != 0,
+		App:       done&guideApp != 0,
 	}
 	return &s, nil
+}
+
+// MarkAppUsed records that the user ran the desktop app, which leaves no row of its own
+// (the mobile app is seen through its push token).
+func (r *sqliteGuideRepo) MarkAppUsed(ctx context.Context, userID string) error {
+	res, err := r.db.ExecContext(ctx, `UPDATE users SET guide_done = guide_done | ? WHERE id = ?`, guideApp, userID)
+	if err != nil {
+		return fmt.Errorf("mark app used for %s: %w", userID, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("mark app used for %s: %w", userID, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("mark app used for %s: %w", userID, pkg.ErrNotFound)
+	}
+	return nil
 }
 
 func (r *sqliteGuideRepo) SetHidden(ctx context.Context, userID string, hidden bool) error {

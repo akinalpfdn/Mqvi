@@ -22,11 +22,24 @@ export type User = {
   is_platform_admin: boolean;
   has_seen_download_prompt: boolean;
   has_seen_welcome: boolean;
+  /** The user hid the onboarding guide conversation. */
+  guide_hidden?: boolean;
   /** Soft-delete or tombstone marker. Null when active. */
   deleted_at?: string | null;
   /** True when the user is a tombstone (anonymized, irreversible). */
   is_hard_deleted?: boolean;
   created_at: string;
+};
+
+// ──────────────────────────────────
+// Onboarding guide
+// ──────────────────────────────────
+export type GuideStepId = "community" | "message" | "dm" | "voice" | "friend" | "profile" | "roles" | "app";
+
+/** GET /api/users/me/guide. A step, once done, stays done. */
+export type GuideState = {
+  steps: Record<GuideStepId, boolean>;
+  hidden: boolean;
 };
 
 // ──────────────────────────────────

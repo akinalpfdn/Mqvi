@@ -12,6 +12,7 @@ import (
 type GuideService interface {
 	GetState(ctx context.Context, userID string) (*models.GuideState, error)
 	SetHidden(ctx context.Context, userID string, hidden bool) (*models.GuideState, error)
+	MarkAppUsed(ctx context.Context, userID string) (*models.GuideState, error)
 }
 
 type guideService struct {
@@ -28,6 +29,13 @@ func (s *guideService) GetState(ctx context.Context, userID string) (*models.Gui
 		return nil, fmt.Errorf("get guide: %w", err)
 	}
 	return state, nil
+}
+
+func (s *guideService) MarkAppUsed(ctx context.Context, userID string) (*models.GuideState, error) {
+	if err := s.repo.MarkAppUsed(ctx, userID); err != nil {
+		return nil, fmt.Errorf("mark app used: %w", err)
+	}
+	return s.GetState(ctx, userID)
 }
 
 // SetHidden returns the state as stored after the write, not as the caller assumed it.

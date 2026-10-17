@@ -29,6 +29,7 @@ import FeedbackSettings from "./FeedbackSettings";
 import BlockedUsersSettings from "./BlockedUsersSettings";
 import AdminFeedbackList from "./AdminFeedbackList";
 import HelpCenter from "../shared/HelpCenter";
+import GuideRestore from "../guide/GuideRestore";
 
 function SettingsModal() {
   const { t } = useTranslation("settings");
@@ -198,6 +199,7 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
     case "help":
       return (
         <div className="settings-section settings-help">
+          <GuideRestore />
           <HelpCenter view="tabs" />
         </div>
       );

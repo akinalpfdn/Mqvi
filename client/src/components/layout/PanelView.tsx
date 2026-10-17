@@ -18,6 +18,7 @@ import ChatArea from "./ChatArea";
 import VoiceRoom from "../voice/VoiceRoom";
 import DMChat from "../dm/DMChat";
 import FriendsView from "../friends/FriendsView";
+import GuideView from "../guide/GuideView";
 import P2PCallScreen from "../p2p/P2PCallScreen";
 import DropZoneOverlay, { calculateZone } from "./DropZoneOverlay";
 import type { DropZone } from "./DropZoneOverlay";
@@ -202,6 +203,8 @@ function PanelView({
         />
       ) : activeTab.type === "friends" ? (
         <FriendsView />
+      ) : activeTab.type === "guide" ? (
+        <GuideView />
       ) : activeTab.type === "p2p" ? (
         <P2PCallScreen />
       ) : (

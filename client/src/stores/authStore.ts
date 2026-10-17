@@ -11,6 +11,7 @@ import { API_BASE_URL } from "../utils/constants";
 import i18n, { changeLanguage, resolveLanguage, type Language, SUPPORTED_LANGUAGES } from "../i18n";
 import { useE2EEStore } from "./e2eeStore";
 import { usePreferencesStore } from "./preferencesStore";
+import { useGuideStore } from "./guideStore";
 import { useVoiceStore } from "./voiceStore";
 import { endP2PCallForLogout } from "./shared/p2pCallControl";
 import { useSettingsStore } from "./settingsStore";
@@ -217,6 +218,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Reset E2EE state (IndexedDB keys preserved)
     await useE2EEStore.getState().reset();
     usePreferencesStore.getState().reset();
+    useGuideStore.getState().reset();
     // The SPA does not reload between logout and login: without this the next user inherits
     // this one's mark-read dedupe state and their DM badges never clear.
     resetMarkReadTracking();
@@ -275,6 +277,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     try {
       usePreferencesStore.getState().reset();
+      useGuideStore.getState().reset();
       clearCachedPushToken();
       useSettingsStore.getState().closeSettings();
     } catch (err) {

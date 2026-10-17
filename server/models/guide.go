@@ -10,6 +10,14 @@ type GuideSteps struct {
 	Voice bool `json:"voice"`
 	// Friend: has a friend or has sent a friend request.
 	Friend bool `json:"friend"`
+	// DM: has sent at least one direct message.
+	DM bool `json:"dm"`
+	// Profile: has set an avatar.
+	Profile bool `json:"profile"`
+	// Roles: has created a role in a server they own (beyond the built-in everyone and owner).
+	Roles bool `json:"roles"`
+	// App: has used the desktop or mobile app.
+	App bool `json:"app"`
 }
 
 // GuideState is the onboarding guide as the client draws it.

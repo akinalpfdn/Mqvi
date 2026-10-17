@@ -73,6 +73,70 @@ func TestGuide_StepsComeFromTheUsersOwnData(t *testing.T) {
 			want: models.GuideSteps{},
 		},
 		{
+			name: "a direct message I sent",
+			seed: func(f *dbtest.Fixture, me, other string) {
+				dm := f.DMChannel("", me, other)
+				f.DMMessage(dbtest.DMMessageSeed{DMChannelID: dm, UserID: me, Content: dbtest.Ptr("hey")})
+			},
+			want: models.GuideSteps{DM: true},
+		},
+		{
+			name: "a direct message I only received",
+			seed: func(f *dbtest.Fixture, me, other string) {
+				dm := f.DMChannel("", me, other)
+				f.DMMessage(dbtest.DMMessageSeed{DMChannelID: dm, UserID: other, Content: dbtest.Ptr("hey")})
+			},
+			want: models.GuideSteps{},
+		},
+		{
+			name: "an avatar",
+			seed: func(f *dbtest.Fixture, me, _ string) {
+				f.ExecWithoutForeignKeys(`UPDATE users SET avatar_url = '/api/files/a.png' WHERE id = ?`, me)
+			},
+			want: models.GuideSteps{Profile: true},
+		},
+		{
+			name: "a role I made in my own server",
+			seed: func(f *dbtest.Fixture, me, _ string) {
+				s := f.Server(dbtest.ServerSeed{OwnerID: me})
+				f.ExecWithoutForeignKeys(`INSERT INTO server_members (server_id, user_id) VALUES (?, ?)`, s, me)
+				f.ExecWithoutForeignKeys(`INSERT INTO roles (id, server_id, name, is_default, is_owner) VALUES
+					('r-everyone', ?, 'everyone', 1, 0), ('r-owner', ?, 'Owner', 0, 1), ('r-mod', ?, 'Mod', 0, 0)`, s, s, s)
+			},
+			want: models.GuideSteps{Community: true, Roles: true},
+		},
+		{
+			name: "the built-in roles of a new server are not a role I made",
+			seed: func(f *dbtest.Fixture, me, _ string) {
+				s := f.Server(dbtest.ServerSeed{OwnerID: me})
+				f.ExecWithoutForeignKeys(`INSERT INTO roles (id, server_id, name, is_default, is_owner) VALUES
+					('r-everyone', ?, 'everyone', 1, 0), ('r-owner', ?, 'Owner', 0, 1)`, s, s)
+			},
+			want: models.GuideSteps{},
+		},
+		{
+			name: "a role in someone else's server is not mine",
+			seed: func(f *dbtest.Fixture, _, other string) {
+				s := f.Server(dbtest.ServerSeed{OwnerID: other})
+				f.ExecWithoutForeignKeys(`INSERT INTO roles (id, server_id, name) VALUES ('r-mod', ?, 'Mod')`, s)
+			},
+			want: models.GuideSteps{},
+		},
+		{
+			name: "signing in to the mobile app",
+			seed: func(f *dbtest.Fixture, me, _ string) {
+				f.ExecWithoutForeignKeys(`INSERT INTO push_tokens (user_id, token, platform) VALUES (?, 'tok', 'ios')`, me)
+			},
+			want: models.GuideSteps{App: true},
+		},
+		{
+			name: "browser notifications are not the app",
+			seed: func(f *dbtest.Fixture, me, _ string) {
+				f.ExecWithoutForeignKeys(`INSERT INTO push_tokens (user_id, token, platform) VALUES (?, 'tok', 'web')`, me)
+			},
+			want: models.GuideSteps{},
+		},
+		{
 			name: "everything another user did counts for them, not me",
 			seed: func(f *dbtest.Fixture, _, other string) {
 				f.Server(dbtest.ServerSeed{OwnerID: other})
@@ -180,6 +244,21 @@ func TestGuide_HiddenIsStoredPerAccount(t *testing.T) {
 	}
 }
 
+func TestGuide_TheDesktopAppMarksItself(t *testing.T) {
+	ctx := context.Background()
+	f := dbtest.New(t)
+	me := f.User("me")
+	repo := NewSQLiteGuideRepo(f.DB)
+
+	if err := repo.MarkAppUsed(ctx, me); err != nil {
+		t.Fatalf("MarkAppUsed: %v", err)
+	}
+	got, err := repo.GetState(ctx, me)
+	if err != nil || !got.Steps.App {
+		t.Fatalf("want app done, got %+v err=%v", got, err)
+	}
+}
+
 func TestGuide_UnknownUserIsNotFound(t *testing.T) {
 	ctx := context.Background()
 	repo := NewSQLiteGuideRepo(dbtest.New(t).DB)
@@ -189,5 +268,8 @@ func TestGuide_UnknownUserIsNotFound(t *testing.T) {
 	}
 	if err := repo.SetHidden(ctx, "ghost", true); !errors.Is(err, pkg.ErrNotFound) {
 		t.Fatalf("SetHidden: want ErrNotFound, got %v", err)
+	}
+	if err := repo.MarkAppUsed(ctx, "ghost"); !errors.Is(err, pkg.ErrNotFound) {
+		t.Fatalf("MarkAppUsed: want ErrNotFound, got %v", err)
 	}
 }

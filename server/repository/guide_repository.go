@@ -11,4 +11,5 @@ type GuideRepository interface {
 	// GetState records any newly completed step before returning; completed steps never revert.
 	GetState(ctx context.Context, userID string) (*models.GuideState, error)
 	SetHidden(ctx context.Context, userID string, hidden bool) error
+	MarkAppUsed(ctx context.Context, userID string) error
 }

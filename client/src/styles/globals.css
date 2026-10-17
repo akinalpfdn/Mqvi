@@ -1652,20 +1652,6 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .download-prompt-btn-dismiss:hover { color:var(--t2); }
 
 /* ═══════════════════════════════════════
-   WELCOME MODAL
-   ═══════════════════════════════════════ */
-.welcome-overlay { position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:var(--overlay-backdrop,none);-webkit-backdrop-filter:var(--overlay-backdrop,none); }
-.welcome-modal { background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:14px;box-shadow:var(--panel-inset),var(--panel-shadow);padding:32px;max-width:420px;width:90%;text-align:center; }
-.welcome-logo { display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:50%;background:var(--primary);color:#fff;margin-bottom:16px; }
-.welcome-modal h3 { font-size:20px;font-weight:700;margin-bottom:6px;color:var(--t1); }
-.welcome-modal > p { font-size:14px;color:var(--t2);margin-bottom:20px; }
-.welcome-features { list-style:none;padding:0;margin:0 0 24px;text-align:left;display:flex;flex-direction:column;gap:12px; }
-.welcome-features li { display:flex;align-items:center;gap:10px;font-size:14px;color:var(--t1); }
-.welcome-features li svg { flex-shrink:0;color:var(--primary); }
-.welcome-btn { width:100%;padding:12px;border-radius:8px;background:var(--primary);color:#fff;font-size:14px;font-weight:600;border:none;cursor:pointer;transition:background .15s; }
-.welcome-btn:hover { background:var(--primary-h); }
-
-/* ═══════════════════════════════════════
    SETTINGS MODAL
    ═══════════════════════════════════════ */
 .settings-overlay { position:fixed;top:var(--safe-area-inset-top);left:0;right:0;bottom:var(--safe-area-inset-bottom);z-index:50;display:flex;background:transparent;padding:var(--panel-gap);gap:var(--panel-gap); }
@@ -5132,7 +5118,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
    above the keyboard. Every new fixed layer with an input belongs in this list.
    ═══════════════════════════════════════ */
 .disc-overlay,.modal-backdrop,.quick-switcher-overlay,.report-overlay,.block-confirm-overlay,
-.ico-overlay,.sp-overlay,.add-server-overlay,.welcome-overlay,.legal-modal-overlay,
+.ico-overlay,.sp-overlay,.add-server-overlay,.legal-modal-overlay,
 .download-prompt-overlay,.crop-modal-backdrop,.mobile-bottom-sheet-backdrop { bottom:var(--keyboard-bottom); }
 /* Only while open: a closed sheet waits just below the screen, and lifting it would park it
    behind the (translucent) keyboard. */
@@ -5150,3 +5136,31 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
   .gif-picker { max-height:min(60vh, calc(100vh - var(--safe-area-inset-top) - var(--keyboard-bottom) - 12px)); }
   .emoji-picker em-emoji-picker { max-height:min(50vh, calc(100vh - var(--safe-area-inset-top) - var(--keyboard-bottom) - 12px)); }
 }
+
+/* ═══════════════════════════════════════
+   ONBOARDING GUIDE — a client-drawn conversation, not a DM
+   ═══════════════════════════════════════ */
+.guide-avatar { width:24px;height:24px;border-radius:50%;flex-shrink:0;object-fit:cover; }
+.guide-avatar-lg { width:36px;height:36px;position:sticky;top:0; }
+.guide-badge { flex-shrink:0;font-size:13px;font-weight:600;line-height:1;padding:3px 7px;border-radius:999px;background:color-mix(in srgb, var(--primary) 16%, transparent);color:var(--primary);white-space:nowrap; }
+.ch-tree-guide .guide-badge-sm { margin-left:auto;padding:2px 6px; }
+.guide-scroll { flex:1;min-height:0;overflow-y:auto;padding:16px 14px 24px; }
+.guide-thread { display:flex;gap:10px;align-items:flex-start;max-width:640px; }
+.guide-lines { display:flex;flex-direction:column;gap:8px;min-width:0;flex:1; }
+.guide-line { display:flex;animation:guideLineIn .25s ease; }
+@keyframes guideLineIn { from{opacity:0;transform:translateY(6px);} to{opacity:1;transform:none;} }
+.guide-bubble { max-width:100%;background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:12px;padding:8px 12px;font-size:14px;line-height:1.45;color:var(--t0);white-space:pre-wrap;word-break:break-word;box-shadow:var(--panel-inset); }
+.guide-typing { display:flex;gap:4px;align-items:center;padding:12px 14px;background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:12px; }
+.guide-typing span { width:6px;height:6px;border-radius:50%;background:var(--t3);animation:guideDot 1s ease-in-out infinite; }
+.guide-typing span:nth-child(2) { animation-delay:.15s; }
+.guide-typing span:nth-child(3) { animation-delay:.3s; }
+@keyframes guideDot { 0%,60%,100%{opacity:.3;transform:translateY(0);} 30%{opacity:1;transform:translateY(-3px);} }
+.guide-card { width:100%;background:var(--bg-2);border:1px solid var(--primary);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:6px; }
+.guide-card.done { border-color:var(--panel-border);opacity:.85; }
+.guide-card-title { font-size:15px;font-weight:700;color:var(--t0); }
+.guide-card-desc { font-size:14px;line-height:1.45;color:var(--t2); }
+.guide-card-btn { align-self:flex-start;margin-top:4px;height:34px;padding:0 16px;border:none;border-radius:8px;background:var(--primary);color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s; }
+.guide-card-btn:hover { background:var(--primary-h); }
+.guide-card-done { display:flex;align-items:center;gap:6px;margin-top:2px;font-size:14px;font-weight:600;color:var(--green); }
+.guide-restore { display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;margin-bottom:16px;background:var(--bg-2);border:1px solid var(--b1);border-radius:10px; }
+.guide-restore-title { font-size:15px;font-weight:600;color:var(--t0); }

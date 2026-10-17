@@ -1,0 +1,53 @@
+{
+  "name": "mqvi Guide",
+  "badge": "Automatic guide",
+  "hide": "Hide guide",
+  "showMe": "Show me",
+  "typing": "mqvi Guide is typing…",
+  "greeting": "Hi {{name}}, welcome to mqvi! 👋",
+  "intro": "I'm the mqvi Guide, an automatic helper. Here are some things to try — pick any, in any order. I'll tick them off as you go.",
+  "community": {
+    "title": "Join a community",
+    "desc": "Browse public communities or create your own server. In a community you can chat, talk in voice and share your screen.",
+    "done": "You're in a community"
+  },
+  "message": {
+    "title": "Say hi in a channel",
+    "desc": "Every community has text channels. Open one and send your first message.",
+    "done": "You sent your first message"
+  },
+  "dm": {
+    "title": "Message someone directly",
+    "desc": "Start a private conversation with a friend — text, voice or video, just the two of you.",
+    "done": "You sent a direct message"
+  },
+  "voice": {
+    "title": "Join a voice channel",
+    "desc": "Channels marked 🔊 are voice channels. Hop in to talk, share your screen or watch others share theirs.",
+    "done": "You joined a voice channel"
+  },
+  "friend": {
+    "title": "Add a friend",
+    "desc": "Add friends by their username to message and call them directly.",
+    "done": "You added a friend"
+  },
+  "profile": {
+    "title": "Make your profile yours",
+    "desc": "Add an avatar so people recognise you in chats and voice.",
+    "done": "Your profile has an avatar"
+  },
+  "roles": {
+    "title": "Create a role",
+    "desc": "In a server you own, roles give people colours and permissions — moderators, members, anything you like.",
+    "done": "You created a role"
+  },
+  "app": {
+    "title": "Get the app",
+    "desc": "mqvi runs on desktop and mobile too: stay in voice in the background and get notifications.",
+    "done": "You're using the app"
+  },
+  "finale": "That's everything — you're all set! 🎉 You can hide this guide now; you'll find it again under Settings → Help.",
+  "restoreTitle": "mqvi Guide",
+  "restoreDesc": "The step-by-step guide shown to new users. Bring it back to the top of your direct messages.",
+  "restoreButton": "Show the guide"
+}

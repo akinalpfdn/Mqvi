@@ -34,6 +34,7 @@ function MobileHeader() {
       case "dm": return "@";
       case "friends": return "\uD83D\uDC65";
       case "p2p": return "\uD83D\uDCDE";
+      case "guide": return "\uD83D\uDC4B";
       default: return "#";
     }
   }
