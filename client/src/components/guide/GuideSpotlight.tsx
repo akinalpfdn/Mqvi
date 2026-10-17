@@ -2,24 +2,29 @@
  * GuideSpotlight — walks the user through a guide tour. It dims the app around the deepest
  * control of the tour that is on screen and says what to do with it; as the user opens things
  * the next control appears and the spotlight moves on. The control stays fully usable: the dim
- * is four panels around it, never over it. Using the final control, the step getting done, a
- * tap on the dim, or Escape ends the tour.
+ * is four panels around it, never over it.
+ *
+ * A tour may then introduce a few controls (the voice panel) with Next / Skip, clicking nothing.
+ * The tour ends on its last control (or last introduction), the step getting done before that,
+ * a tap on the dim, Skip, or Escape.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
 import { useGuideStore } from "../../stores/guideStore";
 import { useSpotlightStore } from "../../stores/spotlightStore";
-import { currentStage, type TourStage } from "../../utils/guideTours";
+import { SIDEBAR, currentStage, isTargetOnScreen, type TourStage } from "../../utils/guideTours";
 
 /** How long the tour may have nothing on screen (a drawer sliding, a dialog opening). */
 export const SPOTLIGHT_WAIT_MS = 1500;
+/** Joining voice takes a moment before its panel exists. */
+export const EXPLAIN_WAIT_MS = 10000;
 const PAD = 4;
 const CAPTION_GAP = 12;
 const CAPTION_WIDTH = 260;
-const CAPTION_HEIGHT_GUESS = 80;
+const CAPTION_HEIGHT_GUESS = 110;
 
 type Shown = { stage: TourStage; element: HTMLElement; rect: DOMRect };
 
@@ -33,20 +38,47 @@ function GuideSpotlight() {
   const close = useSpotlightStore((s) => s.close);
   const stepDone = useGuideStore((s) => (tour ? !!s.steps?.[tour.step] : false));
   const [shown, setShown] = useState<Shown | null>(null);
+  /** Which introduction is up; null while still walking to the control. */
+  const [explainAt, setExplainAt] = useState<number | null>(null);
+
+  const explain = tour?.explain;
+  useEffect(() => {
+    setExplainAt(tour && tour.stages.length === 0 && tour.explain?.length ? 0 : null);
+  }, [tour]);
+
+  // While introducing, the drawer or sidebar holding the panel comes first if it is closed.
+  const stages = useMemo<readonly TourStage[]>(() => {
+    if (!tour) return [];
+    if (explainAt === null || !explain) return tour.stages;
+    return [...SIDEBAR, { target: explain[explainAt] }];
+  }, [tour, explain, explainAt]);
+
+  const advance = useCallback(() => {
+    if (!explain || explainAt === null) return;
+    if (explainAt + 1 >= explain.length) close();
+    else setExplainAt(explainAt + 1);
+  }, [explain, explainAt, close]);
 
   // Follow the deepest control on screen, every frame.
   useEffect(() => {
     setShown(null);
-    if (!tour) return;
+    if (!tour || stages.length === 0) return;
+    const wait = explainAt === null ? SPOTLIGHT_WAIT_MS : EXPLAIN_WAIT_MS;
     let frame = 0;
     let current: Shown | null = null;
     let missingSince: number | null = null;
 
     const tick = (now: number) => {
-      const hit = currentStage(tour.stages);
+      // An introduction whose control this user does not have (no soundboard permission):
+      // the panel is there, the control is not — pass over it.
+      if (explainAt !== null && explain && isTargetOnScreen("voice-panel") && !isTargetOnScreen(explain[explainAt])) {
+        advance();
+        return;
+      }
+      const hit = currentStage(stages);
       if (!hit) {
         missingSince ??= now;
-        if (now - missingSince > SPOTLIGHT_WAIT_MS) {
+        if (now - missingSince > wait) {
           close();
           return;
         }
@@ -66,13 +98,16 @@ function GuideSpotlight() {
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [tour, close]);
+  }, [tour, stages, explain, explainAt, advance, close]);
 
-  // Using the final control or Escape ends it; using an earlier one just lets the tour move on.
+  // Using the last control ends the walk (or starts the introductions); Escape ends it all.
   useEffect(() => {
-    if (!shown) return;
+    if (!shown || !tour) return;
     const onPointerDown = (e: PointerEvent) => {
-      if (shown.stage.final && e.target instanceof Node && shown.element.contains(e.target)) close();
+      if (explainAt !== null || !shown.stage.final) return;
+      if (!(e.target instanceof Node) || !shown.element.contains(e.target)) return;
+      if (tour.explain?.length) setExplainAt(0);
+      else close();
     };
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
     document.addEventListener("pointerdown", onPointerDown, true);
@@ -81,11 +116,14 @@ function GuideSpotlight() {
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("keydown", onKey);
     };
-  }, [shown, close]);
+  }, [shown, tour, explainAt, close]);
 
+  // Done some other way: nothing left to walk to — but the introductions still have a point.
   useEffect(() => {
-    if (stepDone) close();
-  }, [stepDone, close]);
+    if (!stepDone || !tour || explainAt !== null) return;
+    if (tour.explain?.length) setExplainAt(0);
+    else close();
+  }, [stepDone, tour, explainAt, close]);
 
   if (!tour || !shown) return null;
 
@@ -102,6 +140,8 @@ function GuideSpotlight() {
         left: Math.max(8, Math.min(hole.left, vw - CAPTION_WIDTH - 8)),
       };
   const target = shown.stage.target;
+  const introducing = explainAt !== null && explain?.[explainAt] === target;
+  const isLast = !!explain && explainAt === explain.length - 1;
 
   return createPortal(
     <div className="guide-spot" role="dialog" aria-live="polite">
@@ -110,8 +150,21 @@ function GuideSpotlight() {
       <div className="guide-spot-dim" style={{ top: hole.top, left: 0, width: Math.max(0, hole.left), height: hole.height }} onPointerDown={close} />
       <div className="guide-spot-dim" style={{ top: hole.top, left: hole.left + hole.width, right: 0, height: hole.height }} onPointerDown={close} />
       <div className="guide-spot-ring" style={hole} />
-      <div className="guide-spot-caption" style={caption}>
-        {t([`spotlight.${tour.scope}.${target}`, `spotlight.stage.${target}`])}
+      <div className={`guide-spot-caption${introducing ? " interactive" : ""}`} style={caption}>
+        <div>{t([`spotlight.${tour.scope}.${target}`, `spotlight.stage.${target}`])}</div>
+        {introducing && explain && explainAt !== null && (
+          <div className="guide-spot-actions">
+            <span className="guide-spot-count">
+              {explainAt + 1}/{explain.length}
+            </span>
+            <button type="button" className="guide-spot-skip" onClick={close}>
+              {t("tourSkip")}
+            </button>
+            <button type="button" className="guide-spot-next" onClick={advance}>
+              {t(isLast ? "tourDone" : "tourNext")}
+            </button>
+          </div>
+        )}
       </div>
     </div>,
     document.body,

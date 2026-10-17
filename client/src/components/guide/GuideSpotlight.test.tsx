@@ -7,7 +7,7 @@ vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => {} },
 }));
 
-import GuideSpotlight, { SPOTLIGHT_WAIT_MS } from "./GuideSpotlight";
+import GuideSpotlight, { SPOTLIGHT_WAIT_MS, EXPLAIN_WAIT_MS } from "./GuideSpotlight";
 import { useSpotlightStore } from "../../stores/spotlightStore";
 import { useGuideStore } from "../../stores/guideStore";
 import type { Tour } from "../../utils/guideTours";
@@ -97,3 +97,82 @@ describe("the spotlight", () => {
     expect(useSpotlightStore.getState().tour).toBeNull();
   });
 });
+
+describe("introducing the voice panel", () => {
+  const voiceTour: Tour = {
+    step: "voice",
+    scope: "voice",
+    stages: [{ target: "channel-voice", final: true }],
+    explain: ["voice-mic", "voice-soundboard", "voice-disconnect"],
+  };
+
+  function joinVoice({ soundboard = true } = {}) {
+    control("voice-panel");
+    control("voice-mic");
+    if (soundboard) control("voice-soundboard");
+    control("voice-disconnect");
+    frames();
+  }
+
+  it("starts once the user clicks the voice channel, and steps through with Next", () => {
+    const channel = control("channel-voice");
+    render(<GuideSpotlight />);
+    act(() => useSpotlightStore.getState().open(voiceTour));
+    frames();
+
+    fireEvent.pointerDown(channel);
+    joinVoice();
+    expect(screen.getByText("spotlight.voice.voice-mic")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("tourNext"));
+    frames();
+    expect(screen.getByText("spotlight.voice.voice-soundboard")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("tourNext"));
+    frames();
+    fireEvent.click(screen.getByText("tourDone"));
+    expect(useSpotlightStore.getState().tour).toBeNull();
+  });
+
+  it("passes over a control this user does not have", () => {
+    render(<GuideSpotlight />);
+    act(() => useSpotlightStore.getState().open({ ...voiceTour, stages: [] }));
+    joinVoice({ soundboard: false });
+
+    fireEvent.click(screen.getByText("tourNext"));
+    frames(); // the soundboard stop finds no control and passes itself over
+    frames(); // the next stop is drawn
+    expect(screen.getByText("spotlight.voice.voice-disconnect")).toBeTruthy();
+  });
+
+  it("still introduces the panel when the user got into voice another way", () => {
+    control("channel-voice");
+    render(<GuideSpotlight />);
+    act(() => useSpotlightStore.getState().open(voiceTour));
+    frames();
+
+    act(() => useGuideStore.setState({ steps: { ...none, voice: true } }));
+    joinVoice();
+    expect(screen.getByText("spotlight.voice.voice-mic")).toBeTruthy();
+  });
+
+  it("can be skipped", () => {
+    render(<GuideSpotlight />);
+    act(() => useSpotlightStore.getState().open({ ...voiceTour, stages: [] }));
+    joinVoice();
+
+    fireEvent.click(screen.getByText("tourSkip"));
+    expect(useSpotlightStore.getState().tour).toBeNull();
+  });
+
+  it("waits for voice to connect, but not forever", () => {
+    render(<GuideSpotlight />);
+    act(() => useSpotlightStore.getState().open({ ...voiceTour, stages: [] }));
+    act(() => vi.advanceTimersByTime(SPOTLIGHT_WAIT_MS * 2));
+    expect(useSpotlightStore.getState().tour).not.toBeNull();
+
+    act(() => vi.advanceTimersByTime(EXPLAIN_WAIT_MS));
+    expect(useSpotlightStore.getState().tour).toBeNull();
+  });
+});
+

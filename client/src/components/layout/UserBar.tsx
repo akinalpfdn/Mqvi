@@ -194,7 +194,7 @@ function UserBar({
     <div className="user-bar">
       {/* Voice controls row — shown above user info when connected */}
       {isInVoice && (
-        <div className="ub-voice-row">
+        <div className="ub-voice-row" data-tour="voice-panel">
           <div className="ub-voice-info">
             <span className="ub-voice-label">{t("voiceConnected")}</span>
             {rtt > 0 && (
@@ -210,7 +210,7 @@ function UserBar({
             </div>
           )}
           {/* Noise Reduction toggle */}
-          <div className="ub-nr-row">
+          <div className="ub-nr-row" data-tour="voice-noise">
             <div className="ub-nr-label">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.1-1.3 2-3 2s-3-.9-3-2 1.3-2 3-2 3 .9 3 2zM21 16c0 1.1-1.3 2-3 2s-3-.9-3-2 1.3-2 3-2 3 .9 3 2z" />
@@ -261,7 +261,7 @@ function UserBar({
           />
 
           <div className="ub-voice-btns">
-            <div className="ub-ctrl-group">
+            <div className="ub-ctrl-group" data-tour="voice-share">
               <button
                 className={`ub-ctrl${isSharing ? " active" : ""}`}
                 onClick={() => (isNativeCapturing ? stopNativeSmoothCapture() : onToggleScreenShare())}
@@ -286,6 +286,7 @@ function UserBar({
             </div>
             <button
               ref={sbBtnRef}
+              data-tour="voice-soundboard"
               className={`ub-ctrl${isPanelOpen ? " active" : ""}`}
               onClick={togglePanel}
               title={t("soundboard", { ns: "soundboard" })}
@@ -297,6 +298,7 @@ function UserBar({
             <button
               className="ub-ctrl ub-end"
               onClick={onDisconnect}
+              data-tour="voice-disconnect"
               title={t("endCall")}
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
@@ -327,7 +329,7 @@ function UserBar({
         </div>
 
         {/* Mic toggle + device chevron */}
-        <div className="ub-ctrl-group">
+        <div className="ub-ctrl-group" data-tour="voice-mic">
           <button
             className={`ub-ctrl${isMuted ? " active" : ""}`}
             onClick={onToggleMute}
@@ -356,7 +358,7 @@ function UserBar({
         </div>
 
         {/* Deafen toggle + device chevron */}
-        <div className="ub-ctrl-group">
+        <div className="ub-ctrl-group" data-tour="voice-deafen">
           <button
             className={`ub-ctrl${isDeafened ? " active" : ""}`}
             onClick={onToggleDeafen}

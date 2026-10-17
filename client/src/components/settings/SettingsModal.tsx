@@ -30,6 +30,7 @@ import BlockedUsersSettings from "./BlockedUsersSettings";
 import AdminFeedbackList from "./AdminFeedbackList";
 import HelpCenter from "../shared/HelpCenter";
 import GuideRestore from "../guide/GuideRestore";
+import VoiceTourReplay from "../guide/VoiceTourReplay";
 
 function SettingsModal() {
   const { t } = useTranslation("settings");
@@ -201,6 +202,7 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
       return (
         <div className="settings-section settings-help">
           <GuideRestore />
+          <VoiceTourReplay />
           <HelpCenter view="tabs" />
         </div>
       );

@@ -75,7 +75,13 @@
       "server-settings": "“Sunucu Ayarları”nı aç.",
       "settings-roles": "Roller'i aç.",
       "create-role": "Bir rol oluştur.",
-      "add-server": "Kendi sunucunu buradan kur."
+      "add-server": "Kendi sunucunu buradan kur.",
+      "voice-mic": "Mikrofon: kendini susturur ya da açar. Oktan hangi mikrofonun kullanılacağını seçersin.",
+      "voice-deafen": "Kulaklık: sağırlaştırır — kimseyi duymazsın, mikrofonun da kapanır. Oktan çıkış cihazını ve sesi ayarlarsın.",
+      "voice-share": "Ekran paylaşımı: ekranını ya da bir pencereni kanala yayınlar. Oktan kaliteyi seçersin.",
+      "voice-soundboard": "Ses paneli: kanaldaki herkese kısa ses efektleri çalar.",
+      "voice-noise": "Gürültü azaltma: klavye, fan gibi arka plan seslerini bastırır.",
+      "voice-disconnect": "Sesli kanaldan buradan çıkarsın."
     },
     "dm": {
       "friends": "Arkadaşlar'ı aç, sonra bir arkadaşına sağ tıkla (telefonda basılı tut) ve “Mesaj Gönder”i seç."
@@ -89,5 +95,12 @@
     "rolesNoServer": {
       "add-server": "Roller kendi sunucunda olur — önce buradan bir sunucu kur."
     }
-  }
+  },
+  "tourNext": "İleri",
+  "tourDone": "Bitti",
+  "tourSkip": "Atla",
+  "voiceTourTitle": "Ses paneli turu",
+  "voiceTourDesc": "Sesli kanalda karşına çıkan butonların kısa bir tanıtımı.",
+  "voiceTourButton": "Turu oynat",
+  "voiceTourNeedsVoice": "Oynatmak için bir sesli kanala katıl."
 }

@@ -1,7 +1,7 @@
 /** Tours walk through real controls; the spotlight sits on the deepest one on screen. */
 import { describe, it, expect, beforeEach } from "vitest";
 
-import { buildTour, currentStage } from "./guideTours";
+import { buildTour, currentStage, voicePanelTour, VOICE_PANEL_STOPS } from "./guideTours";
 
 function add(tour: string, { onScreen = true, active = false } = {}) {
   const el = document.createElement("button");
@@ -53,6 +53,11 @@ describe("guide tours", () => {
   it("sends someone with no friends to add one before messaging", () => {
     expect(buildTour("dm", ctx)?.scope).toBe("dmNoFriend");
     expect(buildTour("dm", { ...ctx, hasFriends: true })?.stages.at(-1)).toEqual({ target: "dm-composer", final: true });
+  });
+
+  it("introduces the voice panel after joining voice, and on its own for a replay", () => {
+    expect(buildTour("voice", ctx)?.explain).toEqual(VOICE_PANEL_STOPS);
+    expect(voicePanelTour()).toMatchObject({ stages: [], explain: VOICE_PANEL_STOPS });
   });
 
   it("has no tour for the app, whose card links to the download", () => {

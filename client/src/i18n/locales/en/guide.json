@@ -75,7 +75,13 @@
       "server-settings": "Open “Server Settings”.",
       "settings-roles": "Open Roles.",
       "create-role": "Create a role.",
-      "add-server": "Create a server of your own here."
+      "add-server": "Create a server of your own here.",
+      "voice-mic": "Microphone: mute or unmute yourself. The arrow picks which microphone to use.",
+      "voice-deafen": "Headphones: deafen — you hear no one and your mic turns off too. The arrow sets your output device and volume.",
+      "voice-share": "Screen share: stream your screen or a window to the channel. The arrow sets the quality.",
+      "voice-soundboard": "Soundboard: play short sound effects for everyone in the channel.",
+      "voice-noise": "Noise reduction: filters out background sounds like keyboards and fans.",
+      "voice-disconnect": "Leave the voice channel here."
     },
     "dm": {
       "friends": "Open Friends, then right-click a friend (long-press on a phone) and choose “Send Message”."
@@ -89,5 +95,12 @@
     "rolesNoServer": {
       "add-server": "Roles live in a server you own — create one here first."
     }
-  }
+  },
+  "tourNext": "Next",
+  "tourDone": "Done",
+  "tourSkip": "Skip",
+  "voiceTourTitle": "Voice panel tour",
+  "voiceTourDesc": "A short walk through the buttons you get in a voice channel.",
+  "voiceTourButton": "Play the tour",
+  "voiceTourNeedsVoice": "Join a voice channel to play it."
 }

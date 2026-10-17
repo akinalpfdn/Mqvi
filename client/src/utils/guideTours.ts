@@ -16,8 +16,29 @@ export type Tour = {
   step: GuideStepId;
   /** Caption namespace: the step, or a variant of it ("dmNoFriend"). */
   scope: string;
+  /** Controls to walk to; the last is the one the user uses. Empty for an explain-only tour. */
   stages: readonly TourStage[];
+  /**
+   * After the last stage, controls to introduce one by one with Next/Skip — nothing to click.
+   * A stop missing from the screen (no permission) is passed over.
+   */
+  explain?: readonly string[];
 };
+
+/** The voice panel, introduced once the user is in a voice channel. */
+export const VOICE_PANEL_STOPS: readonly string[] = [
+  "voice-mic",
+  "voice-deafen",
+  "voice-share",
+  "voice-soundboard",
+  "voice-noise",
+  "voice-disconnect",
+];
+
+/** The voice panel tour on its own (Settings → Help), for someone already in voice. */
+export function voicePanelTour(): Tour {
+  return { step: "voice", scope: "voice", stages: [], explain: VOICE_PANEL_STOPS };
+}
 
 export type TourContext = {
   /** The user owns the server in view, so its settings (and roles) are theirs to open. */
@@ -26,7 +47,7 @@ export type TourContext = {
 };
 
 /** A hidden sidebar comes first: collapsed on desktop, a closed drawer on a phone. */
-const SIDEBAR: TourStage[] = [{ target: "sidebar-expand" }, { target: "menu" }];
+export const SIDEBAR: TourStage[] = [{ target: "sidebar-expand" }, { target: "menu" }];
 const FINAL = (target: string): TourStage => ({ target, final: true });
 
 const FRIEND: TourStage[] = [
@@ -48,7 +69,12 @@ export function buildTour(step: GuideStepId, ctx: TourContext): Tour | null {
         stages: [...SIDEBAR, { target: "servers-section" }, { target: "server" }, { target: "channel-text" }, FINAL("composer")],
       };
     case "voice":
-      return { step, scope: step, stages: [...SIDEBAR, { target: "servers-section" }, { target: "server" }, FINAL("channel-voice")] };
+      return {
+        step,
+        scope: step,
+        stages: [...SIDEBAR, { target: "servers-section" }, { target: "server" }, FINAL("channel-voice")],
+        explain: VOICE_PANEL_STOPS,
+      };
     case "friend":
       return { step, scope: step, stages: FRIEND };
     case "dm":
@@ -106,4 +132,9 @@ export function currentStage(stages: readonly TourStage[]): { stage: TourStage; 
     if (element) return { stage: stages[i], element };
   }
   return null;
+}
+
+/** Whether any control with this marker is on screen. */
+export function isTargetOnScreen(target: string): boolean {
+  return Array.from(document.querySelectorAll(`[data-tour="${target}"]`)).some(isOnScreen);
 }
