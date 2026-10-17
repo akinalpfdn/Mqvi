@@ -1567,8 +1567,10 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 /* ═══════════════════════════════════════
    AUTH PAGES (Login / Register)
    ═══════════════════════════════════════ */
-.auth-page { display:flex;align-items:center;justify-content:center;height:100%;background:var(--bg-0); }
-.auth-card { width:100%;max-width:480px;padding:40px;background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:14px;box-shadow:var(--panel-inset),var(--panel-shadow); }
+/* Scrolls when the card is taller than the screen; the card's auto margins centre it otherwise.
+   align-items:center would clip a tall card at the top, out of reach of scrolling. */
+.auth-page { display:flex;flex-direction:column;height:100%;overflow-y:auto;overscroll-behavior:contain;background:var(--bg-0); }
+.auth-card { margin:auto;flex-shrink:0;width:100%;max-width:480px;padding:40px;background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:14px;box-shadow:var(--panel-inset),var(--panel-shadow); }
 .auth-title { font-size:26px;font-weight:700;color:var(--t0);text-align:center;margin-bottom:8px; }
 .auth-subtitle { font-size:14px;color:var(--t2);text-align:center;margin-bottom:28px; }
 .auth-error { background:var(--red-s);border:1px solid var(--red);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:var(--red); }
@@ -4091,6 +4093,9 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
   .auth-card {
     width: 90vw;
     max-width: 420px;
+    /* Top-aligned: a centred card jumps up when the keyboard shrinks the screen. */
+    margin: 16px auto;
+    padding: 24px;
   }
 
   /* ─── Invite Modal ─── */

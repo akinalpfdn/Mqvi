@@ -1,13 +1,11 @@
 /**
- * Reveals a focused field that the Android soft keyboard would otherwise cover.
+ * Reveals a focused field that the soft keyboard would otherwise hide.
  *
- * The activity is windowSoftInputMode=adjustNothing, so the WebView is never told the
- * viewport shrank and cannot scroll the field into view on its own. This does only that
- * one job: no element is repositioned, nothing is resized. The field's own scroll
- * container moves by exactly the hidden amount, and only when it is genuinely hidden —
- * a field the WebView already revealed measures as visible and is left alone.
- *
- * iOS resizes the WebView natively (Keyboard `resize: "native"`), so this is Android-only.
+ * Android is windowSoftInputMode=adjustNothing: the WebView keeps its size and the keyboard
+ * covers its bottom. iOS shrinks the WebView (Keyboard `resize: "native"`), and the plugin
+ * detaches the WebView's own keyboard scrolling, so a field below the new bottom edge stays
+ * out of sight. Either way this does one job: the field's own scroll container moves by
+ * exactly the hidden amount, and only when the field is genuinely hidden.
  */
 
 import { Keyboard } from "@capacitor/keyboard";
@@ -16,6 +14,8 @@ import { Keyboard } from "@capacitor/keyboard";
 const CLEARANCE = 12;
 
 let keyboardHeight = 0;
+/** Android: the keyboard overlays the WebView. iOS: the WebView already shrank above it. */
+let keyboardOverlaysView = false;
 
 function isTextEntry(element: Element | null): element is HTMLElement {
   if (!element) return false;
@@ -47,14 +47,16 @@ function revealFocusedField(): void {
   const element = document.activeElement;
   if (!isTextEntry(element)) return;
 
-  const visibleBottom = window.innerHeight - keyboardHeight;
+  const visibleBottom = window.innerHeight - (keyboardOverlaysView ? keyboardHeight : 0);
   const hidden = element.getBoundingClientRect().bottom + CLEARANCE - visibleBottom;
   if (hidden <= 0) return;
 
   findScroller(element)?.scrollBy({ top: hidden, behavior: "smooth" });
 }
 
-export async function initKeyboardScroll(): Promise<void> {
+export async function initKeyboardScroll(platform: "android" | "ios"): Promise<void> {
+  keyboardOverlaysView = platform === "android";
+
   await Keyboard.addListener("keyboardDidShow", (info) => {
     keyboardHeight = info.keyboardHeight;
     revealFocusedField();
