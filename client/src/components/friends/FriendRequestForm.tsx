@@ -4,11 +4,20 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useFriendStore } from "../../stores/friendStore";
 
+/** Server refusal codes and how to word them; anything else gets a gentle "try again". */
+const REFUSALS: Record<string, string> = {
+  friend_user_not_found: "friendErrorNotFound",
+  friend_self: "friendErrorSelf",
+  friend_already_friends: "friendErrorAlreadyFriends",
+  friend_request_pending: "friendErrorPending",
+  friend_invalid_username: "friendErrorInvalid",
+};
+
 function FriendRequestForm() {
   const { t } = useTranslation("common");
   const [username, setUsername] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [result, setResult] = useState<{ tone: "success" | "info"; message: string } | null>(null);
 
   const sendRequest = useFriendStore((s) => s.sendRequest);
 
@@ -23,10 +32,12 @@ function FriendRequestForm() {
     const res = await sendRequest(trimmed);
 
     if (res.success) {
-      setResult({ success: true, message: t("friendRequestSent", { username: trimmed }) });
+      setResult({ tone: "success", message: t("friendRequestSent", { username: trimmed }) });
       setUsername("");
     } else {
-      setResult({ success: false, message: res.error ?? t("somethingWentWrong") });
+      // Never the server's raw text: a refusal is worded kindly, anything unknown as a retry.
+      const key = (res.code && REFUSALS[res.code]) || "friendErrorGeneric";
+      setResult({ tone: "info", message: t(key, { username: trimmed }) });
     }
 
     setIsSubmitting(false);
@@ -58,7 +69,7 @@ function FriendRequestForm() {
       </form>
 
       {result && (
-        <div className={`frf-result ${result.success ? "frf-success" : "frf-error"}`}>
+        <div className={`frf-result frf-${result.tone}`} role="status">
           {result.message}
         </div>
       )}

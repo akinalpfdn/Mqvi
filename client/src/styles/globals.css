@@ -3254,7 +3254,8 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .frf-btn:disabled { opacity:0.5;cursor:not-allowed; }
 .frf-result { margin-top:12px;padding:10px 14px;border-radius:6px;font-size:13px; }
 .frf-success { background:rgba(61,145,64,0.12);color:var(--green); }
-.frf-error { background:rgba(220,53,69,0.1);color:var(--red); }
+/* A refusal is guidance, not an alarm: a calm tone, not error red. */
+.frf-info { background:color-mix(in srgb, var(--primary) 10%, transparent);border:1px solid color-mix(in srgb, var(--primary) 25%, transparent);color:var(--t1); }
 
 /* ═══════════════════════════════════════
    P2P CALL

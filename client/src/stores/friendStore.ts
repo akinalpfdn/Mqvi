@@ -21,7 +21,8 @@ type FriendState = {
   // ─── Actions ───
   fetchFriends: () => Promise<void>;
   fetchRequests: () => Promise<void>;
-  sendRequest: (username: string) => Promise<{ success: boolean; error?: string }>;
+  /** `code` names a refusal the UI words itself (server `friend_*` codes). */
+  sendRequest: (username: string) => Promise<{ success: boolean; code?: string }>;
   acceptRequest: (requestId: string) => Promise<boolean>;
   declineRequest: (requestId: string) => Promise<boolean>;
   removeFriend: (userId: string) => Promise<boolean>;
@@ -79,7 +80,7 @@ export const useFriendStore = create<FriendState>((set, get) => ({
       }
       return { success: true };
     }
-    return { success: false, error: res.error };
+    return { success: false, code: res.code };
   },
 
   acceptRequest: async (requestId: string) => {
