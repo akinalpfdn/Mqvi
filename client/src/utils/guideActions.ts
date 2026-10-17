@@ -10,9 +10,10 @@ import type { GuideStepId } from "../types";
 import { buildTour } from "./guideTours";
 
 export function showGuideStep(step: GuideStepId): void {
-  const server = useServerStore.getState().activeServer;
+  const me = useAuthStore.getState().user?.id;
   const tour = buildTour(step, {
-    ownsServer: !!server && server.owner_id === useAuthStore.getState().user?.id,
+    // Any server of theirs, not only the one in view: the step counts any server they own.
+    ownsServer: !!me && useServerStore.getState().servers.some((s) => s.owner_id === me),
   });
   if (tour) useSpotlightStore.getState().open(tour);
 }

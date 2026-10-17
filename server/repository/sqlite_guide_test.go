@@ -268,3 +268,46 @@ func TestGuide_StepBitsNeverMove(t *testing.T) {
 		}
 	}
 }
+
+// Reading is the common case: it must not take the database's write lock when nothing changed.
+func TestGuide_ReadingWritesOnlyWhenAStepAppears(t *testing.T) {
+	ctx := context.Background()
+	f := dbtest.New(t)
+	me := f.User("me")
+	repo := NewSQLiteGuideRepo(f.DB)
+	f.ExecWithoutForeignKeys(`CREATE TABLE guide_writes (n INTEGER)`)
+	f.ExecWithoutForeignKeys(`CREATE TRIGGER count_guide_writes AFTER UPDATE OF guide_done ON users
+		BEGIN INSERT INTO guide_writes VALUES (1); END`)
+	writes := func() int {
+		var n int
+		if err := f.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM guide_writes`).Scan(&n); err != nil {
+			t.Fatalf("count: %v", err)
+		}
+		return n
+	}
+
+	if _, err := repo.GetState(ctx, me); err != nil {
+		t.Fatalf("GetState: %v", err)
+	}
+	if writes() != 0 {
+		t.Fatal("a new account with nothing done must not be written")
+	}
+
+	f.Message(dbtest.MessageSeed{UserID: me, Content: dbtest.Ptr("hi")})
+	got, err := repo.GetState(ctx, me)
+	if err != nil || !got.Steps.Message {
+		t.Fatalf("want message done, got %+v err=%v", got, err)
+	}
+	if writes() != 1 {
+		t.Fatalf("a newly done step is written once, got %d writes", writes())
+	}
+
+	for i := 0; i < 3; i++ {
+		if _, err := repo.GetState(ctx, me); err != nil {
+			t.Fatalf("GetState: %v", err)
+		}
+	}
+	if writes() != 1 {
+		t.Fatalf("reading again with nothing new must not write, got %d writes", writes())
+	}
+}

@@ -165,3 +165,20 @@ describe("the greeting on the login screen", () => {
     expect(hasSignedInBefore()).toBe(true);
   });
 });
+
+describe("signing out closes what the guide had open", () => {
+  it("ends a tour in progress and closes the guide tab", async () => {
+    const { useSpotlightStore } = await import("./spotlightStore");
+    const { useUIStore } = await import("./uiStore");
+    const { GUIDE_TAB_ID } = await import("../utils/guideScript");
+    vi.mocked(authApi.logout).mockResolvedValue({ success: true } as Awaited<ReturnType<typeof authApi.logout>>);
+    useSpotlightStore.getState().open({ step: "friend", scope: "friend", stages: [{ target: "friends" }] });
+    useUIStore.getState().openTab(GUIDE_TAB_ID, "guide", "guide");
+
+    await useAuthStore.getState().logout();
+
+    expect(useSpotlightStore.getState().tour).toBeNull();
+    const tabs = Object.values(useUIStore.getState().panels).flatMap((p) => p.tabs);
+    expect(tabs.some((tb) => tb.channelId === GUIDE_TAB_ID)).toBe(false);
+  });
+});

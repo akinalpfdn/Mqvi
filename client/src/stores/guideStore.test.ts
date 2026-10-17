@@ -86,4 +86,26 @@ describe("refreshing guide progress", () => {
 
     expect(useGuideStore.getState().steps).toBeNull();
   });
+
+  it("does not let the previous account's timer clear the next account's pending check", async () => {
+    let answerA: (v: unknown) => void = () => {};
+    api.getGuide.mockReturnValueOnce(new Promise((resolve) => (answerA = resolve)));
+    useGuideStore.getState().refreshFor("message");
+    await vi.advanceTimersByTimeAsync(GUIDE_REFRESH_DELAY_MS); // A's request is out
+
+    useGuideStore.getState().reset(); // A signs out, B signs in
+    useGuideStore.setState({ steps: none, hidden: false });
+    serverSays({});
+    useGuideStore.getState().refreshFor("message"); // B's check is pending
+
+    answerA({ success: true, data: { steps: none, hidden: false } });
+    await vi.advanceTimersByTimeAsync(0);
+    useGuideStore.getState().refreshFor("message"); // must still dedupe against B's pending check
+
+    await vi.advanceTimersByTimeAsync(GUIDE_REFRESH_DELAY_MS + GUIDE_RETRY_DELAY_MS * 3);
+    // A's request, then B's check and its one retry. A stale timer clearing B's entry would let
+    // A's retry and B's retry both run: four.
+    expect(api.getGuide).toHaveBeenCalledTimes(3);
+  });
 });
+

@@ -17,7 +17,9 @@ let refreshFor: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   refreshFor = vi.spyOn(useGuideStore.getState(), "refreshFor").mockImplementation(() => {});
-  useServerStore.setState({ servers: [] });
+  useServerStore.setState({
+    servers: [{ id: "own", owner_id: "me" } as ServerListItem, { id: "theirs", owner_id: "x" } as ServerListItem],
+  });
   useFriendStore.setState({ friends: [], outgoing: [] });
   useVoiceStore.setState({ currentVoiceChannelId: null });
   useAuthStore.setState({ user: { id: "me", avatar_url: null } as User });
@@ -28,11 +30,12 @@ afterEach(() => refreshFor.mockRestore());
 
 describe("live guide progress", () => {
   it.each([
-    ["joining or creating a server", "community", () => useServerStore.setState({ servers: [{ id: "s1" } as ServerListItem] })],
+    ["joining or creating a server", "community", () =>
+      useServerStore.setState((st) => ({ servers: [...st.servers, { id: "s1", owner_id: "x" } as ServerListItem] }))],
     ["sending a friend request", "friend", () => useFriendStore.setState({ outgoing: [{ id: "f1" } as FriendshipWithUser] })],
     ["joining voice", "voice", () => useVoiceStore.setState({ currentVoiceChannelId: "v1" })],
     ["setting an avatar", "profile", () => useAuthStore.setState({ user: { id: "me", avatar_url: "/a.png" } as User })],
-    ["a role appearing", "roles", () => useRoleStore.setState({ rolesByServer: { s1: [] } })],
+    ["a role changing in a server the user owns", "roles", () => useRoleStore.setState({ rolesByServer: { own: [] } })],
   ])("checks the step after %s", (_name, step, act) => {
     renderHook(() => useGuideProgress());
     act();
@@ -41,12 +44,17 @@ describe("live guide progress", () => {
 
   it("does not check on changes that do not count (leaving voice, losing a server)", () => {
     useVoiceStore.setState({ currentVoiceChannelId: "v1" });
-    useServerStore.setState({ servers: [{ id: "s1" } as ServerListItem] });
     renderHook(() => useGuideProgress());
 
     useVoiceStore.setState({ currentVoiceChannelId: null });
     useServerStore.setState({ servers: [] });
 
+    expect(refreshFor).not.toHaveBeenCalled();
+  });
+
+  it("does not check roles changing in someone else's server (every server switch refetches them)", () => {
+    renderHook(() => useGuideProgress());
+    useRoleStore.setState({ rolesByServer: { theirs: [] } });
     expect(refreshFor).not.toHaveBeenCalled();
   });
 });

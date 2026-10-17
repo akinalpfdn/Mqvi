@@ -95,6 +95,7 @@ export function toServerListItem(server: Server): ServerListItem {
     icon_url: server.icon_url,
     verified: server.verified,
     e2ee_enabled: server.e2ee_enabled,
+    owner_id: server.owner_id,
   };
 }
 

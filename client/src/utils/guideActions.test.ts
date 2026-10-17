@@ -7,13 +7,13 @@ import { useMobileStore } from "../stores/mobileStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useServerStore } from "../stores/serverStore";
 import { useAuthStore } from "../stores/authStore";
-import type { Server, User } from "../types";
+import type { Server, ServerListItem, User } from "../types";
 
 beforeEach(() => {
   useSpotlightStore.setState({ tour: null });
   useMobileStore.setState({ leftDrawerOpen: false });
   useSettingsStore.setState({ isOpen: false });
-  useServerStore.setState({ activeServer: null, activeServerId: null });
+  useServerStore.setState({ activeServer: null, activeServerId: null, servers: [] });
   useAuthStore.setState({ user: { id: "me" } as User });
 });
 
@@ -28,9 +28,21 @@ describe("Show me", () => {
     },
   );
 
-  it("takes the owner of the server in view to its roles", () => {
-    useServerStore.setState({ activeServer: { id: "s1", owner_id: "me" } as Server });
+  it("takes the owner of any server to its roles, even from another server", () => {
+    useServerStore.setState({
+      activeServer: { id: "s2", owner_id: "someone" } as Server,
+      servers: [
+        { id: "s1", owner_id: "me" } as ServerListItem,
+        { id: "s2", owner_id: "someone" } as ServerListItem,
+      ],
+    });
     showGuideStep("roles");
     expect(useSpotlightStore.getState().tour?.scope).toBe("roles");
+  });
+
+  it("sends someone with no server of their own to create one", () => {
+    useServerStore.setState({ servers: [{ id: "s2", owner_id: "someone" } as ServerListItem] });
+    showGuideStep("roles");
+    expect(useSpotlightStore.getState().tour?.scope).toBe("rolesNoServer");
   });
 });

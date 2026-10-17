@@ -13,7 +13,7 @@ function add(tour: string, { onScreen = true, active = false } = {}) {
   return el;
 }
 
-const ctx = { ownsServer: false, hasFriends: false };
+const ctx = { ownsServer: false };
 
 beforeEach(() => {
   document.body.innerHTML = "";
@@ -37,8 +37,9 @@ describe("guide tours", () => {
     ]);
   });
 
-  it("walks the owner through server settings to creating a role", () => {
-    expect(buildTour("roles", { ...ctx, ownsServer: true })?.stages.map((s) => s.target).slice(-4)).toEqual([
+  it("walks the owner through their own server and its settings to creating a role", () => {
+    expect(buildTour("roles", { ...ctx, ownsServer: true })?.stages.map((s) => s.target).slice(-5)).toEqual([
+      "owned-server",
       "server-settings",
       "settings-menu",
       "settings-roles",
@@ -73,6 +74,12 @@ describe("where the spotlight sits", () => {
     const menu = add("menu");
     add("discover", { onScreen: false });
     expect(currentStage(stages)?.element).toBe(menu);
+  });
+
+  it("on a control that carries the marker among several", () => {
+    add("server"); // someone else's server
+    const own = add("server owned-server");
+    expect(currentStage([{ target: "owned-server" }])?.element).toBe(own);
   });
 
   it("on the active row among several", () => {

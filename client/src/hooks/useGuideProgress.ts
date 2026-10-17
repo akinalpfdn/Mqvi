@@ -29,8 +29,14 @@ export function useGuideProgress(): void {
       useAuthStore.subscribe((s, prev) => {
         if (s.user?.avatar_url && s.user.avatar_url !== prev.user?.avatar_url) refresh("profile");
       }),
+      // Roles change in every server the user is in (and are refetched on each server switch);
+      // only a change in a server they own can be their step.
       useRoleStore.subscribe((s, prev) => {
-        if (s.rolesByServer !== prev.rolesByServer) refresh("roles");
+        if (s.rolesByServer === prev.rolesByServer) return;
+        const me = useAuthStore.getState().user?.id;
+        const owned = new Set(useServerStore.getState().servers.filter((sv) => sv.owner_id === me).map((sv) => sv.id));
+        const changed = Object.keys(s.rolesByServer).some((id) => owned.has(id) && s.rolesByServer[id] !== prev.rolesByServer[id]);
+        if (changed) refresh("roles");
       }),
     ];
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());

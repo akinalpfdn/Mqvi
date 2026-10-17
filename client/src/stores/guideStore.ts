@@ -63,11 +63,14 @@ export const useGuideStore = create<GuideStore>((set, get) => ({
       return !hidden && !!steps && !steps[step];
     };
     if (!needed() || pending.has(step)) return;
+    const asked = generation;
     const attempt = (delay: number, retry: boolean) => {
       pending.set(
         step,
         setTimeout(async () => {
           await get().load();
+          // Signed out meanwhile: the map now holds the next account's timers, not this one.
+          if (asked !== generation) return;
           pending.delete(step);
           if (retry && needed()) attempt(GUIDE_RETRY_DELAY_MS, false);
         }, delay),

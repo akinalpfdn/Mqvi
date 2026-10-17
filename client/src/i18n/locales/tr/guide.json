@@ -76,7 +76,7 @@
       "voice-disconnect": "Sesli kanaldan buradan çıkarsın."
     },
     "roles": {
-      "server": "Sunucuna sağ tıkla (telefonda basılı tut)."
+      "owned-server": "Sunucunu aç, sonra ona sağ tıkla (telefonda basılı tut)."
     },
     "rolesNoServer": {
       "add-server": "Roller kendi sunucunda olur — önce buradan bir sunucu kur."

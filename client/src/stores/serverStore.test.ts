@@ -19,6 +19,7 @@ const listItem = (id: string, e2ee: boolean | undefined): ServerListItem => ({
   icon_url: null,
   verified: false,
   e2ee_enabled: e2ee,
+  owner_id: "owner",
 });
 
 describe("selectServerE2EE", () => {
@@ -63,6 +64,7 @@ const LIST_ITEM_FIELDS: Record<keyof ServerListItem, true> = {
   icon_url: true,
   verified: true,
   e2ee_enabled: true,
+  owner_id: true,
 };
 
 describe("toServerListItem", () => {

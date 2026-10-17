@@ -842,6 +842,8 @@ export type ServerListItem = {
    * Build these with toServerListItem(). Operationally: upgrade the server before the clients.
    */
   e2ee_enabled: boolean | undefined;
+  /** Same convention: `undefined` from a server older than this client means "unknown". */
+  owner_id: string | undefined;
 };
 
 /**

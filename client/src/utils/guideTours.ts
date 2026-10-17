@@ -41,7 +41,7 @@ export function voicePanelTour(): Tour {
 }
 
 export type TourContext = {
-  /** The user owns the server in view, so its settings (and roles) are theirs to open. */
+  /** The user owns a server, so it has settings (and roles) for them to open. */
   ownsServer: boolean;
 };
 
@@ -92,7 +92,8 @@ export function buildTour(step: GuideStepId, ctx: TourContext): Tour | null {
         stages: [
           ...SIDEBAR,
           { target: "servers-section" },
-          { target: "server" },
+          // Only the user's own servers: Server Settings is in their menu, and only while open.
+          { target: "owned-server" },
           { target: "server-settings" },
           { target: "settings-menu" },
           { target: "settings-roles" },
@@ -112,7 +113,8 @@ function isOnScreen(el: Element): boolean {
 /** The deepest stage with a control on screen; among several such controls, the active one. */
 export function currentStage(stages: readonly TourStage[]): { stage: TourStage; element: HTMLElement } | null {
   for (let i = stages.length - 1; i >= 0; i--) {
-    const shown = Array.from(document.querySelectorAll<HTMLElement>(`[data-tour="${stages[i].target}"]`)).filter(isOnScreen);
+    // `~=`: a control can carry several markers ("server owned-server").
+    const shown = Array.from(document.querySelectorAll<HTMLElement>(`[data-tour~="${stages[i].target}"]`)).filter(isOnScreen);
     const element = shown.find((el) => el.classList.contains("active")) ?? shown[0];
     if (element) return { stage: stages[i], element };
   }
@@ -121,7 +123,7 @@ export function currentStage(stages: readonly TourStage[]): { stage: TourStage; 
 
 /** Whether any control with this marker is on screen. */
 export function isTargetOnScreen(target: string): boolean {
-  return Array.from(document.querySelectorAll(`[data-tour="${target}"]`)).some(isOnScreen);
+  return Array.from(document.querySelectorAll(`[data-tour~="${target}"]`)).some(isOnScreen);
 }
 
 /**

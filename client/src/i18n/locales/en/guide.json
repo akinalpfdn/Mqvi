@@ -76,7 +76,7 @@
       "voice-disconnect": "Leave the voice channel here."
     },
     "roles": {
-      "server": "Right-click your server (long-press on a phone)."
+      "owned-server": "Open your server, then right-click it (long-press on a phone)."
     },
     "rolesNoServer": {
       "add-server": "Roles live in a server you own — create one here first."

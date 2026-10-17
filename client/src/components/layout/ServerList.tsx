@@ -347,7 +347,7 @@ function ServerList({
                     <button
                       className={`ch-tree-server-header${isActive ? " active" : ""}${mutedServerIds.has(srv.id) ? " muted" : ""}`}
                       onClick={handleSrvHeaderClick}
-                      data-tour="server"
+                      data-tour={srv.owner_id && srv.owner_id === currentUser?.id ? "server owned-server" : "server"}
                       onContextMenu={(e) => handleServerContextMenu(e, srv.id, srv.name)}
                       {...longPressMenu}
                       onMouseEnter={(e) => handleServerMouseEnter(e, srv.id)}

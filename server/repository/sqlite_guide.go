@@ -31,38 +31,61 @@ const (
 	guideApp
 )
 
-// GetState folds in every step the user's data shows now and returns what is stored, in one
-// statement: a step, once done, stays done (leaving every server or deleting the only message
-// does not undo it), and two concurrent calls cannot lose a bit — the OR happens in the row.
+// GetState folds in every step the user's data shows now and returns what is stored: a step,
+// once done, stays done (leaving every server or deleting the only message does not undo it).
 // Steps come from existing rows, so a server joined through discovery, an invite or by creating
 // it all count the same.
+//
+// Reading is the common case and costs no write: a step already done skips its subquery, and
+// the row is only updated when a new step shows up. The update ORs in the row itself, so two
+// concurrent calls cannot lose a bit.
 func (r *sqliteGuideRepo) GetState(ctx context.Context, userID string) (*models.GuideState, error) {
-	var done int
-	var s models.GuideState
+	var done, found int
+	var hidden bool
 	err := r.db.QueryRowContext(ctx, `
-		UPDATE users SET guide_done = guide_done
-			| (CASE WHEN EXISTS(SELECT 1 FROM server_members WHERE user_id = users.id) THEN ? ELSE 0 END)
-			| (CASE WHEN EXISTS(SELECT 1 FROM messages WHERE user_id = users.id) THEN ? ELSE 0 END)
-			| (CASE WHEN users.last_voice_activity IS NOT NULL THEN ? ELSE 0 END)
-			| (CASE WHEN EXISTS(SELECT 1 FROM friendships
-				WHERE (status = 'accepted' AND (user_id = users.id OR friend_id = users.id))
-				   OR (status = 'pending' AND user_id = users.id)) THEN ? ELSE 0 END)
-			| (CASE WHEN COALESCE(users.avatar_url, '') != '' THEN ? ELSE 0 END)
-			| (CASE WHEN EXISTS(SELECT 1 FROM roles r JOIN servers s ON s.id = r.server_id
-				WHERE s.owner_id = users.id AND r.is_default = 0 AND r.is_owner = 0) THEN ? ELSE 0 END)
-			| (CASE WHEN EXISTS(SELECT 1 FROM push_tokens
-				WHERE user_id = users.id AND platform IN ('android', 'ios')) THEN ? ELSE 0 END)
-		WHERE id = ?
-		RETURNING guide_done, guide_hidden`,
-		guideCommunity, guideMessage, guideVoice, guideFriend, guideProfile, guideRoles, guideApp, userID,
-	).Scan(&done, &s.Hidden)
+		SELECT guide_done, guide_hidden,
+			  (CASE WHEN guide_done & ? = 0 AND EXISTS(SELECT 1 FROM server_members WHERE user_id = u.id) THEN ? ELSE 0 END)
+			| (CASE WHEN guide_done & ? = 0 AND EXISTS(SELECT 1 FROM messages WHERE user_id = u.id) THEN ? ELSE 0 END)
+			| (CASE WHEN guide_done & ? = 0 AND u.last_voice_activity IS NOT NULL THEN ? ELSE 0 END)
+			| (CASE WHEN guide_done & ? = 0 AND EXISTS(SELECT 1 FROM friendships
+				WHERE (status = 'accepted' AND (user_id = u.id OR friend_id = u.id))
+				   OR (status = 'pending' AND user_id = u.id)) THEN ? ELSE 0 END)
+			| (CASE WHEN guide_done & ? = 0 AND COALESCE(u.avatar_url, '') != '' THEN ? ELSE 0 END)
+			| (CASE WHEN guide_done & ? = 0 AND EXISTS(SELECT 1 FROM servers s JOIN roles r ON r.server_id = s.id
+				WHERE s.owner_id = u.id AND r.is_default = 0 AND r.is_owner = 0) THEN ? ELSE 0 END)
+			| (CASE WHEN guide_done & ? = 0 AND EXISTS(SELECT 1 FROM push_tokens
+				WHERE user_id = u.id AND platform IN ('android', 'ios')) THEN ? ELSE 0 END)
+		FROM users u
+		WHERE u.id = ?`,
+		guideCommunity, guideCommunity, guideMessage, guideMessage, guideVoice, guideVoice,
+		guideFriend, guideFriend, guideProfile, guideProfile, guideRoles, guideRoles, guideApp, guideApp,
+		userID,
+	).Scan(&done, &hidden, &found)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("guide state for %s: %w", userID, pkg.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("guide state for %s: %w", userID, err)
 	}
-	s.Steps = models.GuideSteps{
+
+	if found != 0 {
+		err = r.db.QueryRowContext(ctx,
+			`UPDATE users SET guide_done = guide_done | ? WHERE id = ? RETURNING guide_done, guide_hidden`,
+			found, userID,
+		).Scan(&done, &hidden)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("guide state for %s: %w", userID, pkg.ErrNotFound)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("record guide steps for %s: %w", userID, err)
+		}
+	}
+
+	return &models.GuideState{Steps: stepsFrom(done), Hidden: hidden}, nil
+}
+
+func stepsFrom(done int) models.GuideSteps {
+	return models.GuideSteps{
 		Community: done&guideCommunity != 0,
 		Message:   done&guideMessage != 0,
 		Voice:     done&guideVoice != 0,
@@ -71,7 +94,6 @@ func (r *sqliteGuideRepo) GetState(ctx context.Context, userID string) (*models.
 		Roles:     done&guideRoles != 0,
 		App:       done&guideApp != 0,
 	}
-	return &s, nil
 }
 
 // MarkAppUsed records that the user ran the desktop app, which leaves no row of its own

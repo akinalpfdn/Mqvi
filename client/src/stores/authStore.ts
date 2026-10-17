@@ -12,6 +12,9 @@ import i18n, { changeLanguage, resolveLanguage, type Language, SUPPORTED_LANGUAG
 import { useE2EEStore } from "./e2eeStore";
 import { usePreferencesStore } from "./preferencesStore";
 import { useGuideStore } from "./guideStore";
+import { useSpotlightStore } from "./spotlightStore";
+import { useUIStore } from "./uiStore";
+import { GUIDE_TAB_ID } from "../utils/guideScript";
 import { useVoiceStore } from "./voiceStore";
 import { endP2PCallForLogout } from "./shared/p2pCallControl";
 import { useSettingsStore } from "./settingsStore";
@@ -25,6 +28,16 @@ const SIGNED_IN_BEFORE_KEY = "mqvi_signed_in_before";
 
 export function hasSignedInBefore(): boolean {
   return localStorage.getItem(SIGNED_IN_BEFORE_KEY) === "1";
+}
+
+/** A tour and the guide tab belong to the account that opened them, not the next one. */
+function closeGuideSurfaces(): void {
+  useSpotlightStore.getState().close();
+  const ui = useUIStore.getState();
+  for (const panel of Object.values(ui.panels)) {
+    const tab = panel.tabs.find((tb) => tb.channelId === GUIDE_TAB_ID);
+    if (tab) ui.closeTab(panel.id, tab.id);
+  }
 }
 
 function rememberSignIn(): void {
@@ -219,6 +232,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await useE2EEStore.getState().reset();
     usePreferencesStore.getState().reset();
     useGuideStore.getState().reset();
+    closeGuideSurfaces();
     // The SPA does not reload between logout and login: without this the next user inherits
     // this one's mark-read dedupe state and their DM badges never clear.
     resetMarkReadTracking();
@@ -278,6 +292,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       usePreferencesStore.getState().reset();
       useGuideStore.getState().reset();
+      closeGuideSurfaces();
       clearCachedPushToken();
       useSettingsStore.getState().closeSettings();
     } catch (err) {

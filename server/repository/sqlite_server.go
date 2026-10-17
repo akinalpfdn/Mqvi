@@ -289,7 +289,7 @@ func (r *sqliteServerRepo) GetUserServers(ctx context.Context, userID string) ([
 	// Sorted by user's custom position, with joined_at as tiebreaker.
 	// Soft-deleted servers excluded — members must not see them.
 	query := `
-		SELECT s.id, s.name, s.icon_url, s.verified, s.e2ee_enabled
+		SELECT s.id, s.name, s.icon_url, s.verified, s.e2ee_enabled, s.owner_id
 		FROM servers s
 		INNER JOIN server_members sm ON s.id = sm.server_id
 		WHERE sm.user_id = ? AND s.deleted_at IS NULL
@@ -304,7 +304,7 @@ func (r *sqliteServerRepo) GetUserServers(ctx context.Context, userID string) ([
 	var servers []models.ServerListItem
 	for rows.Next() {
 		var s models.ServerListItem
-		if err := rows.Scan(&s.ID, &s.Name, &s.IconURL, &s.Verified, &s.E2EEEnabled); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.IconURL, &s.Verified, &s.E2EEEnabled, &s.OwnerID); err != nil {
 			return nil, fmt.Errorf("failed to scan server row: %w", err)
 		}
 		servers = append(servers, s)
