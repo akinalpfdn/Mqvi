@@ -7,7 +7,7 @@ vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => {} },
 }));
 
-import GuideSpotlight, { SPOTLIGHT_WAIT_MS, EXPLAIN_WAIT_MS } from "./GuideSpotlight";
+import GuideSpotlight, { SPOTLIGHT_WAIT_MS, EXPLAIN_WAIT_MS, captionPosition } from "./GuideSpotlight";
 import { useSpotlightStore } from "../../stores/spotlightStore";
 import { useGuideStore } from "../../stores/guideStore";
 import { useVoiceStore } from "../../stores/voiceStore";
@@ -193,3 +193,29 @@ describe("introducing the voice panel", () => {
     expect(useSpotlightStore.getState().tour).toBeNull();
   });
 });
+
+describe("where the caption goes", () => {
+  const vw = 1280;
+  const vh = 800;
+
+  it("beside a control low on the screen, growing upwards from its bottom edge", () => {
+    // The headphones button at the very bottom of the sidebar.
+    const pos = captionPosition({ top: 740, left: 280, width: 120, height: 48 }, vw, vh);
+    expect(pos.top).toBeUndefined();
+    expect(pos.bottom).toBe(vh - (740 + 48));
+    expect(pos.bottom as number).toBeGreaterThanOrEqual(8);
+  });
+
+  it("beside a control high on the screen, growing downwards", () => {
+    const pos = captionPosition({ top: 60, left: 20, width: 200, height: 32 }, vw, vh);
+    expect(pos).toMatchObject({ top: 60, left: 20 + 200 + 12 });
+  });
+
+  it("above a control near the bottom of a narrow screen, never past the edge", () => {
+    const pos = captionPosition({ top: 700, left: 300, width: 60, height: 40 }, 360, 760);
+    expect(pos.top).toBeUndefined();
+    expect(pos.bottom as number).toBeGreaterThanOrEqual(8);
+    expect(pos.left as number).toBeLessThanOrEqual(360 - 260 - 8);
+  });
+});
+

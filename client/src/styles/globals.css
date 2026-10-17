@@ -5169,7 +5169,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .guide-spot-dim { position:fixed;background:rgba(0,0,0,0.55);pointer-events:auto; }
 .guide-spot-ring { position:fixed;border:2px solid var(--primary);border-radius:10px;box-shadow:0 0 0 4px color-mix(in srgb, var(--primary) 30%, transparent);animation:guideSpotPulse 1.4s ease-in-out infinite;pointer-events:none; }
 @keyframes guideSpotPulse { 0%,100%{box-shadow:0 0 0 4px color-mix(in srgb, var(--primary) 30%, transparent);} 50%{box-shadow:0 0 0 8px color-mix(in srgb, var(--primary) 12%, transparent);} }
-.guide-spot-caption { position:fixed;width:260px;max-width:calc(100vw - 16px);padding:10px 12px;background:var(--bg-2);border:1px solid var(--primary);border-radius:10px;font-size:14px;line-height:1.45;color:var(--t0);box-shadow:0 8px 24px rgba(0,0,0,0.5);pointer-events:none;animation:guideLineIn .2s ease; }
+.guide-spot-caption { position:fixed;width:260px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow-y:auto;padding:10px 12px;background:var(--bg-2);border:1px solid var(--primary);border-radius:10px;font-size:14px;line-height:1.45;color:var(--t0);box-shadow:0 8px 24px rgba(0,0,0,0.5);pointer-events:none;animation:guideLineIn .2s ease; }
 .guide-finale-btn { display:block;margin-top:10px; }
 /* Unsaved changes: pinned to the top of the settings pane while there are any. */
 .unsaved-bar { position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px;padding:10px 12px 10px 16px;background:var(--bg-2);border:1px solid color-mix(in srgb, var(--primary) 45%, transparent);border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.35);animation:guideLineIn .2s ease; }

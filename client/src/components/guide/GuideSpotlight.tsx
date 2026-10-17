@@ -25,7 +25,29 @@ export const EXPLAIN_WAIT_MS = 10000;
 const PAD = 4;
 const CAPTION_GAP = 12;
 const CAPTION_WIDTH = 260;
-const CAPTION_HEIGHT_GUESS = 110;
+const EDGE = 8;
+
+type Hole = { top: number; left: number; width: number; height: number };
+
+/**
+ * Where the caption goes, without knowing its height: beside the target when there is room,
+ * otherwise above or below it. A target in the lower half anchors the caption by its bottom edge
+ * so it grows upwards; one in the upper half anchors it by its top. Either way it stays on screen.
+ */
+export function captionPosition(hole: Hole, vw: number, vh: number): React.CSSProperties {
+  const lowerHalf = hole.top + hole.height / 2 > vh / 2;
+  const fitsRight = hole.left + hole.width + CAPTION_GAP + CAPTION_WIDTH <= vw - EDGE;
+  if (fitsRight) {
+    const left = hole.left + hole.width + CAPTION_GAP;
+    return lowerHalf
+      ? { left, bottom: Math.max(EDGE, vh - (hole.top + hole.height)) }
+      : { left, top: Math.max(EDGE, hole.top) };
+  }
+  const left = Math.max(EDGE, Math.min(hole.left, vw - CAPTION_WIDTH - EDGE));
+  return lowerHalf
+    ? { left, bottom: Math.max(EDGE, vh - hole.top + CAPTION_GAP) }
+    : { left, top: Math.min(vh - EDGE, hole.top + hole.height + CAPTION_GAP) };
+}
 
 type Shown = { stage: TourStage; element: HTMLElement; rect: DOMRect };
 
@@ -133,16 +155,7 @@ function GuideSpotlight() {
 
   const { rect } = shown;
   const hole = { top: rect.top - PAD, left: rect.left - PAD, width: rect.width + PAD * 2, height: rect.height + PAD * 2 };
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  const fitsRight = hole.left + hole.width + CAPTION_GAP + CAPTION_WIDTH <= vw - 8;
-  const below = hole.top + hole.height + CAPTION_GAP;
-  const caption = fitsRight
-    ? { top: Math.max(8, Math.min(hole.top, vh - CAPTION_HEIGHT_GUESS - 8)), left: hole.left + hole.width + CAPTION_GAP }
-    : {
-        top: below + CAPTION_HEIGHT_GUESS < vh ? below : Math.max(8, hole.top - CAPTION_GAP - CAPTION_HEIGHT_GUESS),
-        left: Math.max(8, Math.min(hole.left, vw - CAPTION_WIDTH - 8)),
-      };
+  const caption = captionPosition(hole, window.innerWidth, window.innerHeight);
   const target = shown.stage.target;
   const introducing = explainAt !== null && explain?.[explainAt] === target;
   const isLast = !!explain && explainAt === explain.length - 1;
