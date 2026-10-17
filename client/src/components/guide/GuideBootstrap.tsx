@@ -11,12 +11,14 @@ import { dismissWelcome } from "../../api/auth";
 import { useAuthStore } from "../../stores/authStore";
 import { useGuideStore } from "../../stores/guideStore";
 import { openGuide } from "../../utils/openGuide";
+import { useGuideProgress } from "../../hooks/useGuideProgress";
 import { isNativeApp } from "../../utils/constants";
 
 function GuideBootstrap() {
   const user = useAuthStore((s) => s.user);
   const updateUser = useAuthStore((s) => s.updateUser);
   const openedFor = useRef<string | null>(null);
+  useGuideProgress();
 
   const userId = user?.id;
   const firstVisit = !!user && !user.has_seen_welcome;

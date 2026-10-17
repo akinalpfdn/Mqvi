@@ -72,7 +72,15 @@ function GuideView() {
     }
     return (
       <div key={item.id} className="guide-line">
-        <div className="guide-bubble">{t(item.textKey, { name })}</div>
+        <div className="guide-bubble">
+          {t(item.textKey, { name })}
+          {/* Everything is done: one tap puts the guide away. */}
+          {item.id === "finale" && (
+            <button type="button" className="guide-card-btn guide-finale-btn" onClick={handleHide}>
+              {t("hide")}
+            </button>
+          )}
+        </div>
       </div>
     );
   }

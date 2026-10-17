@@ -21,6 +21,7 @@ import { useSoundboardStore } from "../../stores/soundboardStore";
 import { useJoinRequestStore } from "../../stores/joinRequestStore";
 import { getOpenConversations } from "../../stores/uiStore";
 import { mapWithConcurrency } from "../../utils/concurrency";
+import { useGuideStore } from "../../stores/guideStore";
 import type {
   WSMessage,
   MemberWithRoles,
@@ -143,6 +144,9 @@ export async function handleSystemEvent(
           ctx.sendVoiceJoin(previousChannel);
         }
       }
+      // A reconnect may have missed what the user did elsewhere; the first connect is covered
+      // by GuideBootstrap's own load.
+      if (useGuideStore.getState().steps) void useGuideStore.getState().load();
       return true;
     }
 
