@@ -12,6 +12,7 @@ import PermissionToggle from "./PermissionToggle";
 import SettingsDetailBack from "./SettingsDetailBack";
 import ColorPicker from "./ColorPicker";
 import EmojiPicker from "../shared/EmojiPicker";
+import UnsavedChangesBar from "./UnsavedChangesBar";
 
 const PERMISSION_DEFS = [
   {
@@ -332,6 +333,13 @@ function RoleSettings() {
       {/* Right Panel: Role Editor */}
       <div className="channel-settings-right">
         {selectedRole && (
+          <UnsavedChangesBar
+            hasChanges={hasChanges}
+            canSave={canEditSelected || canEditOwnerAppearance}
+            onSave={handleSave}
+          />
+        )}
+        {selectedRole && (
           <SettingsDetailBack onBack={() => selectRole(null)} label={selectedRole.name} />
         )}
         {selectedRole ? (
@@ -441,13 +449,6 @@ function RoleSettings() {
             )}
 
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <button
-                onClick={handleSave}
-                className="settings-btn"
-                disabled={!hasChanges || !(canEditSelected || canEditOwnerAppearance)}
-              >
-                {t("saveChanges")}
-              </button>
               {!selectedRole.is_default && !isOwnerRole && canEditSelected && (
                 <button onClick={handleDelete} className="settings-btn settings-btn-danger">
                   {t("deleteRole")}

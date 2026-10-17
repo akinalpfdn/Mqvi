@@ -14,6 +14,7 @@ import * as serverApi from "../../api/servers";
 import AvatarUpload from "./AvatarUpload";
 import ImageCropModal from "../shared/ImageCropModal";
 import type { Server } from "../../types";
+import UnsavedChangesBar from "./UnsavedChangesBar";
 
 /** Must equal --banner-aspect in globals.css, which shapes every box the result is rendered in.
  *  If they drift, object-fit:cover re-crops the image the owner already framed here. */
@@ -281,6 +282,7 @@ function ServerGeneralSettings() {
 
   return (
     <div className="settings-section">
+      <UnsavedChangesBar hasChanges={hasChanges} isSaving={isSaving} onSave={handleSave} />
       <h2 className="settings-section-title">{t("general")}</h2>
 
       {/* Server Icon */}
@@ -450,22 +452,6 @@ function ServerGeneralSettings() {
         </select>
       </div>
 
-      {/* Separator */}
-      <div style={{ height: 1, background: "var(--b1)", margin: "24px 0" }} />
-
-      {/* Save */}
-      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-        <button
-          onClick={handleSave}
-          disabled={!hasChanges || isSaving}
-          className="settings-btn"
-        >
-          {isSaving ? t("saveChanges") + "..." : t("saveChanges")}
-        </button>
-        {hasChanges && (
-          <span style={{ fontSize: 13, color: "var(--primary)" }}>{t("unsavedChanges")}</span>
-        )}
-      </div>
 
       {/* ─── LiveKit Settings ─── */}
       {server.livekit_instance_id && (

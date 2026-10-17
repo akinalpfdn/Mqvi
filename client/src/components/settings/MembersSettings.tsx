@@ -13,6 +13,7 @@ import { useServerStore } from "../../stores/serverStore";
 import { resolveAssetUrl } from "../../utils/constants";
 import SettingsDetailBack from "./SettingsDetailBack";
 import type { Ban } from "../../types";
+import UnsavedChangesBar from "./UnsavedChangesBar";
 
 type Tab = "members" | "bans";
 
@@ -325,6 +326,12 @@ function MembersSettings() {
 
       {/* Right Panel */}
       <div className="channel-settings-right">
+        {activeTab === "members" && selectedMember && (
+          <UnsavedChangesBar
+            hasChanges={canManageRoles && canActOnTarget && hasChanges && !isSelf}
+            onSave={handleSaveRoles}
+          />
+        )}
         {hasSelection && (
           <SettingsDetailBack
             onBack={clearSelection}
@@ -419,14 +426,6 @@ function MembersSettings() {
                   </div>
                 )}
 
-                {canManageRoles && canActOnTarget && hasChanges && !isSelf && (
-                  <div className="member-settings-actions">
-                    <button onClick={handleSaveRoles} className="settings-btn">
-                      {t("saveChanges")}
-                    </button>
-                    <p className="member-settings-unsaved">{t("unsavedChanges")}</p>
-                  </div>
-                )}
 
                 {/* Kick / Ban — only on others, with permission + hierarchy */}
                 {!isSelf && canActOnTarget && (canKick || canBan) && (

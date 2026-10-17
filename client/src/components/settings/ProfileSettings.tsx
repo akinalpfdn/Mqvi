@@ -9,6 +9,7 @@ import { resolveLanguage } from "../../i18n";
 import AvatarUpload from "./AvatarUpload";
 import LanguageSelector from "./LanguageSelector";
 import StorageUsageBar from "./StorageUsage";
+import UnsavedChangesBar from "./UnsavedChangesBar";
 
 function ProfileSettings() {
   const { t } = useTranslation("settings");
@@ -145,6 +146,7 @@ function ProfileSettings() {
 
   return (
     <div className="settings-section">
+      <UnsavedChangesBar hasChanges={hasChanges} isSaving={isSaving} onSave={handleSave} />
       <h2 className="settings-section-title">{t("profile")}</h2>
 
       {/* Avatar upload */}
@@ -234,23 +236,6 @@ function ProfileSettings() {
 
       {/* Storage Usage */}
       <StorageUsageBar />
-
-      {/* Separator */}
-      <div className="settings-separator" />
-
-      {/* Save */}
-      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-        <button
-          onClick={handleSave}
-          disabled={!hasChanges || isSaving}
-          className="settings-btn"
-        >
-          {isSaving ? t("saveChanges") + "..." : t("saveChanges")}
-        </button>
-        {hasChanges && (
-          <span style={{ fontSize: 13, color: "var(--primary)" }}>{t("unsavedChanges")}</span>
-        )}
-      </div>
     </div>
   );
 }
