@@ -33,11 +33,13 @@ vi.mock("../utils/pushToken", () => ({
   clearCachedPushToken: vi.fn(),
 }));
 vi.mock("../i18n", () => ({
+  default: { language: "en" },
   changeLanguage: vi.fn(),
+  resolveLanguage: () => "en",
   SUPPORTED_LANGUAGES: { en: true, tr: true },
 }));
 
-import { useAuthStore } from "./authStore";
+import { useAuthStore, hasSignedInBefore } from "./authStore";
 import * as authApi from "../api/auth";
 import { clearCachedPushToken } from "../utils/pushToken";
 import type { User } from "../types";
@@ -135,5 +137,31 @@ describe("authStore.forceLogout (F5 — refresh rejection routes to login, idemp
 
     expect(useAuthStore.getState().user).toBeNull();
     expect(localStorage.getItem("access_token")).toBe("late-token");
+  });
+});
+
+describe("the greeting on the login screen", () => {
+  const signedIn = { access_token: "a", refresh_token: "r", file_token: "f", user: fakeUser };
+
+  it("is not 'welcome back' on a device that has never signed in", () => {
+    expect(hasSignedInBefore()).toBe(false);
+  });
+
+  it("becomes 'welcome back' after a sign-in and stays so after logging out", async () => {
+    vi.mocked(authApi.login).mockResolvedValue({ success: true, data: signedIn } as Awaited<ReturnType<typeof authApi.login>>);
+    vi.mocked(authApi.logout).mockResolvedValue({ success: true } as Awaited<ReturnType<typeof authApi.logout>>);
+
+    await useAuthStore.getState().login("alice", "pw");
+    await useAuthStore.getState().logout();
+
+    expect(hasSignedInBefore()).toBe(true);
+  });
+
+  it("counts a new account as a sign-in", async () => {
+    vi.mocked(authApi.register).mockResolvedValue({ success: true, data: signedIn } as Awaited<ReturnType<typeof authApi.register>>);
+
+    await useAuthStore.getState().register("alice", "pw", "Alice");
+
+    expect(hasSignedInBefore()).toBe(true);
   });
 });

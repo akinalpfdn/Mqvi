@@ -1064,7 +1064,13 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 
 /* Voice message recording */
 .voice-rec-btn { touch-action:none; } /* drag-to-lock must not scroll the page on touch */
-.voice-rec-overlay { position:absolute;inset:0;display:flex;align-items:center;gap:10px;padding:0 14px;background:var(--bg-4);border-radius:var(--panel-radius);z-index:5; }
+/* A long press must stay a hold: no text selection or callout on the mic or its overlay. */
+.voice-rec-btn,.voice-rec-overlay,.voice-rec-overlay * { -webkit-user-select:none;user-select:none;-webkit-touch-callout:none; }
+/* While held, the overlay covers the mic but must never take the touch from it. */
+.voice-rec-overlay { position:absolute;inset:0;display:flex;align-items:center;gap:10px;padding:0 14px;background:var(--bg-4);border-radius:var(--panel-radius);z-index:5;pointer-events:none; }
+.voice-rec-overlay.locked { pointer-events:auto; }
+.voice-rec-lock { position:absolute;right:6px;bottom:calc(100% + 8px);display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 6px;background:var(--bg-4);border:1px solid var(--b1);border-radius:999px;color:var(--t2);animation:vrecLockNudge 1.2s ease-in-out infinite; }
+@keyframes vrecLockNudge { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-4px);} }
 .voice-rec-dot { width:10px;height:10px;border-radius:50%;background:var(--red);flex-shrink:0;animation:vrecPulse 1s ease-in-out infinite; }
 @keyframes vrecPulse { 0%,100%{opacity:1;} 50%{opacity:.3;} }
 .voice-rec-time { font-size:14px;color:var(--t0);font-variant-numeric:tabular-nums; }

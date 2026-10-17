@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { useAuthStore } from "../../stores/authStore";
+import { useAuthStore, hasSignedInBefore } from "../../stores/authStore";
 import { isElectron, isNativeApp } from "../../utils/constants";
 import { detectOS, shouldShowDownloadPrompt } from "../../utils/detectOS";
 import AccountRecoveryModal from "./AccountRecoveryModal";
@@ -21,6 +21,7 @@ function LoginPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
+  const [isReturning] = useState(hasSignedInBefore);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
@@ -77,8 +78,8 @@ function LoginPage() {
       <ConnectionsModal isOpen={showConnections} onClose={() => setShowConnections(false)} />
       <div className="auth-card">
         {/* Header */}
-        <h1 className="auth-title">{t("welcomeBack")}</h1>
-        <p className="auth-subtitle">{t("excitedToSeeYou")}</p>
+        <h1 className="auth-title">{t(isReturning ? "welcomeBack" : "welcomeNew")}</h1>
+        <p className="auth-subtitle">{t(isReturning ? "excitedToSeeYou" : "welcomeNewSubtitle")}</p>
 
         {/* Error Banner */}
         {error && <div className="auth-error">{error}</div>}

@@ -19,6 +19,16 @@ import { resetMarkReadTracking } from "./shared/markReadTracking";
 import type { User, UserStatus } from "../types";
 
 const MANUAL_STATUS_KEY = "mqvi_manual_status";
+/** Set on this device's first sign-in and kept through logout: the login screen greets accordingly. */
+const SIGNED_IN_BEFORE_KEY = "mqvi_signed_in_before";
+
+export function hasSignedInBefore(): boolean {
+  return localStorage.getItem(SIGNED_IN_BEFORE_KEY) === "1";
+}
+
+function rememberSignIn(): void {
+  localStorage.setItem(SIGNED_IN_BEFORE_KEY, "1");
+}
 
 /** Apply user's DB language preference to i18n (takes priority over browser locale). */
 function syncLanguageFromUser(user: User): void {
@@ -112,6 +122,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     if (res.success && res.data) {
       setTokens(res.data.access_token, res.data.refresh_token, res.data.file_token);
+      rememberSignIn();
       syncLanguageFromUser(res.data.user);
       set({ user: res.data.user, isLoading: false });
       usePreferencesStore.getState().fetchAndApply();
@@ -129,6 +140,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     if (res.success && res.data) {
       setTokens(res.data.access_token, res.data.refresh_token, res.data.file_token);
+      rememberSignIn();
       syncLanguageFromUser(res.data.user);
       set({ user: res.data.user, isLoading: false });
       // Fetch server-side preferences and apply to stores
@@ -170,6 +182,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     if (res.success && res.data) {
       setTokens(res.data.access_token, res.data.refresh_token, res.data.file_token);
+      rememberSignIn();
       syncLanguageFromUser(res.data.user);
       set({ user: res.data.user, isLoading: false, accountDeleted: null });
       usePreferencesStore.getState().fetchAndApply();
@@ -294,6 +307,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     const res = await authApi.getMe();
     if (res.success && res.data) {
+      rememberSignIn(); // an existing session from before this flag existed
       syncLanguageFromUser(res.data);
       set({ user: res.data, isInitialized: true });
       usePreferencesStore.getState().fetchAndApply();
