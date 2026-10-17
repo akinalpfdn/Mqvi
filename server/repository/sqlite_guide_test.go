@@ -73,22 +73,6 @@ func TestGuide_StepsComeFromTheUsersOwnData(t *testing.T) {
 			want: models.GuideSteps{},
 		},
 		{
-			name: "a direct message I sent",
-			seed: func(f *dbtest.Fixture, me, other string) {
-				dm := f.DMChannel("", me, other)
-				f.DMMessage(dbtest.DMMessageSeed{DMChannelID: dm, UserID: me, Content: dbtest.Ptr("hey")})
-			},
-			want: models.GuideSteps{DM: true},
-		},
-		{
-			name: "a direct message I only received",
-			seed: func(f *dbtest.Fixture, me, other string) {
-				dm := f.DMChannel("", me, other)
-				f.DMMessage(dbtest.DMMessageSeed{DMChannelID: dm, UserID: other, Content: dbtest.Ptr("hey")})
-			},
-			want: models.GuideSteps{},
-		},
-		{
 			name: "an avatar",
 			seed: func(f *dbtest.Fixture, me, _ string) {
 				f.ExecWithoutForeignKeys(`UPDATE users SET avatar_url = '/api/files/a.png' WHERE id = ?`, me)
@@ -271,5 +255,16 @@ func TestGuide_UnknownUserIsNotFound(t *testing.T) {
 	}
 	if err := repo.MarkAppUsed(ctx, "ghost"); !errors.Is(err, pkg.ErrNotFound) {
 		t.Fatalf("MarkAppUsed: want ErrNotFound, got %v", err)
+	}
+}
+
+// users.guide_done is stored: a bit moving would read old rows as different steps.
+func TestGuide_StepBitsNeverMove(t *testing.T) {
+	got := []int{guideCommunity, guideMessage, guideVoice, guideFriend, guideProfile, guideRoles, guideApp}
+	want := []int{1, 2, 4, 8, 32, 64, 128}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("step bits = %v, want %v", got, want)
+		}
 	}
 }

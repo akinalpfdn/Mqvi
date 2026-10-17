@@ -16,11 +16,6 @@
     "desc": "Her topluluğun yazı kanalları var. Birini aç ve ilk mesajını gönder.",
     "done": "İlk mesajını gönderdin"
   },
-  "dm": {
-    "title": "Birine doğrudan mesaj at",
-    "desc": "Bir arkadaşınla özel bir konuşma başlat — yazı, sesli ya da görüntülü, sadece ikiniz.",
-    "done": "Doğrudan mesaj gönderdin"
-  },
   "voice": {
     "title": "Sesli bir kanala katıl",
     "desc": "🔊 işaretli kanallar sesli kanallardır. Girip konuşabilir, ekranını paylaşabilir ya da başkalarının paylaşımını izleyebilirsin.",
@@ -65,9 +60,6 @@
       "friends": "Arkadaşlar'ı aç.",
       "add-friend-tab": "“Arkadaş Ekle”ye geç.",
       "add-friend-input": "Arkadaşının kullanıcı adını yaz ve isteği gönder.",
-      "friend-row": "Bir arkadaşınla konuşmayı aç.",
-      "send-message": "“Mesaj Gönder”i seç.",
-      "dm-composer": "Mesajını buraya yaz ve gönder.",
       "user-settings": "Ayarlarını aç.",
       "settings-menu": "Ayarlar menüsünü aç.",
       "settings-profile": "Profil'i aç.",
@@ -82,12 +74,6 @@
       "voice-soundboard": "Ses paneli: kanaldaki herkese kısa ses efektleri çalar.",
       "voice-noise": "Gürültü azaltma: klavye, fan gibi arka plan seslerini bastırır.",
       "voice-disconnect": "Sesli kanaldan buradan çıkarsın."
-    },
-    "dm": {
-      "friends": "Arkadaşlar'ı aç, sonra bir arkadaşına sağ tıkla (telefonda basılı tut) ve “Mesaj Gönder”i seç."
-    },
-    "dmNoFriend": {
-      "friends": "Önce bir arkadaş ekle — Arkadaşlar'ı aç."
     },
     "roles": {
       "server": "Sunucuna sağ tıkla (telefonda basılı tut)."

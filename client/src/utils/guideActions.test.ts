@@ -7,8 +7,7 @@ import { useMobileStore } from "../stores/mobileStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useServerStore } from "../stores/serverStore";
 import { useAuthStore } from "../stores/authStore";
-import { useFriendStore } from "../stores/friendStore";
-import type { FriendshipWithUser, Server, User } from "../types";
+import type { Server, User } from "../types";
 
 beforeEach(() => {
   useSpotlightStore.setState({ tour: null });
@@ -16,11 +15,10 @@ beforeEach(() => {
   useSettingsStore.setState({ isOpen: false });
   useServerStore.setState({ activeServer: null, activeServerId: null });
   useAuthStore.setState({ user: { id: "me" } as User });
-  useFriendStore.setState({ friends: [] });
 });
 
 describe("Show me", () => {
-  it.each(["community", "message", "dm", "voice", "friend", "profile", "roles"] as const)(
+  it.each(["community", "message", "voice", "friend", "profile", "roles"] as const)(
     "starts the %s tour without opening a drawer or a dialog",
     (step) => {
       showGuideStep(step);
@@ -34,11 +32,5 @@ describe("Show me", () => {
     useServerStore.setState({ activeServer: { id: "s1", owner_id: "me" } as Server });
     showGuideStep("roles");
     expect(useSpotlightStore.getState().tour?.scope).toBe("roles");
-  });
-
-  it("messages a friend when there is one", () => {
-    useFriendStore.setState({ friends: [{ id: "f1" } as FriendshipWithUser] });
-    showGuideStep("dm");
-    expect(useSpotlightStore.getState().tour?.scope).toBe("dm");
   });
 });

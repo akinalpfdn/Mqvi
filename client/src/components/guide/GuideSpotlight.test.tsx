@@ -12,7 +12,7 @@ import { useSpotlightStore } from "../../stores/spotlightStore";
 import { useGuideStore } from "../../stores/guideStore";
 import type { Tour } from "../../utils/guideTours";
 
-const none = { community: false, message: false, dm: false, voice: false, friend: false, profile: false, roles: false, app: false };
+const none = { community: false, message: false, voice: false, friend: false, profile: false, roles: false, app: false };
 
 const tour: Tour = {
   step: "friend",

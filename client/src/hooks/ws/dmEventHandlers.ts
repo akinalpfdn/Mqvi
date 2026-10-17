@@ -11,7 +11,6 @@ import { useE2EEStore } from "../../stores/e2eeStore";
 import { decryptDMMessage, popSentPlaintext, popEditPlaintext } from "../../crypto/dmEncryption";
 import * as keyStorage from "../../crypto/keyStorage";
 import { playNotificationSound } from "../../utils/sounds";
-import { useGuideStore } from "../../stores/guideStore";
 import type { WSMessage, DMChannelWithUser, DMMessage, ReactionGroup } from "../../types";
 
 export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
@@ -32,7 +31,6 @@ export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
     case "dm_message_create": {
       let dmMsg = msg.d as DMMessage;
       const dmCurrentUserId = useAuthStore.getState().user?.id;
-      if (dmMsg.user_id === dmCurrentUserId) useGuideStore.getState().refreshFor("dm");
 
       if (dmMsg.encryption_version === 1 && dmMsg.ciphertext && dmMsg.sender_device_id) {
         const isOwnMessage = dmMsg.user_id === dmCurrentUserId;

@@ -18,7 +18,7 @@ import GuideCard from "./GuideCard";
 import type { GuideState } from "../../types";
 
 const NO_PROGRESS: GuideState["steps"] = {
-  community: false, message: false, dm: false, voice: false, friend: false, profile: false, roles: false, app: false,
+  community: false, message: false, voice: false, friend: false, profile: false, roles: false, app: false,
 };
 
 function GuideView() {

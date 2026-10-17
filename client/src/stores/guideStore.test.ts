@@ -6,7 +6,7 @@ vi.mock("../api/guide", () => api);
 
 import { useGuideStore, GUIDE_REFRESH_DELAY_MS, GUIDE_RETRY_DELAY_MS } from "./guideStore";
 
-const none = { community: false, message: false, dm: false, voice: false, friend: false, profile: false, roles: false, app: false };
+const none = { community: false, message: false, voice: false, friend: false, profile: false, roles: false, app: false };
 
 function serverSays(steps: Partial<typeof none>) {
   api.getGuide.mockResolvedValue({ success: true, data: { steps: { ...none, ...steps }, hidden: false } });

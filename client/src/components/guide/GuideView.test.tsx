@@ -26,7 +26,7 @@ import { useUIStore } from "../../stores/uiStore";
 import { GUIDE_TAB_ID } from "../../utils/guideScript";
 import { GUIDE_TYPING_MS, GUIDE_CARD_MS } from "../../hooks/useGuideReveal";
 
-const none = { community: false, message: false, dm: false, voice: false, friend: false, profile: false, roles: false, app: false };
+const none = { community: false, message: false, voice: false, friend: false, profile: false, roles: false, app: false };
 
 beforeEach(() => {
   localStorage.clear();
@@ -57,7 +57,7 @@ describe("the guide conversation", () => {
 
     revealAll();
 
-    for (const step of ["community", "message", "dm", "voice", "friend", "profile", "roles", "app"]) {
+    for (const step of ["community", "message", "voice", "friend", "profile", "roles", "app"]) {
       expect(screen.getByText(`${step}.title`)).toBeTruthy();
     }
   });
@@ -92,7 +92,7 @@ describe("the guide conversation", () => {
     revealAll();
 
     expect(screen.getByText("community.done")).toBeTruthy();
-    expect(screen.getAllByText("showMe")).toHaveLength(6); // every other step but the app, which links to its download
+    expect(screen.getAllByText("showMe")).toHaveLength(5); // every other step but the app, which links to its download
   });
 
   it("hiding closes the guide tab once the server has stored it", async () => {

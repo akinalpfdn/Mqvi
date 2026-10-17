@@ -9,7 +9,7 @@ import type { GuideStepId } from "../types";
 /** The guide's tab key; one guide tab at most, like any channel. */
 export const GUIDE_TAB_ID = "guide";
 
-export const GUIDE_STEPS: readonly GuideStepId[] = ["community", "message", "dm", "voice", "friend", "profile", "roles", "app"];
+export const GUIDE_STEPS: readonly GuideStepId[] = ["community", "message", "voice", "friend", "profile", "roles", "app"];
 
 export type GuideItem =
   | { id: string; kind: "message"; textKey: string }

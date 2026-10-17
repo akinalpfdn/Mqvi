@@ -28,7 +28,7 @@ import GuideBootstrap from "./GuideBootstrap";
 import { useAuthStore } from "../../stores/authStore";
 import { useGuideStore } from "../../stores/guideStore";
 
-const none = { community: false, message: false, dm: false, voice: false, friend: false, profile: false, roles: false, app: false };
+const none = { community: false, message: false, voice: false, friend: false, profile: false, roles: false, app: false };
 
 async function signIn(user: { id: string; has_seen_welcome: boolean; guide_hidden?: boolean }, steps = none) {
   mocks.getGuide.mockResolvedValue({ success: true, data: { steps, hidden: !!user.guide_hidden } });

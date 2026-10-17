@@ -216,17 +216,3 @@ describe("dm_message_create — the badge gate matches the read gate", () => {
     expect(useDMStore.getState().dmUnreadCounts.c1).toBeUndefined();
   });
 });
-
-describe("dm_message_create — the guide's direct-message step", () => {
-  it("asks the guide to check when the message is the user's own", async () => {
-    const { useGuideStore } = await import("../../stores/guideStore");
-    const refreshFor = vi.spyOn(useGuideStore.getState(), "refreshFor");
-
-    await handleDMEvent({ op: "dm_message_create", d: msg("m1", ME) } as WSMessage);
-    expect(refreshFor).toHaveBeenCalledWith("dm");
-
-    refreshFor.mockClear();
-    await handleDMEvent({ op: "dm_message_create", d: msg("m2", THEM) } as WSMessage);
-    expect(refreshFor).not.toHaveBeenCalled();
-  });
-});

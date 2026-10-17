@@ -55,7 +55,7 @@ function FriendItem({ friendship, type, onAccept, onDecline, onRemove, onSendMes
       );
 
       if (onSendMessage) {
-        items.push({ label: t("sendMessage"), onClick: onSendMessage, tour: "send-message" });
+        items.push({ label: t("sendMessage"), onClick: onSendMessage });
       }
 
       if (onRemove) {

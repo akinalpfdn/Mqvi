@@ -21,7 +21,7 @@ beforeEach(() => {
 
 describe("guide tours", () => {
   it("never opens anything: every tour starts at a control the user opens", () => {
-    for (const step of ["community", "message", "dm", "voice", "friend", "profile", "roles"] as const) {
+    for (const step of ["community", "message", "voice", "friend", "profile", "roles"] as const) {
       const tour = buildTour(step, ctx);
       expect(tour?.stages[0].target).toBe("sidebar-expand");
       expect(tour?.stages.at(-1)?.final).toBe(true);
@@ -48,11 +48,6 @@ describe("guide tours", () => {
 
   it("sends someone without a server of their own to create one", () => {
     expect(buildTour("roles", ctx)).toMatchObject({ scope: "rolesNoServer", stages: expect.arrayContaining([{ target: "add-server", final: true }]) });
-  });
-
-  it("sends someone with no friends to add one before messaging", () => {
-    expect(buildTour("dm", ctx)?.scope).toBe("dmNoFriend");
-    expect(buildTour("dm", { ...ctx, hasFriends: true })?.stages.at(-1)).toEqual({ target: "dm-composer", final: true });
   });
 
   it("introduces the voice panel after joining voice, and on its own for a replay", () => {

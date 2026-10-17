@@ -14,7 +14,7 @@ export type TourStage = { target: string; final?: boolean };
 
 export type Tour = {
   step: GuideStepId;
-  /** Caption namespace: the step, or a variant of it ("dmNoFriend"). */
+  /** Caption namespace: the step, or a variant of it ("rolesNoServer"). */
   scope: string;
   /** Controls to walk to; the last is the one the user uses. Empty for an explain-only tour. */
   stages: readonly TourStage[];
@@ -43,7 +43,6 @@ export function voicePanelTour(): Tour {
 export type TourContext = {
   /** The user owns the server in view, so its settings (and roles) are theirs to open. */
   ownsServer: boolean;
-  hasFriends: boolean;
 };
 
 /** A hidden sidebar comes first: collapsed on desktop, a closed drawer on a phone. */
@@ -77,20 +76,6 @@ export function buildTour(step: GuideStepId, ctx: TourContext): Tour | null {
       };
     case "friend":
       return { step, scope: step, stages: FRIEND };
-    case "dm":
-      if (!ctx.hasFriends) return { step, scope: "dmNoFriend", stages: FRIEND };
-      return {
-        step,
-        scope: step,
-        stages: [
-          ...SIDEBAR,
-          { target: "friends-section" },
-          { target: "friends" },
-          { target: "friend-row" },
-          { target: "send-message" },
-          FINAL("dm-composer"),
-        ],
-      };
     case "profile":
       return {
         step,

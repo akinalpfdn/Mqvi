@@ -34,7 +34,7 @@ export type User = {
 // ──────────────────────────────────
 // Onboarding guide
 // ──────────────────────────────────
-export type GuideStepId = "community" | "message" | "dm" | "voice" | "friend" | "profile" | "roles" | "app";
+export type GuideStepId = "community" | "message" | "voice" | "friend" | "profile" | "roles" | "app";
 
 /** GET /api/users/me/guide. A step, once done, stays done. */
 export type GuideState = {

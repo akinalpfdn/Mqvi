@@ -16,11 +16,6 @@
     "desc": "Every community has text channels. Open one and send your first message.",
     "done": "You sent your first message"
   },
-  "dm": {
-    "title": "Message someone directly",
-    "desc": "Start a private conversation with a friend — text, voice or video, just the two of you.",
-    "done": "You sent a direct message"
-  },
   "voice": {
     "title": "Join a voice channel",
     "desc": "Channels marked 🔊 are voice channels. Hop in to talk, share your screen or watch others share theirs.",
@@ -65,9 +60,6 @@
       "friends": "Open Friends.",
       "add-friend-tab": "Go to “Add Friend”.",
       "add-friend-input": "Type your friend's username and send the request.",
-      "friend-row": "Open a conversation with a friend.",
-      "send-message": "Choose “Send Message”.",
-      "dm-composer": "Write your message here and send it.",
       "user-settings": "Open your settings.",
       "settings-menu": "Open the settings menu.",
       "settings-profile": "Open Profile.",
@@ -82,12 +74,6 @@
       "voice-soundboard": "Soundboard: play short sound effects for everyone in the channel.",
       "voice-noise": "Noise reduction: filters out background sounds like keyboards and fans.",
       "voice-disconnect": "Leave the voice channel here."
-    },
-    "dm": {
-      "friends": "Open Friends, then right-click a friend (long-press on a phone) and choose “Send Message”."
-    },
-    "dmNoFriend": {
-      "friends": "Add a friend first — open Friends."
     },
     "roles": {
       "server": "Right-click your server (long-press on a phone)."
