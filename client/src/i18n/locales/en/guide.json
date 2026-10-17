@@ -51,15 +51,43 @@
   "restoreDesc": "The step-by-step guide shown to new users. Bring it back to the top of your direct messages.",
   "restoreButton": "Show the guide",
   "spotlight": {
-    "community": "Browse public communities here — or use “Add Server” above to create your own.",
-    "message": "Open a text channel and say hi.",
-    "voice": "Click a voice channel to join it.",
-    "dm": "Open Friends and message one of them directly.",
-    "friend": "Add friends by their username here.",
-    "roles": "Create a server of your own — you make roles in its settings.",
-    "fallback": {
-      "server": "Open a community first; its channels are inside.",
-      "discover": "Join a community first — browse them here."
+    "stage": {
+      "sidebar-expand": "Open the sidebar.",
+      "menu": "Open the menu.",
+      "servers-section": "Open the Servers section.",
+      "friends-section": "Open the Friends section.",
+      "discover": "Browse public communities here.",
+      "discovery-join": "Pick a community and join it.",
+      "server": "Open a community.",
+      "channel-text": "Open a text channel.",
+      "composer": "Write your first message here and send it.",
+      "channel-voice": "Click a voice channel to join it.",
+      "friends": "Open Friends.",
+      "add-friend-tab": "Go to “Add Friend”.",
+      "add-friend-input": "Type your friend's username and send the request.",
+      "friend-row": "Open a conversation with a friend.",
+      "send-message": "Choose “Send Message”.",
+      "dm-composer": "Write your message here and send it.",
+      "user-settings": "Open your settings.",
+      "settings-menu": "Open the settings menu.",
+      "settings-profile": "Open Profile.",
+      "avatar": "Tap to choose a picture, then save.",
+      "server-settings": "Open “Server Settings”.",
+      "settings-roles": "Open Roles.",
+      "create-role": "Create a role.",
+      "add-server": "Create a server of your own here."
+    },
+    "dm": {
+      "friends": "Open Friends, then right-click a friend (long-press on a phone) and choose “Send Message”."
+    },
+    "dmNoFriend": {
+      "friends": "Add a friend first — open Friends."
+    },
+    "roles": {
+      "server": "Right-click your server (long-press on a phone)."
+    },
+    "rolesNoServer": {
+      "add-server": "Roles live in a server you own — create one here first."
     }
   }
 }

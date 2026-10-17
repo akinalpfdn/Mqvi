@@ -76,7 +76,7 @@ function DiscoveryServerCard({ item, status, onJoin, onReport }: Props) {
           </span>
         </div>
 
-        <button className="disc-card-join" disabled={disabled} onClick={() => onJoin(item)}>
+        <button className="disc-card-join" disabled={disabled} onClick={() => onJoin(item)} data-tour={disabled ? undefined : "discovery-join"}>
           {label}
         </button>
       </div>

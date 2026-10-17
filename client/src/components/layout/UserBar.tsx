@@ -388,6 +388,7 @@ function UserBar({
         <button
           className="ub-ctrl ub-settings"
           onClick={() => openSettings()}
+          data-tour="user-settings"
           title={tc("settings")}
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">

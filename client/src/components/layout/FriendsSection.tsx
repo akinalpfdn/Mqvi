@@ -105,6 +105,7 @@ function FriendsSection({ onShowUserCard }: FriendsSectionProps) {
       },
       {
         label: t("sendMessage"),
+        tour: "send-message",
         onClick: async () => {
           const channelId = await useDMStore.getState().createOrGetChannel(friend.user_id);
           if (channelId) {
@@ -131,6 +132,7 @@ function FriendsSection({ onShowUserCard }: FriendsSectionProps) {
         <button
           className="ch-tree-section-header"
           onClick={() => toggleSection("friends")}
+          data-tour={isExpanded ? undefined : "friends-section"}
         >
           <span className={`ch-tree-chevron${isExpanded ? " expanded" : ""}`}>&#x276F;</span>
           <span>{t("friends")}</span>
@@ -159,6 +161,7 @@ function FriendsSection({ onShowUserCard }: FriendsSectionProps) {
                   className={`ch-tree-item${unread > 0 ? " has-unread" : ""}`}
                   onClick={() => { void handleFriendClick(friend); }}
                   onContextMenu={(e) => handleFriendContextMenu(e, friend)}
+                  data-tour="friend-row"
                   {...longPressMenu}
                 >
                   <span className="member-av-wrap">

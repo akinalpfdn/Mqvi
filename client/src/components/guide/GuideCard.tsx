@@ -3,6 +3,7 @@
 import { useTranslation } from "react-i18next";
 
 import type { GuideStepId } from "../../types";
+import { detectOS } from "../../utils/detectOS";
 
 type GuideCardProps = {
   step: GuideStepId;
@@ -24,6 +25,11 @@ function GuideCard({ step, done, onShowMe }: GuideCardProps) {
           </svg>
           <span>{t(`${step}.done`)}</span>
         </div>
+      ) : step === "app" ? (
+        // The user downloads it themselves: the button is the download link.
+        <a className="guide-card-btn" href={detectOS().url} target="_blank" rel="noopener noreferrer">
+          {t(`landing:${detectOS().i18nKey}`)}
+        </a>
       ) : (
         <button type="button" className="guide-card-btn" onClick={() => onShowMe(step)}>
           {t("showMe")}

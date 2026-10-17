@@ -268,7 +268,7 @@ function RoleSettings() {
             {t("roles")}
           </span>
           {canManageRoles && (
-            <button onClick={handleCreate} className="settings-btn channel-settings-header-btn">
+            <button onClick={handleCreate} className="settings-btn channel-settings-header-btn" data-tour="create-role">
               {t("createRole")}
             </button>
           )}

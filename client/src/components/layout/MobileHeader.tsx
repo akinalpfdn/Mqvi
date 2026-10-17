@@ -44,6 +44,7 @@ function MobileHeader() {
       <button
         className="mobile-header-btn"
         onClick={leftDrawerOpen ? closeLeftDrawer : openLeftDrawer}
+        data-tour="menu"
         title={t("openSidebar")}
       >
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

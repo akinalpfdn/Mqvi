@@ -4,7 +4,6 @@ import { render, screen, act, fireEvent } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({ showGuideStep: vi.fn(), setGuideHidden: vi.fn() }));
 
-vi.mock("../../hooks/useMediaQuery", () => ({ useIsMobile: () => false }));
 vi.mock("../../utils/guideActions", () => ({ showGuideStep: mocks.showGuideStep }));
 vi.mock("../../api/guide", () => ({ getGuide: vi.fn(), setGuideHidden: mocks.setGuideHidden }));
 vi.mock("react-i18next", () => ({
@@ -13,14 +12,19 @@ vi.mock("react-i18next", () => ({
 }));
 vi.mock("../../stores/authStore", async () => {
   const { create } = await import("zustand");
-  return { useAuthStore: create(() => ({ user: { id: "u1", username: "alice", display_name: null } })) };
+  return {
+    useAuthStore: create(() => ({
+      user: { id: "u1", username: "alice", display_name: null, has_seen_download_prompt: true },
+    })),
+  };
 });
 
 import GuideView from "./GuideView";
+import { useAuthStore } from "../../stores/authStore";
 import { useGuideStore } from "../../stores/guideStore";
 import { useUIStore } from "../../stores/uiStore";
 import { GUIDE_TAB_ID } from "../../utils/guideScript";
-import { GUIDE_TYPING_MS } from "../../hooks/useGuideReveal";
+import { GUIDE_TYPING_MS, GUIDE_CARD_MS } from "../../hooks/useGuideReveal";
 
 const none = { community: false, message: false, dm: false, voice: false, friend: false, profile: false, roles: false, app: false };
 
@@ -37,19 +41,39 @@ afterEach(() => {
 });
 
 function revealAll() {
-  for (let i = 0; i < 10; i++) act(() => vi.advanceTimersByTime(GUIDE_TYPING_MS));
+  for (let i = 0; i < 20; i++) act(() => vi.advanceTimersByTime(Math.max(GUIDE_TYPING_MS, GUIDE_CARD_MS)));
 }
 
 describe("the guide conversation", () => {
-  it("types its greeting, then offers every step together", () => {
+  it("types its greeting, then deals the step cards one by one", () => {
     render(<GuideView />);
     expect(screen.queryByText("community.title")).toBeNull();
+
+    act(() => vi.advanceTimersByTime(GUIDE_TYPING_MS)); // greeting
+    act(() => vi.advanceTimersByTime(GUIDE_TYPING_MS)); // intro
+    act(() => vi.advanceTimersByTime(GUIDE_CARD_MS)); // first card
+    expect(screen.getByText("community.title")).toBeTruthy();
+    expect(screen.queryByText("message.title")).toBeNull();
 
     revealAll();
 
     for (const step of ["community", "message", "dm", "voice", "friend", "profile", "roles", "app"]) {
       expect(screen.getByText(`${step}.title`)).toBeTruthy();
     }
+  });
+
+  it("holds the greeting while the download prompt is in front, so it never plays unseen", () => {
+    // A desktop browser that has not seen the prompt yet (jsdom reads as a desktop OS).
+    const user = useAuthStore.getState().user;
+    useAuthStore.setState({ user: { ...user, has_seen_download_prompt: false } } as never);
+    render(<GuideView />);
+
+    act(() => vi.advanceTimersByTime(GUIDE_TYPING_MS * 3));
+    expect(screen.queryByText("greeting")).toBeNull();
+
+    act(() => useAuthStore.setState({ user: { ...user, has_seen_download_prompt: true } } as never));
+    act(() => vi.advanceTimersByTime(GUIDE_TYPING_MS));
+    expect(screen.getByText("greeting")).toBeTruthy();
   });
 
   it("lets the user start with any step", () => {
@@ -59,7 +83,7 @@ describe("the guide conversation", () => {
     const voiceCard = screen.getByText("voice.title").closest(".guide-card") as HTMLElement;
     fireEvent.click(voiceCard.querySelector(".guide-card-btn") as HTMLElement);
 
-    expect(mocks.showGuideStep).toHaveBeenCalledWith("voice", expect.any(Boolean));
+    expect(mocks.showGuideStep).toHaveBeenCalledWith("voice");
   });
 
   it("shows a done step with its tick, not a button", () => {
@@ -68,7 +92,7 @@ describe("the guide conversation", () => {
     revealAll();
 
     expect(screen.getByText("community.done")).toBeTruthy();
-    expect(screen.getAllByText("showMe")).toHaveLength(7); // every other step
+    expect(screen.getAllByText("showMe")).toHaveLength(6); // every other step but the app, which links to its download
   });
 
   it("hiding closes the guide tab once the server has stored it", async () => {

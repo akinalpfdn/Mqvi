@@ -15,6 +15,8 @@ type AvatarUploadProps = {
   fallbackText: string;
   onUpload: (file: File) => Promise<void>;
   isCircle?: boolean;
+  /** `data-tour` marker on the upload button. */
+  tour?: string;
 };
 
 function AvatarUpload({
@@ -23,6 +25,7 @@ function AvatarUpload({
   fallbackText,
   onUpload,
   isCircle = true,
+  tour,
 }: AvatarUploadProps) {
   const { t } = useTranslation("settings");
   const [isUploading, setIsUploading] = useState(false);
@@ -71,6 +74,7 @@ function AvatarUpload({
         type="button"
         onClick={() => fileInputRef.current?.click()}
         className="avatar-upload"
+        data-tour={tour}
         disabled={isUploading}
         style={{
           width: 80,

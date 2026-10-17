@@ -34,6 +34,7 @@ function CollapsedSidebar() {
       <button
         className="sb-collapsed-btn sb-collapsed-expand"
         onClick={expandSidebar}
+        data-tour="sidebar-expand"
         title="Expand sidebar"
       >
         &#x276F;

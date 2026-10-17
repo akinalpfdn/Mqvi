@@ -51,15 +51,43 @@
   "restoreDesc": "Yeni kullanıcılara gösterilen adım adım rehber. Doğrudan mesajlarının en üstüne geri getir.",
   "restoreButton": "Rehberi göster",
   "spotlight": {
-    "community": "Herkese açık topluluklara buradan göz at — ya da yukarıdaki “Sunucu Ekle” ile kendi sunucunu kur.",
-    "message": "Bir yazı kanalı aç ve merhaba de.",
-    "voice": "Katılmak için bir sesli kanala tıkla.",
-    "dm": "Arkadaşlar'ı aç ve birine doğrudan yaz.",
-    "friend": "Arkadaşlarını kullanıcı adlarıyla buradan ekle.",
-    "roles": "Kendi sunucunu kur — rolleri onun ayarlarında oluşturursun.",
-    "fallback": {
-      "server": "Önce bir topluluğu aç; kanalları içinde.",
-      "discover": "Önce bir topluluğa katıl — buradan göz atabilirsin."
+    "stage": {
+      "sidebar-expand": "Kenar çubuğunu aç.",
+      "menu": "Menüyü aç.",
+      "servers-section": "Sunucular bölümünü aç.",
+      "friends-section": "Arkadaşlar bölümünü aç.",
+      "discover": "Herkese açık topluluklara buradan göz at.",
+      "discovery-join": "Bir topluluk seç ve katıl.",
+      "server": "Bir topluluğu aç.",
+      "channel-text": "Bir yazı kanalı aç.",
+      "composer": "İlk mesajını buraya yaz ve gönder.",
+      "channel-voice": "Katılmak için bir sesli kanala tıkla.",
+      "friends": "Arkadaşlar'ı aç.",
+      "add-friend-tab": "“Arkadaş Ekle”ye geç.",
+      "add-friend-input": "Arkadaşının kullanıcı adını yaz ve isteği gönder.",
+      "friend-row": "Bir arkadaşınla konuşmayı aç.",
+      "send-message": "“Mesaj Gönder”i seç.",
+      "dm-composer": "Mesajını buraya yaz ve gönder.",
+      "user-settings": "Ayarlarını aç.",
+      "settings-menu": "Ayarlar menüsünü aç.",
+      "settings-profile": "Profil'i aç.",
+      "avatar": "Dokunup bir fotoğraf seç, sonra kaydet.",
+      "server-settings": "“Sunucu Ayarları”nı aç.",
+      "settings-roles": "Roller'i aç.",
+      "create-role": "Bir rol oluştur.",
+      "add-server": "Kendi sunucunu buradan kur."
+    },
+    "dm": {
+      "friends": "Arkadaşlar'ı aç, sonra bir arkadaşına sağ tıkla (telefonda basılı tut) ve “Mesaj Gönder”i seç."
+    },
+    "dmNoFriend": {
+      "friends": "Önce bir arkadaş ekle — Arkadaşlar'ı aç."
+    },
+    "roles": {
+      "server": "Sunucuna sağ tıkla (telefonda basılı tut)."
+    },
+    "rolesNoServer": {
+      "add-server": "Roller kendi sunucunda olur — önce buradan bir sunucu kur."
     }
   }
 }

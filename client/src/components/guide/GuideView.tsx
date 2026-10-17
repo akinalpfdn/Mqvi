@@ -1,6 +1,6 @@
 /**
  * GuideView — the mqvi Guide conversation: a fixed script drawn on the client, revealed a line
- * at a time, then every step card together. Not a real DM: nothing here is sent anywhere.
+ * at a time, then the step cards one after another. Not a real DM: nothing is sent anywhere.
  */
 
 import { useEffect, useMemo, useRef } from "react";
@@ -10,10 +10,10 @@ import { useAuthStore } from "../../stores/authStore";
 import { useGuideStore } from "../../stores/guideStore";
 import { useUIStore } from "../../stores/uiStore";
 import { useGuideReveal } from "../../hooks/useGuideReveal";
-import { useIsMobile } from "../../hooks/useMediaQuery";
 import { GUIDE_TAB_ID, guideConversation, type GuideItem } from "../../utils/guideScript";
 import { showGuideStep } from "../../utils/guideActions";
 import { publicAsset } from "../../utils/constants";
+import { isDownloadPromptPending } from "../../utils/detectOS";
 import GuideCard from "./GuideCard";
 import type { GuideState } from "../../types";
 
@@ -21,30 +21,18 @@ const NO_PROGRESS: GuideState["steps"] = {
   community: false, message: false, dm: false, voice: false, friend: false, profile: false, roles: false, app: false,
 };
 
-/** What appears in one beat: a line, or all the step cards together. */
-type GuideBeat = { id: string; items: GuideItem[] };
-
-function toBeats(items: GuideItem[]): GuideBeat[] {
-  const beats: GuideBeat[] = [];
-  for (const item of items) {
-    const last = beats.at(-1);
-    if (item.kind === "card" && last?.id === "cards") last.items.push(item);
-    else beats.push({ id: item.kind === "card" ? "cards" : item.id, items: [item] });
-  }
-  return beats;
-}
-
 function GuideView() {
   const { t } = useTranslation("guide");
   const user = useAuthStore((s) => s.user);
   const steps = useGuideStore((s) => s.steps);
   const setHidden = useGuideStore((s) => s.setHidden);
-  const isMobile = useIsMobile();
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const beats = useMemo(() => toBeats(guideConversation(steps ?? NO_PROGRESS)), [steps]);
-  const ids = useMemo(() => beats.map((beat) => beat.id), [beats]);
-  const { visible, typing } = useGuideReveal(ids, user?.id ?? "anonymous");
+  const items = useMemo(() => guideConversation(steps ?? NO_PROGRESS), [steps]);
+  const reveal = useMemo(() => items.map((item) => ({ id: item.id, typed: item.kind === "message" })), [items]);
+  // Wait while the one-time download prompt is in front, or the greeting plays unseen behind it.
+  const promptInFront = isDownloadPromptPending(user);
+  const { visible, typing } = useGuideReveal(reveal, user?.id ?? "anonymous", promptInFront);
   const name = user?.display_name || user?.username || "";
 
   // Keep the newest line in view as it appears.
@@ -66,7 +54,7 @@ function GuideView() {
     if (item.kind === "card") {
       return (
         <div key={item.id} className="guide-line guide-line-card">
-          <GuideCard step={item.step} done={item.done} onShowMe={(step) => showGuideStep(step, isMobile)} />
+          <GuideCard step={item.step} done={item.done} onShowMe={showGuideStep} />
         </div>
       );
     }
@@ -105,7 +93,7 @@ function GuideView() {
         <div className="guide-thread">
           <img src={publicAsset("mqvi-icon-128.png")} alt="" className="guide-avatar guide-avatar-lg" />
           <div className="guide-lines">
-            {beats.slice(0, visible).flatMap((beat) => beat.items.map(renderItem))}
+            {items.slice(0, visible).map(renderItem)}
             {typing && (
               <div className="guide-line">
                 <div className="guide-typing" role="status" aria-label={t("typing")}>

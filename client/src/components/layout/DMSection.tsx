@@ -306,6 +306,7 @@ function DMSection({ onShowUserCard }: DMSectionProps) {
                     className={`ch-tree-item ch-tree-dm${isActive ? " active" : ""}${unread > 0 ? " has-unread" : ""}${dm.is_muted ? " muted" : ""}`}
                     onClick={() => handleDMClick(dm.id, name)}
                     onContextMenu={(e) => handleDMContextMenu(e, dm)}
+                    data-tour="friend-row"
                     {...longPressMenu}
                   >
                     <Avatar

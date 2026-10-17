@@ -206,7 +206,7 @@ function ServerList({
 
     const items: ContextMenuItem[] = [
       ...(canAccessSettings
-        ? [{ label: tServers("serverSettings"), onClick: () => openSettings("server-general") }]
+        ? [{ label: tServers("serverSettings"), onClick: () => openSettings("server-general"), tour: "server-settings" }]
         : []),
       {
         label: tServers("markAllAsRead"),
@@ -284,6 +284,7 @@ function ServerList({
         <button
           className="ch-tree-section-header"
           onClick={() => toggleSection("servers")}
+          data-tour={isSectionExpanded("servers") ? undefined : "servers-section"}
         >
           <Chevron expanded={isSectionExpanded("servers")} />
           <span>{tServers("servers")}</span>

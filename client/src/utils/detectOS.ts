@@ -38,3 +38,8 @@ export function shouldShowDownloadPrompt(): boolean {
   const { os } = detectOS();
   return os === "windows" || os === "macos" || os === "linux";
 }
+
+/** The one-time "get the desktop app" prompt is waiting for this user (web, desktop OS). */
+export function isDownloadPromptPending(user: { has_seen_download_prompt: boolean } | null): boolean {
+  return !!user && !user.has_seen_download_prompt && shouldShowDownloadPrompt();
+}

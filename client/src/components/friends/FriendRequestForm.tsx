@@ -41,6 +41,7 @@ function FriendRequestForm() {
         <input
           className="frf-input"
           type="text"
+          data-tour="add-friend-input"
           placeholder={t("addFriendPlaceholder")}
           value={username}
           onChange={(e) => setUsername(e.target.value)}

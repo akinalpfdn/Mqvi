@@ -1,20 +1,17 @@
-/** spotlightStore — the guide's "Show me" request in flight; GuideSpotlight draws it. */
+/** spotlightStore — the guide tour in progress; GuideSpotlight draws it. */
 
 import { create } from "zustand";
 
-import type { GuideStepId } from "../types";
-import type { TourTarget } from "../utils/guideTargets";
-
-type SpotlightRequest = { step: GuideStepId; targets: readonly TourTarget[] };
+import type { Tour } from "../utils/guideTours";
 
 type SpotlightStore = {
-  request: SpotlightRequest | null;
-  open: (step: GuideStepId, targets: readonly TourTarget[]) => void;
+  tour: Tour | null;
+  open: (tour: Tour) => void;
   close: () => void;
 };
 
 export const useSpotlightStore = create<SpotlightStore>((set) => ({
-  request: null,
-  open: (step, targets) => set({ request: { step, targets } }),
-  close: () => set({ request: null }),
+  tour: null,
+  open: (tour) => set({ tour }),
+  close: () => set({ tour: null }),
 }));

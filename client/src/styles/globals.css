@@ -5159,7 +5159,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .guide-card.done { border-color:var(--panel-border);opacity:.85; }
 .guide-card-title { font-size:15px;font-weight:700;color:var(--t0); }
 .guide-card-desc { font-size:14px;line-height:1.45;color:var(--t2); }
-.guide-card-btn { align-self:flex-start;margin-top:4px;height:34px;padding:0 16px;border:none;border-radius:8px;background:var(--primary);color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s; }
+.guide-card-btn { display:inline-flex;align-items:center;text-decoration:none;align-self:flex-start;margin-top:4px;height:34px;padding:0 16px;border:none;border-radius:8px;background:var(--primary);color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s; }
 .guide-card-btn:hover { background:var(--primary-h); }
 .guide-card-done { display:flex;align-items:center;gap:6px;margin-top:2px;font-size:14px;font-weight:600;color:var(--green); }
 .guide-restore { display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;margin-bottom:16px;background:var(--bg-2);border:1px solid var(--b1);border-radius:10px; }

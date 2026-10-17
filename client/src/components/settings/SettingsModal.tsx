@@ -114,6 +114,7 @@ function SettingsModal() {
             <button
               className="settings-topbar-btn"
               onClick={() => setNavOpen(true)}
+              data-tour="settings-menu"
               aria-label={t("title")}
             >
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">

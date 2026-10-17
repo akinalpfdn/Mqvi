@@ -112,6 +112,7 @@ function SettingsNav({ drawerOpen = false, onNavigate }: SettingsNavProps) {
             key={item.id}
             className={`settings-nav-item${activeTab === item.id ? " active" : ""}`}
             onClick={() => handleSelect(item.id)}
+            data-tour={`settings-${item.id}`}
           >
             <span className="settings-nav-item-label">{t(item.labelKey)}</span>
             {showDot && <span className="settings-nav-badge-dot" aria-hidden="true" />}
@@ -150,6 +151,7 @@ function SettingsNav({ drawerOpen = false, onNavigate }: SettingsNavProps) {
                 key={item.id}
                 className={`settings-nav-item${activeTab === item.id ? " active" : ""}`}
                 onClick={() => handleSelect(item.id)}
+                data-tour={`settings-${item.id}`}
               >
                 {t(item.labelKey)}
               </button>

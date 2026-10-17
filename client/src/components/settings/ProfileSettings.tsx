@@ -153,6 +153,7 @@ function ProfileSettings() {
         previewUrl={avatarPreviewUrl}
         fallbackText={user.display_name ?? user.username}
         onUpload={handleAvatarSelect}
+        tour="avatar"
       />
 
       {/* Username */}
