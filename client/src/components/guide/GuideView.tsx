@@ -9,7 +9,7 @@ import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../../stores/authStore";
 import { useGuideStore } from "../../stores/guideStore";
 import { useUIStore } from "../../stores/uiStore";
-import { useGuideReveal } from "../../hooks/useGuideReveal";
+import { useGuideReveal, typingMs, GUIDE_FIRST_CARD_MS, GUIDE_CARD_MS } from "../../hooks/useGuideReveal";
 import { GUIDE_TAB_ID, guideConversation, type GuideItem } from "../../utils/guideScript";
 import { showGuideStep } from "../../utils/guideActions";
 import { publicAsset } from "../../utils/constants";
@@ -29,12 +29,20 @@ function GuideView() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const items = useMemo(() => guideConversation(steps ?? NO_PROGRESS), [steps]);
-  const reveal = useMemo(() => items.map((item) => ({ id: item.id, typed: item.kind === "message" })), [items]);
+  const name = user?.display_name || user?.username || "";
+  const reveal = useMemo(
+    () =>
+      items.map((item, i) => {
+        if (item.kind === "message") return { id: item.id, typed: true, delayMs: typingMs(t(item.textKey, { name })) };
+        // The first card follows a line: give the user time to read it.
+        const afterLine = items[i - 1]?.kind === "message";
+        return { id: item.id, typed: false, delayMs: afterLine ? GUIDE_FIRST_CARD_MS : GUIDE_CARD_MS };
+      }),
+    [items, t, name],
+  );
   // Wait while the one-time download prompt is in front, or the greeting plays unseen behind it.
   const promptInFront = isDownloadPromptPending(user);
   const { visible, typing } = useGuideReveal(reveal, user?.id ?? "anonymous", promptInFront);
-  const name = user?.display_name || user?.username || "";
-
   // Keep the newest line in view as it appears.
   useEffect(() => {
     const el = scrollRef.current;

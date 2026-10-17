@@ -23,6 +23,7 @@ function GuideBootstrap() {
   const userId = user?.id;
   const firstVisit = !!user && !user.has_seen_welcome;
   const steps = useGuideStore((s) => s.steps);
+  const hidden = useGuideStore((s) => s.hidden);
 
   useEffect(() => {
     if (!userId) return;
@@ -40,11 +41,12 @@ function GuideBootstrap() {
     // Wait for the server's answer: whether they already have a community decides it.
     if (!userId || !firstVisit || !steps || openedFor.current === userId) return;
     openedFor.current = userId;
-    if (!steps.community) openGuide();
+    // Hidden — an account from before the guide existed, or one that put it away — stays hidden.
+    if (!steps.community && !hidden) openGuide();
     // Once per account: has_seen_welcome is the server's record that the guide was introduced.
     updateUser({ has_seen_welcome: true });
     void dismissWelcome();
-  }, [userId, firstVisit, steps, updateUser]);
+  }, [userId, firstVisit, steps, hidden, updateUser]);
 
   return null;
 }

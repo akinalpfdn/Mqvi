@@ -2,10 +2,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 
-import { useGuideReveal, GUIDE_TYPING_MS, GUIDE_CARD_MS } from "./useGuideReveal";
+import { useGuideReveal, typingMs, GUIDE_TYPING_BASE_MS, GUIDE_TYPING_MAX_MS } from "./useGuideReveal";
 
-const line = (id: string) => ({ id, typed: true });
-const card = (id: string) => ({ id, typed: false });
+const GUIDE_TYPING_MS = 1000;
+const GUIDE_CARD_MS = 500;
+
+const line = (id: string) => ({ id, typed: true, delayMs: GUIDE_TYPING_MS });
+const card = (id: string) => ({ id, typed: false, delayMs: GUIDE_CARD_MS });
 
 beforeEach(() => {
   localStorage.clear();
@@ -57,3 +60,12 @@ describe("revealing the guide", () => {
     expect(result.current.visible).toBe(0);
   });
 });
+
+describe("how long a line takes to type", () => {
+  it("grows with the line, within limits", () => {
+    expect(typingMs("Hi")).toBeGreaterThan(GUIDE_TYPING_BASE_MS);
+    expect(typingMs("A much longer line that takes a while to read")).toBeGreaterThan(typingMs("Hi"));
+    expect(typingMs("x".repeat(5000))).toBe(GUIDE_TYPING_MAX_MS);
+  });
+});
+

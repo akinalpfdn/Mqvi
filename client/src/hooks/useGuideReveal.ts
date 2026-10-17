@@ -1,15 +1,24 @@
 /**
- * Reveals the guide one item at a time, like a person writing: each line behind a typing beat,
- * each card a moment after the one before. Items already seen on this device appear at once.
+ * Reveals the guide one item at a time, like a person writing: each line behind a typing beat as
+ * long as the line, then — after time to read it — the cards, one by one. Items already seen on this device appear at once.
  * While paused (another dialog is in front) nothing new appears, so nothing plays unseen.
  */
 
 import { useEffect, useMemo, useState } from "react";
 
-/** How long the guide "types" before a line. */
-export const GUIDE_TYPING_MS = 900;
+/** Typing a line: a base beat plus time per character, so a long line takes longer to "write". */
+export const GUIDE_TYPING_BASE_MS = 900;
+export const GUIDE_TYPING_PER_CHAR_MS = 22;
+export const GUIDE_TYPING_MAX_MS = 3200;
+/** Time to read what was just said before the first card arrives. */
+export const GUIDE_FIRST_CARD_MS = 1400;
 /** The pause between one card and the next. */
-export const GUIDE_CARD_MS = 450;
+export const GUIDE_CARD_MS = 800;
+
+/** How long the guide takes to type `text`. */
+export function typingMs(text: string): number {
+  return Math.min(GUIDE_TYPING_MAX_MS, GUIDE_TYPING_BASE_MS + text.length * GUIDE_TYPING_PER_CHAR_MS);
+}
 
 function storageKey(userId: string): string {
   return `mqvi_guide_seen:${userId}`;
@@ -33,7 +42,8 @@ function saveSeen(userId: string, seen: Set<string>): void {
   }
 }
 
-export type GuideRevealItem = { id: string; typed: boolean };
+/** One thing to reveal: `typed` shows typing dots while waiting `delayMs` before it appears. */
+export type GuideRevealItem = { id: string; typed: boolean; delayMs: number };
 
 /** How many items to show, and whether the next one is being typed. */
 export function useGuideReveal(
@@ -60,7 +70,7 @@ export function useGuideReveal(
         saveSeen(userId, seen);
         setRevealed(visible + 1);
       },
-      next.typed ? GUIDE_TYPING_MS : GUIDE_CARD_MS,
+      next.delayMs,
     );
     return () => clearTimeout(timer);
   }, [next, paused, visible, seen, userId]);

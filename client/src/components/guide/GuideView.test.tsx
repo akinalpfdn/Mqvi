@@ -24,7 +24,7 @@ import { useAuthStore } from "../../stores/authStore";
 import { useGuideStore } from "../../stores/guideStore";
 import { useUIStore } from "../../stores/uiStore";
 import { GUIDE_TAB_ID } from "../../utils/guideScript";
-import { GUIDE_TYPING_MS, GUIDE_CARD_MS } from "../../hooks/useGuideReveal";
+import { GUIDE_TYPING_MAX_MS, GUIDE_FIRST_CARD_MS, GUIDE_CARD_MS } from "../../hooks/useGuideReveal";
 
 const none = { community: false, message: false, voice: false, friend: false, profile: false, roles: false, app: false };
 
@@ -41,7 +41,7 @@ afterEach(() => {
 });
 
 function revealAll() {
-  for (let i = 0; i < 20; i++) act(() => vi.advanceTimersByTime(Math.max(GUIDE_TYPING_MS, GUIDE_CARD_MS)));
+  for (let i = 0; i < 20; i++) act(() => vi.advanceTimersByTime(GUIDE_TYPING_MAX_MS));
 }
 
 describe("the guide conversation", () => {
@@ -49,11 +49,14 @@ describe("the guide conversation", () => {
     render(<GuideView />);
     expect(screen.queryByText("community.title")).toBeNull();
 
-    act(() => vi.advanceTimersByTime(GUIDE_TYPING_MS)); // greeting
-    act(() => vi.advanceTimersByTime(GUIDE_TYPING_MS)); // intro
-    act(() => vi.advanceTimersByTime(GUIDE_CARD_MS)); // first card
+    act(() => vi.advanceTimersByTime(GUIDE_TYPING_MAX_MS)); // greeting
+    act(() => vi.advanceTimersByTime(GUIDE_TYPING_MAX_MS)); // intro
+    expect(screen.queryByText("community.title")).toBeNull(); // still reading the intro
+    act(() => vi.advanceTimersByTime(GUIDE_FIRST_CARD_MS)); // first card
     expect(screen.getByText("community.title")).toBeTruthy();
     expect(screen.queryByText("message.title")).toBeNull();
+    act(() => vi.advanceTimersByTime(GUIDE_CARD_MS));
+    expect(screen.getByText("message.title")).toBeTruthy();
 
     revealAll();
 
@@ -68,11 +71,11 @@ describe("the guide conversation", () => {
     useAuthStore.setState({ user: { ...user, has_seen_download_prompt: false } } as never);
     render(<GuideView />);
 
-    act(() => vi.advanceTimersByTime(GUIDE_TYPING_MS * 3));
+    act(() => vi.advanceTimersByTime(GUIDE_TYPING_MAX_MS * 3));
     expect(screen.queryByText("greeting")).toBeNull();
 
     act(() => useAuthStore.setState({ user: { ...user, has_seen_download_prompt: true } } as never));
-    act(() => vi.advanceTimersByTime(GUIDE_TYPING_MS));
+    act(() => vi.advanceTimersByTime(GUIDE_TYPING_MAX_MS));
     expect(screen.getByText("greeting")).toBeTruthy();
   });
 
