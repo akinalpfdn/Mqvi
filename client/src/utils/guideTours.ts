@@ -123,3 +123,20 @@ export function currentStage(stages: readonly TourStage[]): { stage: TourStage; 
 export function isTargetOnScreen(target: string): boolean {
   return Array.from(document.querySelectorAll(`[data-tour="${target}"]`)).some(isOnScreen);
 }
+
+/**
+ * A channel row's tour marker, or none: a tour never points at a channel the user cannot use —
+ * a text channel they may not write in, or a voice channel that is locked to them or full.
+ */
+export function channelTourTarget(ch: {
+  isText: boolean;
+  canSend: boolean;
+  isVoiceLocked: boolean;
+  participants: number;
+  userLimit: number;
+}): "channel-text" | "channel-voice" | undefined {
+  if (ch.isText) return ch.canSend ? "channel-text" : undefined;
+  const full = ch.userLimit > 0 && ch.participants >= ch.userLimit;
+  return !ch.isVoiceLocked && !full ? "channel-voice" : undefined;
+}
+

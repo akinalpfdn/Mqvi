@@ -10,6 +10,7 @@ vi.mock("react-i18next", () => ({
 import GuideSpotlight, { SPOTLIGHT_WAIT_MS, EXPLAIN_WAIT_MS } from "./GuideSpotlight";
 import { useSpotlightStore } from "../../stores/spotlightStore";
 import { useGuideStore } from "../../stores/guideStore";
+import { useVoiceStore } from "../../stores/voiceStore";
 import type { Tour } from "../../utils/guideTours";
 
 const none = { community: false, message: false, voice: false, friend: false, profile: false, roles: false, app: false };
@@ -41,6 +42,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance", "setTimeout"] });
   useSpotlightStore.setState({ tour: null });
   useGuideStore.setState({ steps: none, hidden: false });
+  useVoiceStore.setState({ currentVoiceChannelId: null });
 });
 
 afterEach(() => {
@@ -107,6 +109,7 @@ describe("introducing the voice panel", () => {
   };
 
   function joinVoice({ soundboard = true } = {}) {
+    useVoiceStore.setState({ currentVoiceChannelId: "v1" });
     control("voice-panel");
     control("voice-mic");
     if (soundboard) control("voice-soundboard");
@@ -174,5 +177,19 @@ describe("introducing the voice panel", () => {
     act(() => vi.advanceTimersByTime(EXPLAIN_WAIT_MS));
     expect(useSpotlightStore.getState().tour).toBeNull();
   });
-});
 
+  it("does not start while the user is not actually in voice (a locked channel refused them)", () => {
+    const channel = control("channel-voice");
+    control("voice-mic"); // the microphone button is on screen in voice or not
+    render(<GuideSpotlight />);
+    act(() => useSpotlightStore.getState().open(voiceTour));
+    frames();
+
+    fireEvent.pointerDown(channel);
+    frames();
+    expect(screen.queryByText("spotlight.voice.voice-mic")).toBeNull();
+
+    act(() => vi.advanceTimersByTime(EXPLAIN_WAIT_MS + 100));
+    expect(useSpotlightStore.getState().tour).toBeNull();
+  });
+});

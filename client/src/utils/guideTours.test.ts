@@ -1,7 +1,7 @@
 /** Tours walk through real controls; the spotlight sits on the deepest one on screen. */
 import { describe, it, expect, beforeEach } from "vitest";
 
-import { buildTour, currentStage, voicePanelTour, VOICE_PANEL_STOPS } from "./guideTours";
+import { buildTour, channelTourTarget, currentStage, voicePanelTour, VOICE_PANEL_STOPS } from "./guideTours";
 
 function add(tour: string, { onScreen = true, active = false } = {}) {
   const el = document.createElement("button");
@@ -85,3 +85,24 @@ describe("where the spotlight sits", () => {
     expect(currentStage(stages)).toBeNull();
   });
 });
+
+describe("which channels a tour may point at", () => {
+  const text = { isText: true, canSend: true, isVoiceLocked: false, participants: 0, userLimit: 0 };
+  const voice = { ...text, isText: false, canSend: false };
+
+  it("a text channel the user can write in", () => {
+    expect(channelTourTarget(text)).toBe("channel-text");
+    expect(channelTourTarget({ ...text, canSend: false })).toBeUndefined();
+  });
+
+  it("a voice channel the user can join", () => {
+    expect(channelTourTarget(voice)).toBe("channel-voice");
+    expect(channelTourTarget({ ...voice, isVoiceLocked: true })).toBeUndefined();
+  });
+
+  it("not a full voice channel, but one with room", () => {
+    expect(channelTourTarget({ ...voice, userLimit: 5, participants: 5 })).toBeUndefined();
+    expect(channelTourTarget({ ...voice, userLimit: 5, participants: 4 })).toBe("channel-voice");
+  });
+});
+
