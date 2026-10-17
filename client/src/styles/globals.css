@@ -5133,9 +5133,14 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .mobile-bottom-sheet.open { bottom:var(--keyboard-bottom); }
 .settings-overlay,.mobile-drawer,.mobile-drawer-backdrop { bottom:calc(var(--safe-area-inset-bottom) + var(--keyboard-inset)); }
 .emoji-picker.emoji-picker-sheet,.gif-picker.gif-picker-sheet { bottom:calc(16px + var(--keyboard-bottom)) !important; }
+/* A lifted sheet must also get shorter, or its top (the search field) runs off the screen. */
+.gif-picker.gif-picker-sheet { max-height:min(70vh, calc(100vh - var(--safe-area-inset-top) - var(--keyboard-bottom) - 28px)); }
+.emoji-picker.emoji-picker-sheet em-emoji-picker { max-height:min(50vh, calc(100vh - var(--safe-area-inset-top) - var(--keyboard-bottom) - 28px)); }
 @media (max-width: 768px), (pointer: coarse) and (max-height: 500px) {
   .settings-overlay { bottom:var(--keyboard-bottom); }
   /* Form modals sit at the top: centred, they would jump up as the keyboard shrinks the overlay. */
   .add-server-overlay { align-items:flex-start;padding-top:calc(var(--safe-area-inset-top) + 12px); }
   .emoji-picker,.gif-picker,.member-card,.search-panel { bottom:var(--keyboard-bottom) !important; }
+  .gif-picker { max-height:min(60vh, calc(100vh - var(--safe-area-inset-top) - var(--keyboard-bottom) - 12px)); }
+  .emoji-picker em-emoji-picker { max-height:min(50vh, calc(100vh - var(--safe-area-inset-top) - var(--keyboard-bottom) - 12px)); }
 }
