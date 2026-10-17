@@ -5164,3 +5164,10 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .guide-card-done { display:flex;align-items:center;gap:6px;margin-top:2px;font-size:14px;font-weight:600;color:var(--green); }
 .guide-restore { display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;margin-bottom:16px;background:var(--bg-2);border:1px solid var(--b1);border-radius:10px; }
 .guide-restore-title { font-size:15px;font-weight:600;color:var(--t0); }
+/* "Show me": dims around one real control; the control itself stays clickable. */
+.guide-spot { position:fixed;inset:0;z-index:2000;pointer-events:none; }
+.guide-spot-dim { position:fixed;background:rgba(0,0,0,0.55);pointer-events:auto; }
+.guide-spot-ring { position:fixed;border:2px solid var(--primary);border-radius:10px;box-shadow:0 0 0 4px color-mix(in srgb, var(--primary) 30%, transparent);animation:guideSpotPulse 1.4s ease-in-out infinite;pointer-events:none; }
+@keyframes guideSpotPulse { 0%,100%{box-shadow:0 0 0 4px color-mix(in srgb, var(--primary) 30%, transparent);} 50%{box-shadow:0 0 0 8px color-mix(in srgb, var(--primary) 12%, transparent);} }
+.guide-spot-caption { position:fixed;width:260px;max-width:calc(100vw - 16px);padding:10px 12px;background:var(--bg-2);border:1px solid var(--primary);border-radius:10px;font-size:14px;line-height:1.45;color:var(--t0);box-shadow:0 8px 24px rgba(0,0,0,0.5);pointer-events:none;animation:guideLineIn .2s ease; }
+

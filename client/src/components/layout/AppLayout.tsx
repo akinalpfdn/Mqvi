@@ -24,6 +24,7 @@ import ToastContainer from "../shared/ToastContainer";
 import ConfirmDialog from "../shared/ConfirmDialog";
 import DownloadPromptModal from "../shared/DownloadPromptModal";
 import GuideBootstrap from "../guide/GuideBootstrap";
+import GuideSpotlight from "../guide/GuideSpotlight";
 import SettingsModal from "../settings/SettingsModal";
 import VoiceProvider from "../voice/VoiceProvider";
 import { useWebSocket } from "../../hooks/useWebSocket";
@@ -322,6 +323,7 @@ function AppLayout() {
 
       {/* One-time welcome modal for new users */}
       <GuideBootstrap />
+      <GuideSpotlight />
 
       {/* One-time download prompt for web users */}
       <DownloadPromptModal />

@@ -81,6 +81,7 @@ function ChannelItem({
         onClick={onClick}
         onContextMenu={onContextMenu}
         {...longPressMenu}
+        data-tour={isText ? "channel-text" : "channel-voice"}
         title={
           isVoiceLocked
             ? `${channel.name} — ${tVoice("voiceChannelLocked")}`

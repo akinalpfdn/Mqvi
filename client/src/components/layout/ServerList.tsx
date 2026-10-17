@@ -294,6 +294,7 @@ function ServerList({
             <button
               className="ch-tree-item ch-tree-add-server"
               onClick={onAddServer}
+              data-tour="add-server"
             >
               <span className="ch-tree-icon">+</span>
               <span className="ch-tree-label">{tServers("addServer")}</span>
@@ -302,6 +303,7 @@ function ServerList({
             <button
               className="ch-tree-item ch-tree-add-server"
               onClick={openDiscovery}
+              data-tour="discover"
             >
               <span className="ch-tree-icon">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -344,6 +346,7 @@ function ServerList({
                     <button
                       className={`ch-tree-server-header${isActive ? " active" : ""}${mutedServerIds.has(srv.id) ? " muted" : ""}`}
                       onClick={handleSrvHeaderClick}
+                      data-tour="server"
                       onContextMenu={(e) => handleServerContextMenu(e, srv.id, srv.name)}
                       {...longPressMenu}
                       onMouseEnter={(e) => handleServerMouseEnter(e, srv.id)}

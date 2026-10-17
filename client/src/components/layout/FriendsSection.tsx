@@ -141,7 +141,7 @@ function FriendsSection({ onShowUserCard }: FriendsSectionProps) {
 
         {isExpanded && (
           <div className="ch-tree-section-body ch-tree-section-body--scroll">
-            <button className="ch-tree-item" onClick={handleFriendsClick}>
+            <button className="ch-tree-item" onClick={handleFriendsClick} data-tour="friends">
               <IconFriends className="ch-tree-icon" width={15} height={15} />
               <span className="ch-tree-label">{t("friends")}</span>
               {incoming.length > 0 && (

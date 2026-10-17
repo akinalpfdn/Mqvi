@@ -49,5 +49,17 @@
   "finale": "Hepsi bu kadar, artık hazırsın! 🎉 Bu rehberi şimdi gizleyebilirsin; tekrar istersen Ayarlar → Yardım'da bulursun.",
   "restoreTitle": "mqvi Rehberi",
   "restoreDesc": "Yeni kullanıcılara gösterilen adım adım rehber. Doğrudan mesajlarının en üstüne geri getir.",
-  "restoreButton": "Rehberi göster"
+  "restoreButton": "Rehberi göster",
+  "spotlight": {
+    "community": "Herkese açık topluluklara buradan göz at — ya da yukarıdaki “Sunucu Ekle” ile kendi sunucunu kur.",
+    "message": "Bir yazı kanalı aç ve merhaba de.",
+    "voice": "Katılmak için bir sesli kanala tıkla.",
+    "dm": "Arkadaşlar'ı aç ve birine doğrudan yaz.",
+    "friend": "Arkadaşlarını kullanıcı adlarıyla buradan ekle.",
+    "roles": "Kendi sunucunu kur — rolleri onun ayarlarında oluşturursun.",
+    "fallback": {
+      "server": "Önce bir topluluğu aç; kanalları içinde.",
+      "discover": "Önce bir topluluğa katıl — buradan göz atabilirsin."
+    }
+  }
 }
