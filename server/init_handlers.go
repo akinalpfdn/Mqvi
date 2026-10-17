@@ -43,6 +43,7 @@ type Handlers struct {
 	Badge             *handlers.BadgeHandler
 	Preferences       *handlers.PreferencesHandler
 	DownloadPrompt    *handlers.DownloadPromptHandler
+	Guide             *handlers.GuideHandler
 	Feedback          *handlers.FeedbackHandler
 	Soundboard        *handlers.SoundboardHandler
 	Storage           *handlers.StorageHandler
@@ -94,6 +95,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Badge:             handlers.NewBadgeHandler(svcs.Badge, svcs.UploadPipeline),
 		Preferences:       handlers.NewPreferencesHandler(svcs.Preferences),
 		DownloadPrompt:    handlers.NewDownloadPromptHandler(repos.User),
+		Guide:             handlers.NewGuideHandler(svcs.Guide),
 		Feedback:          handlers.NewFeedbackHandler(svcs.Feedback, svcs.FeedbackUpload, svcs.Storage, svcs.SettingsBadge, cfg.Upload.MaxSize, limiters.Feedback, svcs.AppLog, urlSigner),
 		Soundboard:        handlers.NewSoundboardHandler(svcs.Soundboard, svcs.Storage, cfg.Upload.MaxSize, urlSigner),
 		Storage:           handlers.NewStorageHandler(svcs.Storage),
