@@ -9,6 +9,7 @@ import { StatusBar, Style } from "@capacitor/status-bar";
 import { isCapacitor, getCapacitorPlatform } from "./constants";
 import { handleBack } from "./backStack";
 import { initKeyboardScroll } from "./keyboardScroll";
+import { initIosKeyboardInset } from "./iosKeyboardInset";
 import type { RemoteAudioGains } from "./remoteAudioGain";
 import { ensureFreshToken } from "../api/client";
 
@@ -265,6 +266,7 @@ export async function configureMobileUI(): Promise<void> {
   // - CSS: #root uses padding-top/bottom with var(--safe-area-inset-*, env(..., 0px))
 
   const platform = getCapacitorPlatform();
+  if (platform === "ios") await initIosKeyboardInset();
   if (platform === "android" || platform === "ios") {
     await initKeyboardScroll(platform);
   }

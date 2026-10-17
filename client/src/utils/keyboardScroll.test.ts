@@ -1,4 +1,4 @@
-/** Which fields the keyboard moves into view, by how much, and in how many movements. */
+/** Which fields the keyboard moves into view, how far, and whether they move with the keyboard. */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 type Handler = (info: { keyboardHeight: number }) => void;
@@ -13,9 +13,13 @@ vi.mock("@capacitor/keyboard", () => ({
   },
 }));
 
+import { cubicBezier, initKeyboardScroll } from "./keyboardScroll";
+
 const SCREEN = 800;
 const KEYBOARD = 300;
 const CLEARANCE = 12;
+const ABOVE_KEYBOARD = SCREEN - KEYBOARD - CLEARANCE;
+const CURVE = [0.38, 0.7, 0.125, 1] as const;
 
 function fire(event: string, keyboardHeight = 0) {
   listeners.get(event)?.forEach((h) => h({ keyboardHeight }));
@@ -25,30 +29,41 @@ function setInnerHeight(value: number) {
   Object.defineProperty(window, "innerHeight", { value, configurable: true });
 }
 
+/** How far the app has shrunk above the keyboard; the CSS inset grows on the keyboard's curve. */
+let insetAt: () => number = () => 0;
+
+/** iOS: the keyboard starts moving now, and the inset follows it over 250 ms. */
+function iosKeyboardStarts(height = KEYBOARD) {
+  const started = performance.now();
+  insetAt = () => height * cubicBezier(CURVE, Math.min(1, (performance.now() - started) / 250));
+  fire("keyboardWillShow", height);
+}
+
 /**
- * A full-screen page of `contentHeight` px that scrolls, holding one focused field whose bottom
- * sits `fieldBottom` px into the content. The page fills the WebView, so it can scroll further
- * once the WebView shrinks — exactly what iOS does 0.2 s after the keyboard is up.
+ * A full-screen page of `contentHeight` px holding one focused field whose bottom sits
+ * `fieldBottom` px into the content. Its scroll room grows as the app shrinks above the keyboard.
  */
-function page(fieldBottom: number, contentHeight = 1000) {
+function page(fieldBottom: number, contentHeight = 2000) {
   const scroller = document.createElement("div");
   scroller.style.overflowY = "auto";
   let scrollTop = 0;
-  Object.defineProperty(scroller, "scrollTop", { get: () => scrollTop });
+  const clientHeight = () => window.innerHeight - insetAt();
   Object.defineProperty(scroller, "scrollHeight", { value: contentHeight });
-  Object.defineProperty(scroller, "clientHeight", { get: () => window.innerHeight });
-  scroller.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
-  const scrollTo = vi.fn(({ top }: { top: number }) => {
-    scrollTop = Math.min(top, contentHeight - window.innerHeight);
+  Object.defineProperty(scroller, "clientHeight", { get: clientHeight });
+  Object.defineProperty(scroller, "scrollTop", {
+    get: () => scrollTop,
+    set: (value: number) => {
+      scrollTop = Math.max(0, Math.min(value, contentHeight - clientHeight()));
+    },
   });
-  scroller.scrollTo = scrollTo as unknown as typeof scroller.scrollTo;
+  scroller.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
 
   const field = document.createElement("input");
   field.getBoundingClientRect = () => ({ bottom: fieldBottom - scrollTop }) as DOMRect;
   scroller.appendChild(field);
   document.body.appendChild(scroller);
   field.focus();
-  return { scrollTo, onScreenBottom: () => fieldBottom - scrollTop };
+  return { onScreenBottom: () => fieldBottom - scrollTop };
 }
 
 let stop: (() => void) | undefined;
@@ -56,20 +71,13 @@ let stop: (() => void) | undefined;
 async function start(platform: "android" | "ios") {
   listeners.clear();
   setInnerHeight(SCREEN);
-  const { initKeyboardScroll } = await import("./keyboardScroll");
   stop = await initKeyboardScroll(platform);
 }
 
-function shrinkWebView() {
-  setInnerHeight(SCREEN - KEYBOARD);
-  window.dispatchEvent(new Event("resize"));
-}
-
-const ABOVE_KEYBOARD = SCREEN - KEYBOARD - CLEARANCE;
-
 beforeEach(() => {
   document.body.innerHTML = "";
-  vi.useFakeTimers();
+  insetAt = () => 0;
+  vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance", "setTimeout"] });
 });
 
 afterEach(() => {
@@ -78,77 +86,87 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("iOS, where the web view shrinks 0.2 s after the keyboard is up", () => {
+describe("iOS, where the app rises with the keyboard", () => {
   it("leaves a field near the top where it is", async () => {
     const field = page(120);
     await start("ios");
-    fire("keyboardWillShow", KEYBOARD);
+    iosKeyboardStarts();
+    vi.advanceTimersByTime(300);
     fire("keyboardDidShow", KEYBOARD);
-    shrinkWebView();
-    expect(field.scrollTo).not.toHaveBeenCalled();
+
+    expect(field.onScreenBottom()).toBe(120);
   });
 
-  it("moves a field with room to scroll once, and does not move it again when the view shrinks", async () => {
-    const field = page(650, 2000);
+  it("moves a field the keyboard would cover while the keyboard is still rising", async () => {
+    const field = page(650);
     await start("ios");
-    fire("keyboardWillShow", KEYBOARD);
-    fire("keyboardDidShow", KEYBOARD);
-    shrinkWebView();
+    iosKeyboardStarts();
 
-    expect(field.scrollTo).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(125);
+    expect(field.onScreenBottom()).toBeLessThan(650);
+    expect(field.onScreenBottom()).toBeGreaterThan(ABOVE_KEYBOARD);
+
+    vi.advanceTimersByTime(175);
     expect(field.onScreenBottom()).toBe(ABOVE_KEYBOARD);
   });
 
-  it("moves a field near the end of the page once, after the view has shrunk", async () => {
-    // Before the shrink this page can scroll only 200px; the field needs 362.
+  it("brings a field at the end of the page up as the page gains room, in one movement", async () => {
+    // With no keyboard this page can scroll 200px; the field needs 462.
     const field = page(950, 1000);
     await start("ios");
-    fire("keyboardWillShow", KEYBOARD);
-    fire("keyboardDidShow", KEYBOARD);
-    expect(field.scrollTo).not.toHaveBeenCalled();
+    iosKeyboardStarts();
 
-    shrinkWebView();
+    const positions: number[] = [];
+    for (let elapsed = 0; elapsed < 300; elapsed += 16) {
+      vi.advanceTimersByTime(16);
+      positions.push(field.onScreenBottom());
+    }
 
-    expect(field.scrollTo).toHaveBeenCalledTimes(1);
     expect(field.onScreenBottom()).toBe(ABOVE_KEYBOARD);
+    // Only ever upwards: no second movement after it settles.
+    expect(positions.every((p, i) => i === 0 || p <= positions[i - 1])).toBe(true);
   });
 
-  it("still moves the field as far as it can when the view never shrinks", async () => {
-    const field = page(950, 1000);
+  it("measures from the rotated screen", async () => {
     await start("ios");
-    fire("keyboardWillShow", KEYBOARD);
-    fire("keyboardDidShow", KEYBOARD);
-
-    vi.advanceTimersByTime(500);
-
-    expect(field.scrollTo).toHaveBeenCalledTimes(1);
-  });
-
-  it("measures the keyboard from the right full height after a rotation", async () => {
-    await start("ios");
-    setInnerHeight(400); // landscape, no keyboard
+    setInnerHeight(400);
     window.dispatchEvent(new Event("resize"));
-    const field = page(300, 2000);
+    const field = page(300);
 
-    fire("keyboardWillShow", 200);
-    fire("keyboardDidShow", 200);
+    iosKeyboardStarts(200);
+    vi.advanceTimersByTime(300);
 
     expect(field.onScreenBottom()).toBe(400 - 200 - CLEARANCE);
   });
 });
 
-describe("Android, where the keyboard covers the web view", () => {
+describe("Android, where the keyboard has finished when it reports", () => {
   it("leaves a field above the keyboard where it is", async () => {
     const field = page(120);
     await start("android");
+    insetAt = () => KEYBOARD;
     fire("keyboardDidShow", KEYBOARD);
-    expect(field.scrollTo).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(300);
+
+    expect(field.onScreenBottom()).toBe(120);
   });
 
   it("scrolls a field under the keyboard just into view", async () => {
-    const field = page(650, 2000);
+    const field = page(650);
     await start("android");
+    insetAt = () => KEYBOARD;
     fire("keyboardDidShow", KEYBOARD);
+    vi.advanceTimersByTime(300);
+
     expect(field.onScreenBottom()).toBe(ABOVE_KEYBOARD);
+  });
+});
+
+describe("the keyboard curve", () => {
+  it("starts at 0, ends at 1 and never runs backwards", () => {
+    const samples = Array.from({ length: 21 }, (_, i) => cubicBezier(CURVE, i / 20));
+    expect(samples[0]).toBeCloseTo(0, 5);
+    expect(samples[20]).toBeCloseTo(1, 5);
+    expect(samples.every((v, i) => i === 0 || v >= samples[i - 1])).toBe(true);
   });
 });

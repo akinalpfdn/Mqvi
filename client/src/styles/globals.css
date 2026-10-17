@@ -92,6 +92,18 @@ body.blur-disabled {
    tap registers instantly. Elements with their own touch-action (drag handles) out-specify this. */
 html { -webkit-tap-highlight-color: transparent; }
 button, a, [role="button"] { touch-action: manipulation; }
+/* Registered so they can animate: everything reading them moves with the keyboard (iOS). */
+@property --keyboard-inset { syntax:'<length>'; inherits:true; initial-value:0px; }
+@property --keyboard-lift { syntax:'<length>'; inherits:true; initial-value:0px; }
+/* The keyboard's own duration and curve (utils/keyboardScroll.ts uses the same). */
+:root.keyboard-animated { transition:--keyboard-inset .25s cubic-bezier(0.38, 0.7, 0.125, 1), --keyboard-lift .25s cubic-bezier(0.38, 0.7, 0.125, 1); }
+:root.keyboard-instant { transition:none !important; }
+/* Chat moves with the keyboard by translation only, never re-laying out its message list each
+   frame; the layout follows in one step when the keyboard stops (utils/iosKeyboardInset.ts). */
+:root.keyboard-lifting .messages-scroll > *,
+:root.keyboard-lifting .chat-msg-viewport > :not(.messages-scroll),
+:root.keyboard-lifting .chat-msg-viewport ~ * { translate:0 calc(var(--keyboard-lift) * -1);will-change:translate; }
+
 :root {
   /* Safe area insets — injected by native code on Android (WindowInsets),
      falls back to env() on iOS, defaults to 0px on web/Electron. */
@@ -100,9 +112,13 @@ button, a, [role="button"] { touch-action: manipulation; }
   --safe-area-inset-left: env(safe-area-inset-left, 0px);
   --safe-area-inset-right: env(safe-area-inset-right, 0px);
 
-  /* Soft-keyboard height above the nav bar — injected per animation frame by native Android
-     (WindowInsetsAnimation). 0 on web/Electron/iOS, so anything reading it is a no-op there. */
+  /* Soft-keyboard height above the bottom safe area. Android injects it per animation frame
+     (WindowInsetsAnimation); iOS sets it at keyboardWillShow and it animates with the keyboard
+     (utils/iosKeyboardInset.ts). 0 on web/Electron, so anything reading it is a no-op there. */
   --keyboard-inset: 0px;
+  /* The same keyboard measured from the screen's bottom edge, for position:fixed layers that
+     ignore #root's padding: the safe area joins in only while a keyboard is up. */
+  --keyboard-bottom: calc(var(--keyboard-inset) + min(var(--keyboard-inset) * 1000, var(--safe-area-inset-bottom)));
 
   /* Server banner shape. The crop frame the owner drags and every box that renders the result
      must be this exact ratio — anything else and object-fit:cover silently re-crops the image
@@ -2561,7 +2577,11 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:50;display:flex;align-items:center;justify-content:center; }
 /* The promise-based confirm must sit above every surface that can open it — member-card 51, role editor 52, pickers 60, soundboard sp-overlay 150 — and below disc-overlay 500. At the shared 50 it rendered behind the full-screen mobile member card, so logout from the profile was unreachable. */
 .modal-backdrop.modal-backdrop-confirm { z-index:300; }
-.modal-card { background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:14px;max-width:480px;width:100%;padding:24px;box-shadow:var(--panel-inset),0 12px 48px rgba(0,0,0,0.5);max-height:calc(100vh - 40px);overflow-y:auto; }
+.modal-card { background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:14px;max-width:480px;width:100%;padding:24px;box-shadow:var(--panel-inset),0 12px 48px rgba(0,0,0,0.5);max-height:min(calc(100vh - 40px), calc(100% - 24px));overflow-y:auto; }
+/* Modal.tsx: the header stays put and only the body scrolls. */
+.modal-card.modal-card-framed { display:flex;flex-direction:column;overflow:hidden; }
+.modal-card-framed > .modal-header { flex-shrink:0; }
+.modal-card-framed > .modal-body { min-height:0;overflow-y:auto;margin:0 -24px -24px;padding:0 24px 24px; }
 .modal-header { display:flex;align-items:center;justify-content:space-between;margin-bottom:16px; }
 .modal-title { font-size:18px;font-weight:700;color:var(--t0); }
 .modal-text { font-size:14px;color:var(--t2);margin-bottom:20px;line-height:1.5; }
@@ -4141,12 +4161,13 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
    ADD SERVER MODAL
    ═══════════════════════════════════════ */
 .add-server-overlay { position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:50;animation:vpIn .15s ease; }
-.add-server-modal { background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:14px;width:440px;max-width:90vw;max-height:85vh;overflow-y:auto;box-shadow:var(--panel-inset),0 8px 32px rgba(0,0,0,0.4); }
-.add-server-header { padding:20px 24px 0;display:flex;align-items:center;justify-content:space-between; }
+/* Fits the overlay, which shrinks above the keyboard; the header stays, the body scrolls. */
+.add-server-modal { background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:14px;width:440px;max-width:90vw;max-height:min(85vh, calc(100% - 24px));display:flex;flex-direction:column;overflow:hidden;box-shadow:var(--panel-inset),0 8px 32px rgba(0,0,0,0.4); }
+.add-server-header { flex-shrink:0;padding:20px 24px 0;display:flex;align-items:center;justify-content:space-between; }
 .add-server-title { font-size:20px;font-weight:700;color:var(--t0); }
 .add-server-close { width:28px;height:28px;border:none;background:transparent;color:var(--t2);cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:18px;transition:background .1s,color .1s; }
 .add-server-close:hover { background:var(--bg-h);color:var(--t0); }
-.add-server-body { padding:16px 24px 24px; }
+.add-server-body { min-height:0;overflow-y:auto;padding:16px 24px 24px; }
 
 /* Step indicator */
 .add-server-steps { display:flex;gap:6px;margin-bottom:20px; }
@@ -5097,4 +5118,24 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
   content:"";position:absolute;top:50%;left:54%;transform:translate(-50%,-50%);
   border-style:solid;border-width:9px 0 9px 15px;
   border-color:transparent transparent transparent #fff;
+}
+
+/* ═══════════════════════════════════════
+   ON-SCREEN KEYBOARD — position:fixed layers
+   They escape #root's padding, so each one that can hold an input lifts its own bottom edge
+   above the keyboard. Every new fixed layer with an input belongs in this list.
+   ═══════════════════════════════════════ */
+.disc-overlay,.modal-backdrop,.quick-switcher-overlay,.report-overlay,.block-confirm-overlay,
+.ico-overlay,.sp-overlay,.add-server-overlay,.welcome-overlay,.legal-modal-overlay,
+.download-prompt-overlay,.crop-modal-backdrop,.mobile-bottom-sheet-backdrop { bottom:var(--keyboard-bottom); }
+/* Only while open: a closed sheet waits just below the screen, and lifting it would park it
+   behind the (translucent) keyboard. */
+.mobile-bottom-sheet.open { bottom:var(--keyboard-bottom); }
+.settings-overlay,.mobile-drawer,.mobile-drawer-backdrop { bottom:calc(var(--safe-area-inset-bottom) + var(--keyboard-inset)); }
+.emoji-picker.emoji-picker-sheet,.gif-picker.gif-picker-sheet { bottom:calc(16px + var(--keyboard-bottom)) !important; }
+@media (max-width: 768px), (pointer: coarse) and (max-height: 500px) {
+  .settings-overlay { bottom:var(--keyboard-bottom); }
+  /* Form modals sit at the top: centred, they would jump up as the keyboard shrinks the overlay. */
+  .add-server-overlay { align-items:flex-start;padding-top:calc(var(--safe-area-inset-top) + 12px); }
+  .emoji-picker,.gif-picker,.member-card,.search-panel { bottom:var(--keyboard-bottom) !important; }
 }

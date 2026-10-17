@@ -37,7 +37,7 @@ function Modal({ isOpen, onClose, title, children }: ModalProps) {
   return createPortal(
     <div className="modal-backdrop" onClick={onClose}>
       {/* Stop click propagation to backdrop */}
-      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-card modal-card-framed" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="modal-header">
           <h2 className="modal-title">{title}</h2>
@@ -46,8 +46,7 @@ function Modal({ isOpen, onClose, title, children }: ModalProps) {
           </button>
         </div>
 
-        {/* Body */}
-        {children}
+        <div className="modal-body">{children}</div>
       </div>
     </div>,
     document.body
