@@ -16,6 +16,8 @@ import InviteJoinPage from "./components/servers/InviteJoinPage";
 import UpdateNotification from "./components/shared/UpdateNotification";
 import CustomTitleBar from "./components/layout/CustomTitleBar";
 import FileViewerOverlay from "./components/viewers/FileViewerOverlay";
+import ConfirmDialog from "./components/shared/ConfirmDialog";
+import ToastContainer from "./components/shared/ToastContainer";
 import { useUpdateChecker } from "./hooks/useUpdateChecker";
 import { useDeepLinks } from "./hooks/useDeepLinks";
 import { useFileTokenFreshness } from "./hooks/useFileTokenFreshness";
@@ -168,6 +170,8 @@ function App() {
         {updateBanner}
         {routes}
         <FileViewerOverlay />
+        <ConfirmDialog />
+        <ToastContainer />
       </div>
     );
   }
@@ -176,6 +180,9 @@ function App() {
     <>
       {routes}
       <FileViewerOverlay />
+      {/* At the root, not in AppLayout: the pre-auth pages (login's connection switcher) need them too. */}
+      <ConfirmDialog />
+      <ToastContainer />
     </>
   );
 }

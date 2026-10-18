@@ -1,5 +1,5 @@
 /**
- * ToastContainer — Renders stacked toasts at bottom-right. Mounted in AppLayout.
+ * ToastContainer — Renders stacked toasts at bottom-right. Mounted once in App, for every page.
  */
 
 import { useToastStore } from "../../stores/toastStore";
