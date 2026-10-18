@@ -52,6 +52,7 @@ type Handlers struct {
 	ICEServer         *handlers.ICEServerHandler
 	P2PHangup         *handlers.P2PHangupHandler
 	PushToken         *handlers.PushTokenHandler
+	Session           *handlers.SessionHandler
 	Discovery         *handlers.DiscoveryHandler
 	AssetLinks        *handlers.AssetLinksHandler
 	AASA              *handlers.AASAHandler
@@ -104,6 +105,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		ICEServer:         handlers.NewICEServerHandler(svcs.TURN, svcs.P2PCall, limiters.ICE),
 		P2PHangup:         handlers.NewP2PHangupHandler(svcs.P2PCall, limiters.Hangup),
 		PushToken:         handlers.NewPushTokenHandler(svcs.PushToken),
+		Session:           handlers.NewSessionHandler(svcs.Session, limiters.SessionRevoke),
 		WS:                ws.NewHandler(hub, svcs.Auth, nil, svcs.Voice, repos.User, repos.Server, svcs.ServerMute, svcs.ChannelMute, urlSigner),
 	}
 	// Re-deliver a ringing incoming call to a receiver on (re)connect (offline/push tap).

@@ -24,6 +24,7 @@ function PrivacyPage() {
           <li>{t("dataItem3")}</li>
           <li>{t("dataItem4")}</li>
           <li>{t("dataItem5")}</li>
+          <li>{t("dataItem6")}</li>
         </ul>
       </section>
 

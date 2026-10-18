@@ -31,6 +31,7 @@ vi.mock("./settingsStore", () => ({
 vi.mock("../utils/pushToken", () => ({
   unregisterCurrentPushToken: vi.fn(),
   clearCachedPushToken: vi.fn(),
+  reassertPushTokens: vi.fn(),
 }));
 vi.mock("../i18n", () => ({
   default: { language: "en" },

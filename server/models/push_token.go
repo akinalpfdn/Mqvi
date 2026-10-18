@@ -16,6 +16,7 @@ type PushToken struct {
 	// DeviceID identifies the installation. Empty for clients that predate it — the server then
 	// falls back to addressing the whole user, which is the old behaviour.
 	DeviceID   *string   `json:"device_id,omitempty"`
+	SessionID  *string   `json:"-"` // registering device session; deleting it deletes the token
 	CreatedAt  time.Time `json:"created_at"`
 	LastSeenAt time.Time `json:"last_seen_at"`
 }

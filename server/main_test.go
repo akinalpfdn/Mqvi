@@ -14,17 +14,18 @@ import (
 )
 
 type fileTokenAuthStub struct {
-	claims *models.TokenClaims
-	err    error
+	claims     *models.TokenClaims
+	err        error
+	sessionErr error
 }
 
-func (s fileTokenAuthStub) Register(context.Context, *models.CreateUserRequest) (*services.AuthTokens, error) {
+func (s fileTokenAuthStub) Register(context.Context, *models.CreateUserRequest, models.ClientInfo) (*services.AuthTokens, error) {
 	return nil, nil
 }
-func (s fileTokenAuthStub) Login(context.Context, *models.LoginRequest) (*services.AuthTokens, error) {
+func (s fileTokenAuthStub) Login(context.Context, *models.LoginRequest, models.ClientInfo) (*services.AuthTokens, error) {
 	return nil, nil
 }
-func (s fileTokenAuthStub) RefreshToken(context.Context, string) (*services.AuthTokens, error) {
+func (s fileTokenAuthStub) RefreshToken(context.Context, string, models.ClientInfo) (*services.AuthTokens, error) {
 	return nil, nil
 }
 func (s fileTokenAuthStub) Logout(context.Context, string) error {
@@ -36,7 +37,10 @@ func (s fileTokenAuthStub) ValidateAccessToken(string) (*models.TokenClaims, err
 func (s fileTokenAuthStub) ValidateFileToken(string) (*models.TokenClaims, error) {
 	return s.claims, s.err
 }
-func (s fileTokenAuthStub) ChangePassword(context.Context, string, string, string) (*services.AuthTokens, error) {
+func (s fileTokenAuthStub) ValidateSession(context.Context, *models.TokenClaims) error {
+	return s.sessionErr
+}
+func (s fileTokenAuthStub) ChangePassword(context.Context, string, string, string, string, models.ClientInfo) (*services.AuthTokens, error) {
 	return nil, nil
 }
 func (s fileTokenAuthStub) ChangeEmail(context.Context, string, string, string) error {
@@ -51,7 +55,7 @@ func (s fileTokenAuthStub) ResetPassword(context.Context, string, string) error 
 func (s fileTokenAuthStub) SoftDeleteSelf(context.Context, string, string) error {
 	return nil
 }
-func (s fileTokenAuthStub) RestoreAccount(context.Context, string, string) (*services.AuthTokens, error) {
+func (s fileTokenAuthStub) RestoreAccount(context.Context, string, string, models.ClientInfo) (*services.AuthTokens, error) {
 	return nil, nil
 }
 func (s fileTokenAuthStub) SetAppLogger(services.AuthAppLogger) {}

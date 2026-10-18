@@ -9,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/geoip"
 	"github.com/akinalp/mqvi/pkg/password"
 	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/testutil"
@@ -32,7 +34,7 @@ func newSessionHarness(t *testing.T) *sessionHarness {
 	svc := NewAuthService(
 		repository.NewSQLiteUserRepo(fx.DB), repository.NewSQLiteSessionRepo(fx.DB),
 		&testutil.MockResetRepo{}, &testutil.MockEventPublisher{}, &testutil.MockEmailSender{},
-		password.NoopChecker{}, testJWTSecret, testEncryptionKey, 15, 90, 24,
+		password.NoopChecker{}, geoip.Noop{}, testJWTSecret, testEncryptionKey, 15, 90, 24,
 	)
 	return &sessionHarness{t: t, db: fx.DB, svc: svc, uid: uid}
 }
@@ -44,7 +46,7 @@ func (h *sessionHarness) signIn() *AuthTokens {
 	if err != nil {
 		h.t.Fatalf("load user: %v", err)
 	}
-	tokens, err := h.svc.(*authService).generateTokens(context.Background(), user)
+	tokens, err := h.svc.(*authService).generateTokens(context.Background(), user, models.ClientInfo{})
 	if err != nil {
 		h.t.Fatalf("generateTokens: %v", err)
 	}
@@ -52,7 +54,7 @@ func (h *sessionHarness) signIn() *AuthTokens {
 }
 
 func (h *sessionHarness) refresh(token string) (*AuthTokens, error) {
-	return h.svc.RefreshToken(context.Background(), token)
+	return h.svc.RefreshToken(context.Background(), token, models.ClientInfo{})
 }
 
 func (h *sessionHarness) mustRefresh(token string) *AuthTokens {

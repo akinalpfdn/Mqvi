@@ -9,6 +9,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/geoip"
 	"github.com/akinalp/mqvi/pkg/password"
 	"github.com/akinalp/mqvi/testutil"
 	"github.com/golang-jwt/jwt/v5"
@@ -36,7 +37,7 @@ func preHashPassword(t *testing.T, password string) string {
 const testRegisterPassword = "correct horse battery staple"
 
 func newTestAuthService(userRepo *testutil.MockUserRepo, sessionRepo *testutil.MockSessionRepo) AuthService {
-	return NewAuthService(userRepo, sessionRepo, &testutil.MockResetRepo{}, &testutil.MockEventPublisher{}, &testutil.MockEmailSender{}, password.NoopChecker{}, testJWTSecret, testEncryptionKey, 15, 90, 24)
+	return NewAuthService(userRepo, sessionRepo, &testutil.MockResetRepo{}, &testutil.MockEventPublisher{}, &testutil.MockEmailSender{}, password.NoopChecker{}, geoip.Noop{}, testJWTSecret, testEncryptionKey, 15, 90, 24)
 }
 
 func TestRegister(t *testing.T) {
@@ -126,7 +127,7 @@ func TestRegister(t *testing.T) {
 			}
 
 			svc := newTestAuthService(userRepo, sessionRepo)
-			tokens, err := svc.Register(context.Background(), tc.req)
+			tokens, err := svc.Register(context.Background(), tc.req, models.ClientInfo{})
 
 			if tc.wantErr {
 				if err == nil {
@@ -229,7 +230,7 @@ func TestLogin(t *testing.T) {
 			}
 
 			svc := newTestAuthService(userRepo, sessionRepo)
-			tokens, err := svc.Login(context.Background(), tc.req)
+			tokens, err := svc.Login(context.Background(), tc.req, models.ClientInfo{})
 
 			if tc.wantErr {
 				if err == nil {
@@ -432,7 +433,7 @@ func TestGenerateTokens_StampsAudienceAndTokenVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("expected *authService")
 	}
-	tokens, err := authSvc.generateTokens(context.Background(), user)
+	tokens, err := authSvc.generateTokens(context.Background(), user, models.ClientInfo{})
 	if err != nil {
 		t.Fatalf("generateTokens: %v", err)
 	}
@@ -563,7 +564,7 @@ func TestChangePassword(t *testing.T) {
 			}
 
 			svc := newTestAuthService(userRepo, &testutil.MockSessionRepo{})
-			_, err := svc.ChangePassword(context.Background(), tc.userID, tc.currentPass, tc.newPass)
+			_, err := svc.ChangePassword(context.Background(), tc.userID, "", tc.currentPass, tc.newPass, models.ClientInfo{})
 
 			if tc.wantErr {
 				if err == nil {
@@ -604,7 +605,7 @@ func TestPasswordRejectionsCarryACode(t *testing.T) {
 			_, err := svc.Register(context.Background(), &models.CreateUserRequest{
 				Username: "testuser",
 				Password: tt.password,
-			})
+			}, models.ClientInfo{})
 
 			if err == nil {
 				t.Fatal("expected the password to be rejected")

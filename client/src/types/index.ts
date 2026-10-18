@@ -766,6 +766,21 @@ export type APIResponse<T = unknown> = {
 
 // ──────────────────────────────────
 // Auth
+
+/** One signed-in device on the active-devices screen. Location fields are the last seen values. */
+export type DeviceSession = {
+  id: string;
+  platform: "windows" | "macos" | "linux" | "android" | "ios" | "web" | null;
+  /** "desktop" | "mobile" for the apps, the browser's name on the web. */
+  device_label: string | null;
+  ip: string | null;
+  city: string | null;
+  /** ISO 3166-1 alpha-2. */
+  country: string | null;
+  created_at: string;
+  last_active: string;
+  is_current: boolean;
+};
 // ──────────────────────────────────
 export type LoginRequest = {
   username: string;

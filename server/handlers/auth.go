@@ -46,6 +46,21 @@ func NewAuthHandler(
 	}
 }
 
+// Headers the clients send so the devices screen can tell one session from another.
+const (
+	clientPlatformHeader = "X-Client-Platform"
+	clientDeviceHeader   = "X-Client-Device"
+)
+
+// clientInfo is what the request says about the device. Normalised by the service.
+func clientInfo(r *http.Request) models.ClientInfo {
+	return models.ClientInfo{
+		Platform:    r.Header.Get(clientPlatformHeader),
+		DeviceLabel: r.Header.Get(clientDeviceHeader),
+		IP:          ratelimit.ExtractIP(r),
+	}
+}
+
 // Register handles POST /api/auth/register
 // First registered user automatically becomes Owner.
 // IP-based rate limiting prevents registration spam.
@@ -67,7 +82,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokens, err := h.authService.Register(r.Context(), &req)
+	tokens, err := h.authService.Register(r.Context(), &req, clientInfo(r))
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -98,7 +113,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokens, err := h.authService.Login(r.Context(), &req)
+	tokens, err := h.authService.Login(r.Context(), &req, clientInfo(r))
 	if err != nil {
 		// Soft-deleted account: 403 with structured payload so the frontend can
 		// show the recovery UI ("Restore your account?"). Custom envelope:
@@ -147,7 +162,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokens, err := h.authService.RefreshToken(r.Context(), req.RefreshToken)
+	tokens, err := h.authService.RefreshToken(r.Context(), req.RefreshToken, clientInfo(r))
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -220,7 +235,8 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokens, err := h.authService.ChangePassword(r.Context(), user.ID, req.CurrentPassword, req.NewPassword)
+	sid, _ := r.Context().Value(ctxkeys.AuthSessionID).(string) // "" for tokens without a sid
+	tokens, err := h.authService.ChangePassword(r.Context(), user.ID, sid, req.CurrentPassword, req.NewPassword, clientInfo(r))
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -407,7 +423,7 @@ func (h *AuthHandler) RestoreAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokens, err := h.authService.RestoreAccount(r.Context(), req.Username, req.Password)
+	tokens, err := h.authService.RestoreAccount(r.Context(), req.Username, req.Password, clientInfo(r))
 	if err != nil {
 		pkg.Error(w, err)
 		return

@@ -19,6 +19,7 @@ import (
 // Defined here (not importing services.AuthService) to avoid circular dependency.
 type TokenValidator interface {
 	ValidateAccessToken(tokenString string) (*models.TokenClaims, error)
+	ValidateSession(ctx context.Context, claims *models.TokenClaims) error
 }
 
 // BanChecker checks if a user is banned. Avoids circular ws -> services dependency.
@@ -264,6 +265,14 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A device signed out from the devices screen keeps an unexpired access token for up to its
+	// TTL; without this it could reconnect with it.
+	if err := h.tokenValidator.ValidateSession(r.Context(), claims); err != nil {
+		h.hub.logEvent(models.LogLevelWarn, models.LogCategoryAuth, &claims.UserID, "WS connect blocked: session revoked", nil)
+		http.Error(w, "session revoked", http.StatusUnauthorized)
+		return
+	}
+
 	// Fetch user info before upgrade — reject banned users early
 	var displayName, avatarURL string
 	var dbPrefStatus models.UserStatus
@@ -345,6 +354,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		conn:          conn,
 		userID:        claims.UserID,
 		sessionID:     uuid.New().String(),
+		authSessionID: claims.SessionID,
 		deviceID:      deviceID,
 		instanceID:    instanceID,
 		nativeMedia:   r.URL.Query().Get("native_media") == "1",

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg/geoip"
 	"github.com/akinalp/mqvi/pkg/password"
 	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/services"
@@ -30,9 +31,9 @@ func TestLogout_ShouldEndTheSessionWithoutAnAccessToken(t *testing.T) {
 	authSvc := services.NewAuthService(
 		repository.NewSQLiteUserRepo(fx.DB), repository.NewSQLiteSessionRepo(fx.DB),
 		&testutil.MockResetRepo{}, &testutil.MockEventPublisher{}, &testutil.MockEmailSender{},
-		password.NoopChecker{}, "test-secret", []byte("0123456789abcdef0123456789abcdef"), 15, 90, 24,
+		password.NoopChecker{}, geoip.Noop{}, "test-secret", []byte("0123456789abcdef0123456789abcdef"), 15, 90, 24,
 	)
-	tokens, err := authSvc.Login(context.Background(), &models.LoginRequest{Username: "alice", Password: "correct horse battery staple"})
+	tokens, err := authSvc.Login(context.Background(), &models.LoginRequest{Username: "alice", Password: "correct horse battery staple"}, models.ClientInfo{})
 	if err != nil {
 		t.Fatalf("login: %v", err)
 	}

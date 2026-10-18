@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -45,6 +46,11 @@ type UserStateProvider interface {
 type ClientManager interface {
 	SetInvisible(userID string, invisible bool)
 	DisconnectUser(userID string)
+	// RevokeAuthSessions tells the user's connections from these device sessions they were
+	// signed out, then closes them.
+	RevokeAuthSessions(userID string, authSessionIDs []string)
+	// RevokeAuthSessionsExcept does the same for every connection not from one of keep.
+	RevokeAuthSessionsExcept(userID string, keep ...string)
 	AddClientServerID(userID, serverID string)
 	RemoveClientServerID(userID, serverID string)
 }
@@ -1017,6 +1023,49 @@ func (h *Hub) DisconnectUser(userID string) {
 	for _, client := range clients {
 		h.unregister <- client
 	}
+}
+
+func (h *Hub) RevokeAuthSessions(userID string, authSessionIDs []string) {
+	revoked := make(map[string]bool, len(authSessionIDs))
+	for _, id := range authSessionIDs {
+		revoked[id] = true
+	}
+	h.revokeConnections(userID, func(c *Client) bool { return c.authSessionID != "" && revoked[c.authSessionID] })
+}
+
+func (h *Hub) RevokeAuthSessionsExcept(userID string, keep ...string) {
+	h.revokeConnections(userID, func(c *Client) bool { return !slices.Contains(keep, c.authSessionID) })
+}
+
+// revokeConnections sends OpSessionRevoked to the matching connections and closes them once the
+// frame has had time to flush (as Shutdown does). The close is deferred, not waited for: the caller
+// is an HTTP request that should not stall on it.
+func (h *Hub) revokeConnections(userID string, match func(*Client) bool) {
+	h.mu.RLock()
+	var targets []*Client
+	for client := range h.clients[userID] {
+		if match(client) {
+			targets = append(targets, client)
+		}
+	}
+	h.mu.RUnlock()
+	if len(targets) == 0 {
+		return
+	}
+
+	data, err := json.Marshal(Event{Op: OpSessionRevoked})
+	if err != nil {
+		log.Printf("[ws] failed to marshal session_revoked: %v", err)
+	} else {
+		for _, c := range targets {
+			c.trySend(data)
+		}
+	}
+	time.AfterFunc(serverShutdownGrace, func() {
+		for _, c := range targets {
+			h.unregister <- c
+		}
+	})
 }
 
 // Shutdown closes all client connections (graceful shutdown).

@@ -51,6 +51,11 @@ type Client struct {
 	// event; immutable after construction.
 	sessionID string
 
+	// authSessionID is the signed-in DEVICE session (the JWT `sid`) — not the connection id
+	// above. Revoking that session from the devices screen closes every connection carrying it.
+	// Empty for tokens issued before sessions were named in them.
+	authSessionID string
+
 	// deviceID identifies the INSTALLATION behind this connection, and is the same id the
 	// device's push token is registered under. It is what lets the server skip the device that
 	// just answered a call when it tells the rest to stop ringing — without it the cancel push

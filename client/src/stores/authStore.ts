@@ -25,7 +25,8 @@ import { GUIDE_TAB_ID } from "../utils/guideScript";
 import { useVoiceStore } from "./voiceStore";
 import { endP2PCallForLogout } from "./shared/p2pCallControl";
 import { useSettingsStore } from "./settingsStore";
-import { unregisterCurrentPushToken, clearCachedPushToken } from "../utils/pushToken";
+import { useSessionStore } from "./sessionStore";
+import { unregisterCurrentPushToken, clearCachedPushToken, reassertPushTokens } from "../utils/pushToken";
 import { resetMarkReadTracking } from "./shared/markReadTracking";
 import type { User, UserStatus } from "../types";
 
@@ -281,6 +282,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     clearTokens();
     // Close settings modal if open (SPA doesn't reload between logout → login)
     useSettingsStore.getState().closeSettings();
+    useSessionStore.getState().reset();
     set({ user: null });
   },
 
@@ -329,6 +331,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       closeGuideSurfaces();
       clearCachedPushToken();
       useSettingsStore.getState().closeSettings();
+      useSessionStore.getState().reset();
     } catch (err) {
       console.error("[authStore] forceLogout: cleanup failed", err);
     }
@@ -413,6 +416,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   replaceTokens: (access, refresh, file) => {
     setTokens(access, refresh, file);
+    // A new session replaced this device's old one, and the push registration went with it.
+    void reassertPushTokens();
   },
 
   setManualStatus: (status) => {

@@ -45,6 +45,12 @@ func (m *AuthMiddleware) Require(next http.Handler) http.Handler {
 			return
 		}
 
+		// A device signed out elsewhere still holds an unexpired access token.
+		if err := m.authService.ValidateSession(r.Context(), claims); err != nil {
+			pkg.Error(w, err)
+			return
+		}
+
 		user, err := m.userRepo.GetActiveByID(r.Context(), claims.UserID)
 		if err != nil {
 			pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found")
@@ -65,6 +71,7 @@ func (m *AuthMiddleware) Require(next http.Handler) http.Handler {
 		user.PasswordHash = ""
 
 		ctx := context.WithValue(r.Context(), ctxkeys.User, user)
+		ctx = context.WithValue(ctx, ctxkeys.AuthSessionID, claims.SessionID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

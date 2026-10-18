@@ -1,6 +1,6 @@
 /**
  * System-domain WS event handlers.
- * Handles: ready, presence, members, roles, servers, friends, blocks, P2P calls, E2EE, badges.
+ * Handles: ready, session revocation, presence, members, roles, servers, friends, blocks, P2P calls, E2EE, badges.
  */
 
 import { useChannelStore } from "../../stores/channelStore";
@@ -79,6 +79,12 @@ export async function handleSystemEvent(
   switch (msg.op) {
     case "heartbeat_ack":
       // Handled inline in useWebSocket (missedHeartbeatsRef reset)
+      return true;
+
+    case "session_revoked":
+      // Signed out from another device (devices screen, password change). The server already
+      // ended the session; tear down now rather than when the next request fails.
+      void useAuthStore.getState().forceLogout();
       return true;
 
     case "ready": {

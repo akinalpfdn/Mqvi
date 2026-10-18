@@ -102,10 +102,23 @@ export async function unregisterCurrentPushToken(): Promise<void> {
 }
 
 /**
+ * Registers this device's push tokens again even if the cache says they are current. A push token
+ * belongs to the session that registered it and dies with it, so after anything that replaces this
+ * device's session in place (a password change) the old registration is gone server-side.
+ */
+export async function reassertPushTokens(): Promise<void> {
+  localStorage.removeItem(REGISTERED_KEY);
+  const fcm = localStorage.getItem(PUSH_TOKEN_KEY);
+  const voip = localStorage.getItem(VOIP_TOKEN_KEY);
+  if (fcm) await syncPushToken(fcm);
+  if (voip) await syncVoipToken(voip);
+}
+
+/**
  * Clears only the local token caches (no server call). Used when a session restore
  * fails: the access token is already invalid so we can't unregister server-side.
- * The server row self-heals on next login (token upsert reassigns user_id); a
- * server-side prune on session revoke is the complete fix (tracked for a later phase).
+ * The server row goes with the session it was registered under (push_tokens.session_id
+ * ON DELETE CASCADE).
  */
 export function clearCachedPushToken(): void {
   localStorage.removeItem(PUSH_TOKEN_KEY);

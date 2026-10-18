@@ -29,6 +29,9 @@ const (
 	// discovering the drop on its own backoff. Turns a restart the user would feel into one they
 	// do not.
 	OpServerShutdown = "server_shutdown"
+	// OpSessionRevoked tells a connection its device was signed out from elsewhere (devices
+	// screen, password change). The client signs out locally; the socket closes right after.
+	OpSessionRevoked = "session_revoked"
 	OpMessageCreate = "message_create"
 	OpMessageUpdate = "message_update"
 	OpMessageDelete = "message_delete"

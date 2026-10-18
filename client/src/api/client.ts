@@ -6,6 +6,7 @@
 
 import type { APIResponse } from "../types";
 import { API_BASE_URL } from "../utils/constants";
+import { clientHeaders } from "../utils/clientPlatform";
 import { extensionForType, type GeneratedThumbnail } from "../utils/imageEncoding";
 
 function getAccessToken(): string | null {
@@ -70,7 +71,7 @@ async function doRefresh(): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...clientHeaders() },
       body: JSON.stringify({ refresh_token: refreshToken }),
       // Honor the rotated file-serve cookie that /auth/refresh sets.
       credentials: "include",
@@ -179,7 +180,7 @@ async function sendFetch<T>(
   signal: AbortSignal | undefined,
   token: string | null
 ): Promise<XhrResult<T>> {
-  const headers: Record<string, string> = { ...extraHeaders };
+  const headers: Record<string, string> = { ...clientHeaders(), ...extraHeaders };
   if (token) headers["Authorization"] = `Bearer ${token}`;
   if (body && !(body instanceof FormData)) headers["Content-Type"] = "application/json";
 
@@ -295,7 +296,7 @@ function sendXhr<T>(
       xhr.withCredentials = true;
 
       if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
-      for (const [key, value] of Object.entries(extraHeaders ?? {})) {
+      for (const [key, value] of Object.entries({ ...clientHeaders(), ...extraHeaders })) {
         xhr.setRequestHeader(key, value);
       }
       // Content-Type is left unset on purpose: the browser derives it from the FormData, including

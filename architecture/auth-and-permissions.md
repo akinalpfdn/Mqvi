@@ -39,6 +39,17 @@ stale `pending_token` copies are removed by the daily cleanup sweep.
 `mqvi_pending_logout` and sends it on the next contact; at launch, a stored session the server
 cannot confirm (no response, 408/429/5xx) shows the connecting screen, never the login screen.
 
+**Devices screen (Settings → Security).** `GET/DELETE /api/auth/sessions[/{id}]`. Each session row
+stores platform and label (`X-Client-Platform` / `X-Client-Device`, normalised server-side), last IP
+and city/country from DB-IP (`pkg/geoip`, downloaded monthly, looked up locally). Those fields go
+with the row; the 5651 traffic log is a separate concern and does not live here. Revocation is
+immediate on every surface: `AuthService.ValidateSession` runs after the signature check in the API
+middleware, the WS handshake and file serving (one PK lookup), and the hub sends `session_revoked`
+to that session's sockets before closing them. `push_tokens.session_id` is `ON DELETE CASCADE`, so
+a signed-out phone stops receiving notifications in the same write. A password change revokes every
+other session the same way; the client re-registers its push token afterwards because its own
+session was replaced too.
+
 **Revocation is `TokenVersion` (`tv`).** Every signed token carries the user's current `tv`;
 bumping the column invalidates every outstanding token for that account at once. Used on password
 change and forced logout. There is no denylist.
