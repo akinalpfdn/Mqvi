@@ -76,6 +76,15 @@ describe("where the spotlight sits", () => {
     expect(currentStage(stages)?.element).toBe(menu);
   });
 
+  it("not on a control under an open drawer, which leaves the drawer's own control", () => {
+    const covered = document.createElement("div");
+    covered.setAttribute("inert", "");
+    document.body.appendChild(covered);
+    const servers = add("servers-section");
+    covered.appendChild(add("discover"));
+    expect(currentStage(stages)?.element).toBe(servers);
+  });
+
   it("on a control that carries the marker among several", () => {
     add("server"); // someone else's server
     const own = add("server owned-server");

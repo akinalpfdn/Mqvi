@@ -114,7 +114,10 @@ function isOnScreen(el: Element): boolean {
 export function currentStage(stages: readonly TourStage[]): { stage: TourStage; element: HTMLElement } | null {
   for (let i = stages.length - 1; i >= 0; i--) {
     // `~=`: a control can carry several markers ("server owned-server").
-    const shown = Array.from(document.querySelectorAll<HTMLElement>(`[data-tour~="${stages[i].target}"]`)).filter(isOnScreen);
+    // An inert control sits under an open drawer: on screen, but not something to point at.
+    const shown = Array.from(document.querySelectorAll<HTMLElement>(`[data-tour~="${stages[i].target}"]`)).filter(
+      (el) => isOnScreen(el) && !el.closest("[inert]"),
+    );
     const element = shown.find((el) => el.classList.contains("active")) ?? shown[0];
     if (element) return { stage: stages[i], element };
   }

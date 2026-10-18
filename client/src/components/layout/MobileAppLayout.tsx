@@ -85,7 +85,9 @@ function MobileAppLayout({
       </MobileDrawer>
 
       <div className="app-body">
-        <div className="main-area">
+        {/* Under an open drawer the content is covered by its backdrop: inert, so nothing (focus,
+            the guide's spotlight) treats it as usable. */}
+        <div className="main-area" inert={leftDrawerOpen || rightDrawerOpen}>
           <SplitPaneContainer
             node={layout}
             sendTyping={sendTyping}

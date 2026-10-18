@@ -107,7 +107,7 @@ function SettingsModal() {
       <SettingsNav drawerOpen={navOpen} onNavigate={() => setNavOpen(false)} />
 
       {/* Content area — close button anchored to the panel's top-right corner */}
-      <div className="settings-panel">
+      <div className="settings-panel" inert={isMobile && navOpen}>
         {/* Mobile is a full-screen sheet, so it gets a real toolbar instead of the two
             buttons floating over the content. */}
         {isMobile ? (
