@@ -166,7 +166,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 
 	authService := services.NewAuthService(
 		repos.User, repos.Session, repos.ResetToken, hub, emailSender, breachChecker,
-		cfg.JWT.Secret, cfg.JWT.AccessTokenExpiry, cfg.JWT.RefreshTokenExpiry,
+		cfg.JWT.Secret, encryptionKey, cfg.JWT.AccessTokenExpiry, cfg.JWT.RefreshTokenExpiry, cfg.JWT.FileTokenExpiry,
 	)
 	channelService := services.NewChannelService(repos.Channel, repos.Category, hub, channelPermService, voiceService, voiceService, fileCleanupService)
 	categoryService := services.NewCategoryService(repos.Category, hub)
@@ -284,7 +284,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	)
 	cleanupService := services.NewCleanupService(
 		db, repos.Cleanup, repos.ScanHashCache,
-		repos.User, repos.Server,
+		repos.User, repos.Server, repos.Session,
 		adminUserService, adminServerService,
 		fileLocator, appLogService,
 		cfg.Upload.Dir,

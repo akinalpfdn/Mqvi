@@ -49,7 +49,7 @@ func TestSQLiteUserRepo_ResetPasswordWithTokenClearsSiblingTokensAndSessions(t *
 	if _, err := db.ExecContext(ctx, `INSERT INTO users (id, username, password_hash, token_version) VALUES ('u1', 'u1', 'old-hash', 0)`); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO sessions (id, user_id, refresh_token, expires_at) VALUES ('s1', 'u1', 'r1', ?)`, expiresAt); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO sessions (id, user_id, token_hash, expires_at) VALUES ('s1', 'u1', 'h-s1', ?)`, expiresAt); err != nil {
 		t.Fatalf("insert session: %v", err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at) VALUES ('rt1', 'u1', 'h1', ?), ('rt2', 'u1', 'h2', ?)`, expiresAt, expiresAt); err != nil {

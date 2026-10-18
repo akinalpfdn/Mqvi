@@ -9,14 +9,30 @@ JWT, signed with `JWT_SECRET`. Two audiences, and the separation is deliberate:
 | Audience | Constant | TTL |
 |---|---|---|
 | API | `models.AudienceAPI` | `JWT_ACCESS_EXPIRY_MINUTES` (15 by default) |
-| File | `models.AudienceFile` | the **refresh** expiry (`JWT_REFRESH_EXPIRY_DAYS`, 7) |
+| File | `models.AudienceFile` | `JWT_FILE_EXPIRY_HOURS` (24 by default) — renewed on every refresh |
 
 `validateToken` rejects a token with no audience and a token whose audience does not match what the
 caller asked for. A file token therefore cannot be replayed against the API, which is the point — the
 file token is long-lived because in-app rendering needs it to outlive a signed URL, and that would
 be unacceptable for API access.
 
-Recorded in `DECISIONS.md`, 2026-05-10 — "Purpose-Bound File Tokens and JWT Revocation".
+Recorded in `DECISIONS.md`, 2026-05-10 — "Purpose-Bound File Tokens and JWT Revocation". Until
+2026-10-18 the file token shared the refresh lifetime; it was split off when sessions went to 90 days.
+
+**Sessions.** One `sessions` row per signed-in device; its id is the `sid` claim on every JWT and the
+prefix of the refresh token (`<sid>.<secret>`). Only a SHA-256 of the token is stored. Lifetime is
+`JWT_REFRESH_EXPIRY_DAYS` (90), sliding — every refresh restarts it. Rotation is a compare-and-swap
+on the row and keeps the previous hash:
+
+| Presented token | Result |
+|---|---|
+| current | rotate; current becomes previous |
+| previous, within 60s of the rotation | the same successor again (encrypted copy in `pending_token`) — parallel tabs agree |
+| previous, later | a new successor replacing the unused one — the response was lost |
+| anything older | session deleted, warning logged — a copy of the token was kept |
+
+Pre-098 plaintext tokens sit in `legacy_token` and are converted on first refresh. Expired rows and
+stale `pending_token` copies are removed by the daily cleanup sweep.
 
 **Revocation is `TokenVersion` (`tv`).** Every signed token carries the user's current `tv`;
 bumping the column invalidates every outstanding token for that account at once. Used on password

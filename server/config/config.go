@@ -136,7 +136,8 @@ type DatabaseConfig struct {
 type JWTConfig struct {
 	Secret             string
 	AccessTokenExpiry  int // minutes (default: 15)
-	RefreshTokenExpiry int // days (default: 7)
+	RefreshTokenExpiry int // days (default: 90), sliding: every refresh restarts it
+	FileTokenExpiry    int // hours (default: 24); must outlive the 1h signed URLs
 }
 
 type LiveKitConfig struct {
@@ -220,9 +221,14 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid JWT_ACCESS_EXPIRY_MINUTES: %w", err)
 	}
 
-	refreshExpiry, err := strconv.Atoi(getEnv("JWT_REFRESH_EXPIRY_DAYS", "7"))
-	if err != nil {
-		return nil, fmt.Errorf("invalid JWT_REFRESH_EXPIRY_DAYS: %w", err)
+	refreshExpiry, err := strconv.Atoi(getEnv("JWT_REFRESH_EXPIRY_DAYS", "90"))
+	if err != nil || refreshExpiry < 1 {
+		return nil, fmt.Errorf("invalid JWT_REFRESH_EXPIRY_DAYS %q: must be a whole number of days, at least 1", getEnv("JWT_REFRESH_EXPIRY_DAYS", "90"))
+	}
+
+	fileExpiry, err := strconv.Atoi(getEnv("JWT_FILE_EXPIRY_HOURS", "24"))
+	if err != nil || fileExpiry < 2 {
+		return nil, fmt.Errorf("invalid JWT_FILE_EXPIRY_HOURS %q: must be a whole number of hours, at least 2 (it has to outlive a 1h signed URL)", getEnv("JWT_FILE_EXPIRY_HOURS", "24"))
 	}
 
 	maxSize, err := strconv.ParseInt(getEnv("UPLOAD_MAX_SIZE", "104857600"), 10, 64) // 100 MB — Cloudflare body limit
@@ -398,6 +404,7 @@ func Load() (*Config, error) {
 			Secret:             jwtSecret,
 			AccessTokenExpiry:  accessExpiry,
 			RefreshTokenExpiry: refreshExpiry,
+			FileTokenExpiry:    fileExpiry,
 		},
 		LiveKit: LiveKitConfig{
 			URL:       getEnv("LIVEKIT_URL", "ws://localhost:7880"),

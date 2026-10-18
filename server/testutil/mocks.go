@@ -247,11 +247,14 @@ func (m *MockUserRepo) IsPlatformBannedByUserID(ctx context.Context, userID stri
 // ─── SessionRepository mock ───
 
 type MockSessionRepo struct {
-	CreateFn            func(ctx context.Context, session *models.Session) error
-	GetByRefreshTokenFn func(ctx context.Context, token string) (*models.Session, error)
-	DeleteByIDFn        func(ctx context.Context, id string) error
-	DeleteByUserIDFn    func(ctx context.Context, userID string) error
-	DeleteExpiredFn     func(ctx context.Context) error
+	CreateFn           func(ctx context.Context, session *models.Session) error
+	GetByIDFn          func(ctx context.Context, id string) (*models.Session, error)
+	GetByLegacyTokenFn func(ctx context.Context, rawToken, tokenHash string) (*models.Session, error)
+	RotateFn           func(ctx context.Context, current *models.Session, next models.SessionRotation) (bool, error)
+	DeleteByIDFn       func(ctx context.Context, id string) error
+	DeleteByUserIDFn   func(ctx context.Context, userID string) error
+	DeleteExpiredFn    func(ctx context.Context, now time.Time) (int64, error)
+	ClearPendingFn     func(ctx context.Context, cutoff time.Time) (int64, error)
 }
 
 func (m *MockSessionRepo) Create(ctx context.Context, session *models.Session) error {
@@ -260,8 +263,14 @@ func (m *MockSessionRepo) Create(ctx context.Context, session *models.Session) e
 	}
 	return nil
 }
-func (m *MockSessionRepo) GetByRefreshToken(ctx context.Context, token string) (*models.Session, error) {
-	return m.GetByRefreshTokenFn(ctx, token)
+func (m *MockSessionRepo) GetByID(ctx context.Context, id string) (*models.Session, error) {
+	return m.GetByIDFn(ctx, id)
+}
+func (m *MockSessionRepo) GetByLegacyToken(ctx context.Context, rawToken, tokenHash string) (*models.Session, error) {
+	return m.GetByLegacyTokenFn(ctx, rawToken, tokenHash)
+}
+func (m *MockSessionRepo) Rotate(ctx context.Context, current *models.Session, next models.SessionRotation) (bool, error) {
+	return m.RotateFn(ctx, current, next)
 }
 func (m *MockSessionRepo) DeleteByID(ctx context.Context, id string) error {
 	if m.DeleteByIDFn != nil {
@@ -275,11 +284,17 @@ func (m *MockSessionRepo) DeleteByUserID(ctx context.Context, userID string) err
 	}
 	return nil
 }
-func (m *MockSessionRepo) DeleteExpired(ctx context.Context) error {
+func (m *MockSessionRepo) DeleteExpired(ctx context.Context, now time.Time) (int64, error) {
 	if m.DeleteExpiredFn != nil {
-		return m.DeleteExpiredFn(ctx)
+		return m.DeleteExpiredFn(ctx, now)
 	}
-	return nil
+	return 0, nil
+}
+func (m *MockSessionRepo) ClearPending(ctx context.Context, cutoff time.Time) (int64, error) {
+	if m.ClearPendingFn != nil {
+		return m.ClearPendingFn(ctx, cutoff)
+	}
+	return 0, nil
 }
 
 // ─── PasswordResetRepository mock ───
