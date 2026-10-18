@@ -22,11 +22,14 @@ const LIFT_SCOPE = ".chat-area, .voice-room-chat";
 
 const root = () => document.documentElement;
 
-/** The inset the layout currently uses. */
-let applied = 0;
-let liftMode = false;
-let commitTimer: ReturnType<typeof setTimeout> | undefined;
-let commit: (() => void) | null = null;
+/** One driver's state, owned by the `initIosKeyboardInset` call that created it. */
+type Driver = {
+  /** The inset the layout currently uses. */
+  applied: number;
+  liftMode: boolean;
+  commitTimer: ReturnType<typeof setTimeout> | undefined;
+  commit: (() => void) | null;
+};
 
 /** The bottom safe area in px (home indicator); the keyboard height already covers it. */
 function safeAreaBottom(): number {
@@ -50,91 +53,121 @@ function instantly(change: () => void): void {
   root().classList.remove("keyboard-instant");
 }
 
+const messageLists = () => Array.from(document.querySelectorAll<HTMLElement>(".messages-scroll"));
+
+/**
+ * How much of a `delta` px layout change each message list can follow by scrolling: one near
+ * its top (or too short to scroll) cannot follow it all. Its messages translate by only that
+ * share of the lift (`--keyboard-lift-share`), so they do not jump when the layout swaps in.
+ */
+function shareLift(delta: number): void {
+  for (const el of messageLists()) {
+    const reach =
+      delta > 0
+        ? Math.max(0, el.scrollHeight - (el.clientHeight - delta) - el.scrollTop) // room once shorter
+        : el.scrollTop;
+    const share = Math.min(1, reach / Math.abs(delta));
+    if (share < 1) el.style.setProperty("--keyboard-lift-share", String(share));
+    else el.style.removeProperty("--keyboard-lift-share");
+  }
+}
+
+function clearLiftShare(): void {
+  for (const el of messageLists()) el.style.removeProperty("--keyboard-lift-share");
+}
+
 /**
  * Keeps each message list's content where it is on screen while the layout swaps in for the
- * translation: the list's height changes by `delta`, so its scroll position moves with it.
+ * translation: the list's height changes by `delta`, so its scroll position moves with it (as
+ * far as it can; `shareLift` scaled the translation to match).
  */
 function holdChatScroll(delta: number, change: () => void): void {
-  const lists = Array.from(document.querySelectorAll<HTMLElement>(".messages-scroll"), (el) => [el, el.scrollTop] as const);
+  const lists = messageLists().map((el) => [el, el.scrollTop] as const);
   change();
   for (const [el, top] of lists) el.scrollTop = top + delta;
 }
 
 /** Finishes a rise still in flight, so the next change starts from a settled layout. */
-function settle(): void {
-  clearTimeout(commitTimer);
-  const pending = commit;
-  commit = null;
+function settle(d: Driver): void {
+  clearTimeout(d.commitTimer);
+  const pending = d.commit;
+  d.commit = null;
   pending?.();
 }
 
-function moveTo(target: number): void {
-  settle();
+function moveTo(d: Driver, target: number): void {
+  settle(d);
 
-  if (!liftMode) {
+  if (!d.liftMode) {
     root().classList.remove("keyboard-lifting");
     setVar("--keyboard-inset", target);
-    applied = target;
+    d.applied = target;
     return;
   }
 
   root().classList.add("keyboard-lifting");
-  if (target > applied) {
+  if (target > d.applied) {
     // Rise: the old layout stays while the chat translates up; then the layout takes over.
-    const rise = target - applied;
+    const rise = target - d.applied;
+    shareLift(rise);
     setVar("--keyboard-lift", rise);
-    commit = () => {
+    d.commit = () => {
       instantly(() =>
         holdChatScroll(rise, () => {
           setVar("--keyboard-inset", target);
           setVar("--keyboard-lift", 0);
           root().classList.remove("keyboard-lifting");
+          clearLiftShare();
         }),
       );
-      applied = target;
+      d.applied = target;
     };
-    commitTimer = setTimeout(settle, KEYBOARD_ANIMATION_MS);
+    d.commitTimer = setTimeout(() => settle(d), KEYBOARD_ANIMATION_MS);
   } else {
     // Fall: the layout grows at once, the chat held where it was, then translates down.
-    const from = applied - target;
+    const from = d.applied - target;
+    shareLift(-from);
     instantly(() =>
       holdChatScroll(-from, () => {
         setVar("--keyboard-inset", target);
         setVar("--keyboard-lift", from);
       }),
     );
-    applied = target;
+    d.applied = target;
     setVar("--keyboard-lift", 0);
-    commit = () => root().classList.remove("keyboard-lifting");
-    commitTimer = setTimeout(settle, KEYBOARD_ANIMATION_MS);
+    d.commit = () => {
+      root().classList.remove("keyboard-lifting");
+      clearLiftShare();
+    };
+    d.commitTimer = setTimeout(() => settle(d), KEYBOARD_ANIMATION_MS);
   }
 }
 
 /** Starts driving the inset; the returned function stops it and clears the inset. */
 export async function initIosKeyboardInset(): Promise<() => void> {
   root().classList.add("keyboard-animated");
+  const d: Driver = { applied: 0, liftMode: false, commitTimer: undefined, commit: null };
 
   const handles = [
     await Keyboard.addListener("keyboardWillShow", (info) => {
       // Decided as the keyboard opens; a height change while open keeps the same way.
-      if (applied === 0 && !commit) liftMode = !!document.activeElement?.closest(LIFT_SCOPE);
-      moveTo(Math.max(0, info.keyboardHeight - safeAreaBottom()));
+      if (d.applied === 0 && !d.commit) d.liftMode = !!document.activeElement?.closest(LIFT_SCOPE);
+      moveTo(d, Math.max(0, info.keyboardHeight - safeAreaBottom()));
     }),
     await Keyboard.addListener("keyboardWillHide", () => {
-      moveTo(0);
+      moveTo(d, 0);
     }),
   ];
 
   return () => {
     handles.forEach((handle) => void handle.remove());
-    clearTimeout(commitTimer);
-    commit = null;
+    clearTimeout(d.commitTimer);
+    d.commit = null;
     instantly(() => {
       setVar("--keyboard-inset", 0);
       setVar("--keyboard-lift", 0);
     });
     root().classList.remove("keyboard-animated", "keyboard-lifting");
-    applied = 0;
-    liftMode = false;
+    clearLiftShare();
   };
 }

@@ -49,19 +49,28 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/** A chat column: a message list scrolled to `scrollTop`, and a focused composer. */
-function chat(scrollTop: number, column = "chat-area") {
+/**
+ * A chat column: a message list scrolled to `scrollTop`, and a focused composer. The list is
+ * `viewport` px tall while the layout has no keyboard inset, and its content `content` px.
+ */
+function chat(scrollTop: number, column = "chat-area", { content = 5000, viewport = 700 } = {}) {
   const area = document.createElement("div");
   area.className = column;
   const list = document.createElement("div");
   list.className = "messages-scroll";
   let top = scrollTop;
-  Object.defineProperty(list, "scrollTop", { get: () => top, set: (v: number) => (top = v) });
+  const clientHeight = () => viewport - (parseFloat(inset()) || 0);
+  Object.defineProperty(list, "scrollHeight", { get: () => content });
+  Object.defineProperty(list, "clientHeight", { get: clientHeight });
+  Object.defineProperty(list, "scrollTop", {
+    get: () => top,
+    set: (v: number) => (top = Math.max(0, Math.min(v, content - clientHeight()))),
+  });
   const composer = document.createElement("textarea");
   area.append(list, composer);
   document.body.appendChild(area);
   composer.focus();
-  return { scrollTop: () => top };
+  return { scrollTop: () => top, scrollTo: (v: number) => (top = v), share: () => list.style.getPropertyValue("--keyboard-lift-share") };
 }
 
 describe("the iOS keyboard inset", () => {
@@ -138,6 +147,40 @@ describe("the chat, which moves by translation instead of re-laying out each fra
     vi.advanceTimersByTime(250);
     expect(lift()).toBe("0px");
     expect(lifting()).toBe(false);
+  });
+
+  it("moves the whole way with a list that can follow it", async () => {
+    const list = chat(400);
+    await start(0);
+    fire("keyboardWillShow", 300);
+    expect(list.share()).toBe("");
+  });
+
+  it("moves the messages only as far as a list near its top can scroll back, as the keyboard hides", async () => {
+    const list = chat(400);
+    await start(0);
+    fire("keyboardWillShow", 300);
+    vi.advanceTimersByTime(250);
+    list.scrollTo(100); // the user read up to near the top of the history
+
+    fire("keyboardWillHide");
+    // The list could only scroll back 100 of the 300px, so its messages fall by a third of it.
+    expect(list.scrollTop()).toBe(0);
+    expect(list.share()).toBe(String(1 / 3));
+
+    vi.advanceTimersByTime(250);
+    expect(list.share()).toBe("");
+  });
+
+  it("does not lift the messages of a list too short to scroll", async () => {
+    const list = chat(0, "chat-area", { content: 200 });
+    await start(0);
+    fire("keyboardWillShow", 300);
+    expect(list.share()).toBe("0");
+
+    vi.advanceTimersByTime(250);
+    expect(list.scrollTop()).toBe(0);
+    expect(list.share()).toBe("");
   });
 
   it("finishes a rise still in flight before falling", async () => {

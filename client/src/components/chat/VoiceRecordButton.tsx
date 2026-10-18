@@ -40,6 +40,11 @@ function VoiceRecordButton({ onRecorded, disabled }: VoiceRecordButtonProps) {
   const startYRef = useRef(0);
   const recStartRef = useRef(0);
   const finishingRef = useRef(false);
+  /** A hold is in progress, from the press until it is staged or dropped. A ref, not `recording`:
+   *  a second press can land before the first one's live state has rendered. */
+  const busyRef = useRef(false);
+  /** Bumped by each press; a start that resolves for an older press touches nothing. */
+  const holdSeqRef = useRef(0);
 
   const recording = state === "recording";
 
@@ -49,6 +54,7 @@ function VoiceRecordButton({ onRecorded, disabled }: VoiceRecordButtonProps) {
     startedRef.current = false;
     pendingStageRef.current = false;
     finishingRef.current = false;
+    busyRef.current = false;
     setLocked(false);
   }, []);
 
@@ -112,8 +118,10 @@ function VoiceRecordButton({ onRecorded, disabled }: VoiceRecordButtonProps) {
 
   const onPointerDown = useCallback(
     async (e: React.PointerEvent) => {
-      if (disabled || recording) return;
+      if (disabled || recording || busyRef.current) return;
       e.preventDefault();
+      busyRef.current = true;
+      const hold = ++holdSeqRef.current;
       startYRef.current = e.clientY;
       holdingRef.current = true;
       lockedRef.current = false;
@@ -143,6 +151,9 @@ function VoiceRecordButton({ onRecorded, disabled }: VoiceRecordButtonProps) {
       };
 
       const ok = await start();
+      // A newer press owns the refs and listeners now (this one was dropped and the user pressed
+      // again); its own start aborted this one.
+      if (hold !== holdSeqRef.current) return;
       if (!ok) {
         detachHold();
         reset();
