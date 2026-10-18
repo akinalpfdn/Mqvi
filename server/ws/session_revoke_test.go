@@ -1,9 +1,14 @@
 package ws
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
 	"testing"
 	"time"
+
+	"github.com/akinalp/mqvi/models"
 )
 
 func revocableClient(h *Hub, userID, authSessionID string) *Client {
@@ -104,5 +109,23 @@ func TestHub_ShouldSpareEverySessionItIsToldToKeep(t *testing.T) {
 	closed := unregistered(h, 1)
 	if !closed[other] || closed[oldSelf] {
 		t.Fatalf("closed other=%v oldSelf=%v", closed[other], closed[oldSelf])
+	}
+}
+
+type revokedSessionValidator struct{ stubTokenValidator }
+
+func (revokedSessionValidator) ValidateSession(context.Context, *models.TokenClaims) error {
+	return errors.New("session revoked")
+}
+
+// A signed-out device holds an unexpired access token; it must not be able to open a socket.
+func TestHandleConnection_ShouldRefuseATokenWhoseSessionWasSignedOut(t *testing.T) {
+	h := newHandlerUnderTest(t, 10, 100)
+	h.tokenValidator = revokedSessionValidator{stubTokenValidator{userID: "u1"}}
+
+	rec := connectOnce(h)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status %d, want 401", rec.Code)
 	}
 }

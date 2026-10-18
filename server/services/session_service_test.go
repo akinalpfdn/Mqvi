@@ -314,3 +314,110 @@ func TestChangePassword_ShouldCloseTheOtherDevicesConnections(t *testing.T) {
 		t.Fatalf("revoked connections for %q except %v, want u1 except [%s s-this-device]", keptFor, keep, sid)
 	}
 }
+
+// Tokens registered before push tokens carried a session cannot cascade; a sign-out must still
+// take them, or a signed-out phone keeps showing message previews.
+func TestSignOut_ShouldAlsoDropPushTokensRegisteredWithoutASession(t *testing.T) {
+	h := newDevicesHarness(t)
+	uid := h.fx.User("")
+	current := h.signIn(uid, models.ClientInfo{})
+	phone := h.signIn(uid, models.ClientInfo{})
+	if _, err := h.fx.DB.Exec(
+		`INSERT INTO push_tokens (user_id, token, platform) VALUES (?, 'legacy-fcm', 'android')`, uid,
+	); err != nil {
+		t.Fatalf("seed legacy push token: %v", err)
+	}
+
+	if err := h.devices.Revoke(context.Background(), uid, current, phone); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+
+	var left int
+	if err := h.fx.DB.QueryRow(`SELECT COUNT(*) FROM push_tokens WHERE user_id = ?`, uid).Scan(&left); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if left != 0 {
+		t.Fatal("an unbound push token survived the sign-out")
+	}
+}
+
+func TestChangePassword_ShouldDropPushTokensRegisteredWithoutASession(t *testing.T) {
+	fx := dbtest.New(t)
+	if _, err := fx.DB.Exec(`INSERT INTO users (id, username, password_hash) VALUES ('u1', 'alice', ?)`,
+		preHashPassword(t, testRegisterPassword)); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	auth := NewAuthService(repository.NewSQLiteUserRepo(fx.DB), repository.NewSQLiteSessionRepo(fx.DB),
+		&testutil.MockResetRepo{}, &testutil.MockEventPublisher{}, &testutil.MockEmailSender{},
+		password.NoopChecker{}, geoip.Noop{}, testJWTSecret, testEncryptionKey, 15, 90, 24,
+	)
+	user, err := repository.NewSQLiteUserRepo(fx.DB).GetByID(context.Background(), "u1")
+	if err != nil {
+		t.Fatalf("load user: %v", err)
+	}
+	if _, err := auth.(*authService).generateTokens(context.Background(), user, models.ClientInfo{}); err != nil {
+		t.Fatalf("sign in: %v", err)
+	}
+	if _, err := fx.DB.Exec(`INSERT INTO push_tokens (user_id, token, platform) VALUES ('u1', 'legacy-fcm', 'android')`); err != nil {
+		t.Fatalf("seed legacy push token: %v", err)
+	}
+
+	if _, err := auth.ChangePassword(context.Background(), "u1", "", testRegisterPassword, "another horse battery staple", models.ClientInfo{}); err != nil {
+		t.Fatalf("change password: %v", err)
+	}
+
+	var left int
+	if err := fx.DB.QueryRow(`SELECT COUNT(*) FROM push_tokens`).Scan(&left); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if left != 0 {
+		t.Fatal("an unbound push token survived a password change that signed every device out")
+	}
+}
+
+func TestSessions_ShouldStoreOnlyARealAddress(t *testing.T) {
+	h := newDevicesHarness(t)
+	uid := h.fx.User("")
+	forged := h.signIn(uid, models.ClientInfo{IP: "<script>" + strings.Repeat("x", 5000)})
+	mapped := h.signIn(uid, models.ClientInfo{IP: " ::ffff:81.214.1.1 "})
+
+	views, err := h.devices.List(context.Background(), uid, "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+
+	byID := map[string]models.SessionView{}
+	for _, v := range views {
+		byID[v.ID] = v
+	}
+	if byID[forged].IP != nil {
+		t.Fatalf("a non-address was stored: %q", *byID[forged].IP)
+	}
+	if byID[mapped].IP == nil || *byID[mapped].IP != "81.214.1.1" {
+		t.Fatalf("mapped address not normalised: %v", byID[mapped].IP)
+	}
+}
+
+func TestChangePassword_ShouldNotSpareUnnamedConnectionsWhenThisDeviceIsUnnamed(t *testing.T) {
+	fx := dbtest.New(t)
+	if _, err := fx.DB.Exec(`INSERT INTO users (id, username, password_hash) VALUES ('u1', 'alice', ?)`,
+		preHashPassword(t, testRegisterPassword)); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	var keep []string
+	hub := &testutil.MockEventPublisher{
+		RevokeAuthSessionsExceptFn: func(_ string, ids ...string) { keep = ids },
+	}
+	auth := NewAuthService(repository.NewSQLiteUserRepo(fx.DB), repository.NewSQLiteSessionRepo(fx.DB),
+		&testutil.MockResetRepo{}, hub, &testutil.MockEmailSender{},
+		password.NoopChecker{}, geoip.Noop{}, testJWTSecret, testEncryptionKey, 15, 90, 24,
+	)
+
+	if _, err := auth.ChangePassword(context.Background(), "u1", "", testRegisterPassword, "another horse battery staple", models.ClientInfo{}); err != nil {
+		t.Fatalf("change password: %v", err)
+	}
+
+	if len(keep) != 1 || keep[0] == "" {
+		t.Fatalf("kept %v, want only the new session", keep)
+	}
+}

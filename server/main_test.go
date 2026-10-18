@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -161,5 +162,26 @@ func TestCheckFileTokenRejectsTokenVersionMismatch(t *testing.T) {
 
 	if _, ok := checkFileToken(r, "file-token", "/api/files/avatars/u1/a.png", authSvc, userRepo, acl); ok {
 		t.Fatal("expected token_version mismatch to reject file token")
+	}
+}
+
+// A device signed out from the devices screen keeps a file token until it expires; serving files
+// must check the session, not just the signature.
+func TestCheckFileToken_ShouldRejectATokenWhoseSessionWasSignedOut(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/api/files/avatars/u1/a.png", nil)
+	userRepo := &testutil.MockUserRepo{
+		GetActiveByIDFn: func(context.Context, string) (*models.User, error) {
+			return &models.User{ID: "u1", TokenVersion: 1}, nil
+		},
+	}
+	acl := fileacl.NewChecker(nil, nil, nil, nil, nil, nil, nil)
+	claims := &models.TokenClaims{UserID: "u1", TokenVersion: 1, SessionID: "s1"}
+
+	if _, ok := checkFileToken(r, "file-token", "/api/files/avatars/u1/a.png", fileTokenAuthStub{claims: claims}, userRepo, acl); !ok {
+		t.Fatal("control: a live session's file token was rejected")
+	}
+	revoked := fileTokenAuthStub{claims: claims, sessionErr: errors.New("session revoked")}
+	if _, ok := checkFileToken(r, "file-token", "/api/files/avatars/u1/a.png", revoked, userRepo, acl); ok {
+		t.Fatal("a signed-out session's file token was accepted")
 	}
 }

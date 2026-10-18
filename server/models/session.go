@@ -1,6 +1,7 @@
 package models
 
 import (
+	"net/netip"
 	"strings"
 	"time"
 	"unicode"
@@ -69,10 +70,16 @@ type ClientInfo struct {
 	IP          string
 }
 
-// Normalized drops an unknown platform and trims the label to printable text of bounded length.
+// Normalized drops an unknown platform and an address that is not an IP, and trims the label to
+// printable text of bounded length. The address comes from a forwarding header the client can set.
 func (c ClientInfo) Normalized() ClientInfo {
 	if !sessionPlatforms[c.Platform] {
 		c.Platform = ""
+	}
+	if addr, err := netip.ParseAddr(strings.TrimSpace(c.IP)); err == nil {
+		c.IP = addr.Unmap().String()
+	} else {
+		c.IP = ""
 	}
 	label := strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {

@@ -6,14 +6,7 @@
  */
 
 import { contextBridge, ipcRenderer } from "electron";
-
-/** Why a "remember me" save or read failed, as main reports it. */
-type CredentialStoreFailure = {
-  reason: "unavailable" | "encrypt_failed" | "write_failed" | "decrypt_failed" | "read_failed";
-  detail: string;
-  platform: "windows" | "macos" | "linux";
-  backend: string;
-};
+import type { CredentialFailure as CredentialStoreFailure } from "./credentialStore";
 
 contextBridge.exposeInMainWorld("electronAPI", {
   // ─── Invoke-style IPC (renderer → main → response) ───

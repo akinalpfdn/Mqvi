@@ -589,7 +589,12 @@ func (s *authService) ChangePassword(ctx context.Context, userID, currentSession
 	// when their next request fails. This device's open sockets still carry its old sid.
 	if s.hub != nil {
 		if sid, ok := sessionIDOf(tokens.RefreshToken); ok {
-			s.hub.RevokeAuthSessionsExcept(userID, sid, currentSessionID)
+			keep := []string{sid}
+			// "" would spare every connection from a pre-sid token, other devices' included.
+			if currentSessionID != "" {
+				keep = append(keep, currentSessionID)
+			}
+			s.hub.RevokeAuthSessionsExcept(userID, keep...)
 		}
 	}
 	return tokens, nil

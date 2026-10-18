@@ -153,7 +153,9 @@ async function withTokenRefresh<T>(
   });
   if (!refreshed) {
     console.warn(`[api] refresh FAILED on ${label} — returning original 401`);
-    return withStatus(first);
+    // Tokens still stored means the refresh did not get an answer (network, 5xx), not a
+    // rejection: report no response, so callers treat it as the server being away.
+    return getRefreshToken() ? { ...first.response, httpStatus: 0 } : withStatus(first);
   }
 
   return withStatus(await send(getAccessToken()));

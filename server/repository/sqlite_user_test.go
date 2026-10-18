@@ -89,3 +89,29 @@ func TestSQLiteUserRepo_ResetPasswordWithTokenClearsSiblingTokensAndSessions(t *
 		t.Fatalf("session count got %d want 0", sessionCount)
 	}
 }
+
+// The tombstone keeps the user row, so push_tokens' ON DELETE CASCADE never fires; without the
+// explicit delete a deleted account's phone keeps its registration.
+func TestSQLiteUserRepo_HardDeleteShouldRemoveThePushTokens(t *testing.T) {
+	ctx := context.Background()
+	db := newUserRepoTestDB(t)
+	repo := NewSQLiteUserRepo(db)
+	if _, err := db.ExecContext(ctx, `INSERT INTO users (id, username, password_hash) VALUES ('u1', 'u1', 'x')`); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO push_tokens (user_id, token, platform) VALUES ('u1', 'fcm-1', 'android')`); err != nil {
+		t.Fatalf("insert push token: %v", err)
+	}
+
+	if err := repo.HardDeleteUser(ctx, "u1", false); err != nil {
+		t.Fatalf("hard delete: %v", err)
+	}
+
+	var left int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM push_tokens WHERE user_id = 'u1'`).Scan(&left); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if left != 0 {
+		t.Fatal("push token survived the account's hard delete")
+	}
+}

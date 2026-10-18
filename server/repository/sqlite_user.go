@@ -809,6 +809,7 @@ func (r *sqliteUserRepo) HardDeleteUser(ctx context.Context, userID string, byAd
 			`DELETE FROM friendships WHERE user_id = ? OR friend_id = ?`,
 			`DELETE FROM server_members WHERE user_id = ?`,
 			`DELETE FROM password_reset_tokens WHERE user_id = ?`,
+			`DELETE FROM push_tokens WHERE user_id = ?`,
 			`DELETE FROM server_mutes WHERE user_id = ?`,
 			`DELETE FROM channel_mutes WHERE user_id = ?`,
 			`DELETE FROM user_devices WHERE user_id = ?`,

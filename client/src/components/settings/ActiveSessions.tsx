@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useToastStore } from "../../stores/toastStore";
 import { useConfirm } from "../../hooks/useConfirm";
+import { formatFullDateTime } from "../../utils/dateFormat";
 import type { DeviceSession } from "../../types";
 
 const PLATFORM_KEYS: Record<NonNullable<DeviceSession["platform"]>, string> = {
@@ -26,14 +27,6 @@ function countryName(code: string, locale: string): string {
     return new Intl.DisplayNames([locale], { type: "region" }).of(code) ?? code;
   } catch {
     return code;
-  }
-}
-
-function formatDate(iso: string, locale: string): string {
-  try {
-    return new Date(iso).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" });
-  } catch {
-    return iso;
   }
 }
 
@@ -119,7 +112,7 @@ function ActiveSessions() {
                     {[where, session.ip].filter(Boolean).join(" · ")}
                   </span>
                   <span className="session-meta">
-                    {t("sessionLastActive", { time: formatDate(session.last_active, i18n.language) })}
+                    {t("sessionLastActive", { time: formatFullDateTime(session.last_active, i18n.language) })}
                   </span>
                 </div>
                 {!session.is_current && (

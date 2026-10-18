@@ -5,7 +5,7 @@
  * window.electronAPI is only available in Electron — undefined in browser mode.
  */
 
-export /** Why a "remember me" save or read failed, as main reports it. */
+export /** Why a "remember me" save or read failed, as main reports it. Mirrors electron/credentialStore.ts. */
 type CredentialStoreFailure = {
   reason: "unavailable" | "encrypt_failed" | "write_failed" | "decrypt_failed" | "read_failed";
   detail: string;
