@@ -92,6 +92,18 @@ body.blur-disabled {
    tap registers instantly. Elements with their own touch-action (drag handles) out-specify this. */
 html { -webkit-tap-highlight-color: transparent; }
 button, a, [role="button"] { touch-action: manipulation; }
+/* Registered so they can animate: everything reading them moves with the keyboard (iOS). */
+@property --keyboard-inset { syntax:'<length>'; inherits:true; initial-value:0px; }
+@property --keyboard-lift { syntax:'<length>'; inherits:true; initial-value:0px; }
+/* The keyboard's own duration and curve (utils/keyboardScroll.ts uses the same). */
+:root.keyboard-animated { transition:--keyboard-inset .25s cubic-bezier(0.38, 0.7, 0.125, 1), --keyboard-lift .25s cubic-bezier(0.38, 0.7, 0.125, 1); }
+:root.keyboard-instant { transition:none !important; }
+/* Chat moves with the keyboard by translation only, never re-laying out its message list each
+   frame; the layout follows in one step when the keyboard stops (utils/iosKeyboardInset.ts). */
+:root.keyboard-lifting .messages-scroll > * { translate:0 calc(var(--keyboard-lift) * var(--keyboard-lift-share, 1) * -1);will-change:translate; }
+:root.keyboard-lifting .chat-msg-viewport > :not(.messages-scroll),
+:root.keyboard-lifting .chat-msg-viewport ~ * { translate:0 calc(var(--keyboard-lift) * -1);will-change:translate; }
+
 :root {
   /* Safe area insets — injected by native code on Android (WindowInsets),
      falls back to env() on iOS, defaults to 0px on web/Electron. */
@@ -100,9 +112,16 @@ button, a, [role="button"] { touch-action: manipulation; }
   --safe-area-inset-left: env(safe-area-inset-left, 0px);
   --safe-area-inset-right: env(safe-area-inset-right, 0px);
 
-  /* Soft-keyboard height above the nav bar — injected per animation frame by native Android
-     (WindowInsetsAnimation). 0 on web/Electron/iOS, so anything reading it is a no-op there. */
+  /* Soft-keyboard height above the bottom safe area. Android injects it per animation frame
+     (WindowInsetsAnimation); iOS sets it at keyboardWillShow and it animates with the keyboard
+     (utils/iosKeyboardInset.ts). 0 on web/Electron, so anything reading it is a no-op there. */
   --keyboard-inset: 0px;
+  /* The same keyboard measured from the screen's bottom edge, for position:fixed layers that
+     ignore #root's padding: the safe area joins in only while a keyboard is up. */
+  --keyboard-bottom: calc(var(--keyboard-inset) + min(var(--keyboard-inset) * 1000, var(--safe-area-inset-bottom)));
+  /* The bottom safe area, for the inside of a layer lifted to --keyboard-bottom: that lift already
+     clears it while a keyboard is up, so padding by it again would leave a gap above the keyboard. */
+  --safe-bottom-unless-keyboard: max(0px, calc(var(--safe-area-inset-bottom) - var(--keyboard-inset) * 1000));
 
   /* Server banner shape. The crop frame the owner drags and every box that renders the result
      must be this exact ratio — anything else and object-fit:cover silently re-crops the image
@@ -319,7 +338,7 @@ select option:disabled {
 
 /* ─── Discovery (public server directory) ─── */
 .disc-overlay { position:fixed;inset:0;z-index:500;display:flex;flex-direction:column;background:var(--bg-1);color:var(--t0);overflow:hidden;
-  padding:var(--safe-area-inset-top) var(--safe-area-inset-right) var(--safe-area-inset-bottom) var(--safe-area-inset-left); }
+  padding:var(--safe-area-inset-top) var(--safe-area-inset-right) var(--safe-bottom-unless-keyboard) var(--safe-area-inset-left); }
 .disc-header { padding:32px 40px 16px;border-bottom:1px solid var(--b1);flex-shrink:0;background:linear-gradient(180deg, var(--bg-2), var(--bg-1)); }
 .disc-header-top { display:flex;align-items:flex-start;justify-content:space-between; }
 .disc-title { font-size:28px;font-weight:800;color:var(--t0);letter-spacing:-0.02em; }
@@ -1048,7 +1067,13 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 
 /* Voice message recording */
 .voice-rec-btn { touch-action:none; } /* drag-to-lock must not scroll the page on touch */
-.voice-rec-overlay { position:absolute;inset:0;display:flex;align-items:center;gap:10px;padding:0 14px;background:var(--bg-4);border-radius:var(--panel-radius);z-index:5; }
+/* A long press must stay a hold: no text selection or callout on the mic or its overlay. */
+.voice-rec-btn,.voice-rec-overlay,.voice-rec-overlay * { -webkit-user-select:none;user-select:none;-webkit-touch-callout:none; }
+/* While held, the overlay covers the mic but must never take the touch from it. */
+.voice-rec-overlay { position:absolute;inset:0;display:flex;align-items:center;gap:10px;padding:0 14px;background:var(--bg-4);border-radius:var(--panel-radius);z-index:5;pointer-events:none; }
+.voice-rec-overlay.locked { pointer-events:auto; }
+.voice-rec-lock { position:absolute;right:6px;bottom:calc(100% + 8px);display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 6px;background:var(--bg-4);border:1px solid var(--b1);border-radius:999px;color:var(--t2);animation:vrecLockNudge 1.2s ease-in-out infinite; }
+@keyframes vrecLockNudge { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-4px);} }
 .voice-rec-dot { width:10px;height:10px;border-radius:50%;background:var(--red);flex-shrink:0;animation:vrecPulse 1s ease-in-out infinite; }
 @keyframes vrecPulse { 0%,100%{opacity:1;} 50%{opacity:.3;} }
 .voice-rec-time { font-size:14px;color:var(--t0);font-variant-numeric:tabular-nums; }
@@ -1567,8 +1592,10 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 /* ═══════════════════════════════════════
    AUTH PAGES (Login / Register)
    ═══════════════════════════════════════ */
-.auth-page { display:flex;align-items:center;justify-content:center;height:100%;background:var(--bg-0); }
-.auth-card { width:100%;max-width:480px;padding:40px;background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:14px;box-shadow:var(--panel-inset),var(--panel-shadow); }
+/* Scrolls when the card is taller than the screen; the card's auto margins centre it otherwise.
+   align-items:center would clip a tall card at the top, out of reach of scrolling. */
+.auth-page { display:flex;flex-direction:column;height:100%;overflow-y:auto;overscroll-behavior:contain;background:var(--bg-0); }
+.auth-card { margin:auto;flex-shrink:0;width:100%;max-width:480px;padding:40px;background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:14px;box-shadow:var(--panel-inset),var(--panel-shadow); }
 .auth-title { font-size:26px;font-weight:700;color:var(--t0);text-align:center;margin-bottom:8px; }
 .auth-subtitle { font-size:14px;color:var(--t2);text-align:center;margin-bottom:28px; }
 .auth-error { background:var(--red-s);border:1px solid var(--red);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:var(--red); }
@@ -1626,20 +1653,6 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .download-prompt-btn-primary:hover { background:var(--primary-h); }
 .download-prompt-btn-dismiss { padding:8px;background:none;border:none;color:var(--t3);font-size:13px;cursor:pointer; }
 .download-prompt-btn-dismiss:hover { color:var(--t2); }
-
-/* ═══════════════════════════════════════
-   WELCOME MODAL
-   ═══════════════════════════════════════ */
-.welcome-overlay { position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:var(--overlay-backdrop,none);-webkit-backdrop-filter:var(--overlay-backdrop,none); }
-.welcome-modal { background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:14px;box-shadow:var(--panel-inset),var(--panel-shadow);padding:32px;max-width:420px;width:90%;text-align:center; }
-.welcome-logo { display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:50%;background:var(--primary);color:#fff;margin-bottom:16px; }
-.welcome-modal h3 { font-size:20px;font-weight:700;margin-bottom:6px;color:var(--t1); }
-.welcome-modal > p { font-size:14px;color:var(--t2);margin-bottom:20px; }
-.welcome-features { list-style:none;padding:0;margin:0 0 24px;text-align:left;display:flex;flex-direction:column;gap:12px; }
-.welcome-features li { display:flex;align-items:center;gap:10px;font-size:14px;color:var(--t1); }
-.welcome-features li svg { flex-shrink:0;color:var(--primary); }
-.welcome-btn { width:100%;padding:12px;border-radius:8px;background:var(--primary);color:#fff;font-size:14px;font-weight:600;border:none;cursor:pointer;transition:background .15s; }
-.welcome-btn:hover { background:var(--primary-h); }
 
 /* ═══════════════════════════════════════
    SETTINGS MODAL
@@ -2464,7 +2477,6 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .member-settings-role-checkbox { display:flex;align-items:center;gap:8px;font-size:13px;color:var(--t1);cursor:pointer;padding:4px 0; }
 .member-settings-role-checkbox input[type="checkbox"] { accent-color:var(--primary); }
 .member-settings-actions { display:flex;align-items:center;gap:12px;margin-top:8px; }
-.member-settings-unsaved { font-size:13px;color:var(--primary); }
 
 /* Member settings — tab toggle */
 .member-settings-tabs {
@@ -2559,7 +2571,11 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .modal-backdrop { position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:50;display:flex;align-items:center;justify-content:center; }
 /* The promise-based confirm must sit above every surface that can open it — member-card 51, role editor 52, pickers 60, soundboard sp-overlay 150 — and below disc-overlay 500. At the shared 50 it rendered behind the full-screen mobile member card, so logout from the profile was unreachable. */
 .modal-backdrop.modal-backdrop-confirm { z-index:300; }
-.modal-card { background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:14px;max-width:480px;width:100%;padding:24px;box-shadow:var(--panel-inset),0 12px 48px rgba(0,0,0,0.5);max-height:calc(100vh - 40px);overflow-y:auto; }
+.modal-card { background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:14px;max-width:480px;width:100%;padding:24px;box-shadow:var(--panel-inset),0 12px 48px rgba(0,0,0,0.5);max-height:min(calc(100vh - 40px), calc(100% - 24px));overflow-y:auto; }
+/* Modal.tsx: the header stays put and only the body scrolls. */
+.modal-card.modal-card-framed { display:flex;flex-direction:column;overflow:hidden; }
+.modal-card-framed > .modal-header { flex-shrink:0; }
+.modal-card-framed > .modal-body { min-height:0;overflow-y:auto;margin:0 -24px -24px;padding:0 24px 24px; }
 .modal-header { display:flex;align-items:center;justify-content:space-between;margin-bottom:16px; }
 .modal-title { font-size:18px;font-weight:700;color:var(--t0); }
 .modal-text { font-size:14px;color:var(--t2);margin-bottom:20px;line-height:1.5; }
@@ -3240,7 +3256,8 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .frf-btn:disabled { opacity:0.5;cursor:not-allowed; }
 .frf-result { margin-top:12px;padding:10px 14px;border-radius:6px;font-size:13px; }
 .frf-success { background:rgba(61,145,64,0.12);color:var(--green); }
-.frf-error { background:rgba(220,53,69,0.1);color:var(--red); }
+/* A refusal is guidance, not an alarm: a calm tone, not error red. */
+.frf-info { background:color-mix(in srgb, var(--primary) 10%, transparent);border:1px solid color-mix(in srgb, var(--primary) 25%, transparent);color:var(--t1); }
 
 /* ═══════════════════════════════════════
    P2P CALL
@@ -3413,7 +3430,6 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 
 /* Mobil-specific CSS custom properties */
 :root {
-  --mobile-header-h: 48px;
   --mobile-drawer-w: min(85vw, 320px);
   --mobile-drawer-right-w: min(80vw, 300px);
   --mobile-touch-target: 44px;
@@ -3484,56 +3500,6 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 }
 
 
-/* ─── Mobile Header ─── */
-.mobile-header {
-  display: none;
-  height: var(--mobile-header-h);
-  min-height: var(--mobile-header-h);
-  padding: 0 8px;
-  align-items: center;
-  gap: 8px;
-  background: var(--bg-1);
-  border-bottom: 1px solid var(--b1);
-  flex-shrink: 0;
-}
-@media (max-width: 768px), (pointer: coarse) and (max-height: 500px) {
-  .mobile-header { display: flex; }
-}
-
-.mobile-header-btn {
-  width: var(--mobile-touch-target);
-  height: var(--mobile-touch-target);
-  border: none;
-  background: transparent;
-  color: var(--t1);
-  cursor: pointer;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: background 0.1s, color 0.1s;
-}
-.mobile-header-btn:active { background: var(--bg-h); color: var(--t0); }
-
-.mobile-header-title {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--t0);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mobile-header-hash {
-  color: var(--t2);
-  font-weight: 500;
-}
-
 /* ─── Mobile Bottom Sheet ─── */
 .mobile-bottom-sheet-backdrop {
   display: none;
@@ -3564,7 +3530,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   /* var(), not env(): Android WebView reports env(safe-area-inset-*) as 0 — MainActivity
      injects the real WindowInsets into these custom properties. */
-  padding-bottom: var(--safe-area-inset-bottom);
+  padding-bottom: var(--safe-bottom-unless-keyboard);
 }
 .mobile-bottom-sheet.open {
   transform: translateY(0);
@@ -3881,7 +3847,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
     box-shadow: none;
     /* The overlay now runs to the screen edges, so the content clears the bars itself. */
     padding: 16px calc(16px + var(--safe-area-inset-right))
-             calc(16px + var(--safe-area-inset-bottom))
+             calc(16px + var(--safe-bottom-unless-keyboard))
              calc(16px + var(--safe-area-inset-left));
   }
   .settings-topbar {
@@ -3992,7 +3958,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
     border: none;
     /* Without this the header — and its only close button — sits under the status bar. */
     padding: var(--safe-area-inset-top) var(--safe-area-inset-right)
-             var(--safe-area-inset-bottom) var(--safe-area-inset-left);
+             var(--safe-bottom-unless-keyboard) var(--safe-area-inset-left);
   }
 
   /* ─── GIF Picker → Bottom Sheet ─── */
@@ -4091,6 +4057,9 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
   .auth-card {
     width: 90vw;
     max-width: 420px;
+    /* Top-aligned: a centred card jumps up when the keyboard shrinks the screen. */
+    margin: 16px auto;
+    padding: 24px;
   }
 
   /* ─── Invite Modal ─── */
@@ -4136,12 +4105,13 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
    ADD SERVER MODAL
    ═══════════════════════════════════════ */
 .add-server-overlay { position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:50;animation:vpIn .15s ease; }
-.add-server-modal { background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:14px;width:440px;max-width:90vw;max-height:85vh;overflow-y:auto;box-shadow:var(--panel-inset),0 8px 32px rgba(0,0,0,0.4); }
-.add-server-header { padding:20px 24px 0;display:flex;align-items:center;justify-content:space-between; }
+/* Fits the overlay, which shrinks above the keyboard; the header stays, the body scrolls. */
+.add-server-modal { background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:14px;width:440px;max-width:90vw;max-height:min(85vh, calc(100% - 24px));display:flex;flex-direction:column;overflow:hidden;box-shadow:var(--panel-inset),0 8px 32px rgba(0,0,0,0.4); }
+.add-server-header { flex-shrink:0;padding:20px 24px 0;display:flex;align-items:center;justify-content:space-between; }
 .add-server-title { font-size:20px;font-weight:700;color:var(--t0); }
 .add-server-close { width:28px;height:28px;border:none;background:transparent;color:var(--t2);cursor:pointer;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:18px;transition:background .1s,color .1s; }
 .add-server-close:hover { background:var(--bg-h);color:var(--t0); }
-.add-server-body { padding:16px 24px 24px; }
+.add-server-body { min-height:0;overflow-y:auto;padding:16px 24px 24px; }
 
 /* Step indicator */
 .add-server-steps { display:flex;gap:6px;margin-bottom:20px; }
@@ -5093,3 +5063,74 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
   border-style:solid;border-width:9px 0 9px 15px;
   border-color:transparent transparent transparent #fff;
 }
+
+/* ═══════════════════════════════════════
+   ON-SCREEN KEYBOARD — position:fixed layers
+   They escape #root's padding, so each one that can hold an input lifts its own bottom edge
+   above the keyboard. Every new fixed layer with an input belongs in this list.
+   ═══════════════════════════════════════ */
+.disc-overlay,.modal-backdrop,.quick-switcher-overlay,.report-overlay,.block-confirm-overlay,
+.ico-overlay,.sp-overlay,.add-server-overlay,.legal-modal-overlay,
+.download-prompt-overlay,.crop-modal-backdrop,.mobile-bottom-sheet-backdrop { bottom:var(--keyboard-bottom); }
+/* Only while open: a closed sheet waits just below the screen, and lifting it would park it
+   behind the (translucent) keyboard. */
+.mobile-bottom-sheet.open { bottom:var(--keyboard-bottom); }
+.settings-overlay,.mobile-drawer,.mobile-drawer-backdrop { bottom:calc(var(--safe-area-inset-bottom) + var(--keyboard-inset)); }
+.emoji-picker.emoji-picker-sheet,.gif-picker.gif-picker-sheet { bottom:calc(16px + var(--keyboard-bottom)) !important; }
+/* A lifted sheet must also get shorter, or its top (the search field) runs off the screen. */
+.gif-picker.gif-picker-sheet { max-height:min(70vh, calc(100vh - var(--safe-area-inset-top) - var(--keyboard-bottom) - 28px)); }
+.emoji-picker.emoji-picker-sheet em-emoji-picker { max-height:min(50vh, calc(100vh - var(--safe-area-inset-top) - var(--keyboard-bottom) - 28px)); }
+@media (max-width: 768px), (pointer: coarse) and (max-height: 500px) {
+  .settings-overlay { bottom:var(--keyboard-bottom); }
+  /* Form modals sit at the top: centred, they would jump up as the keyboard shrinks the overlay. */
+  .add-server-overlay { align-items:flex-start;padding-top:calc(var(--safe-area-inset-top) + 12px); }
+  .emoji-picker,.gif-picker,.member-card,.search-panel { bottom:var(--keyboard-bottom) !important; }
+  .gif-picker { max-height:min(60vh, calc(100vh - var(--safe-area-inset-top) - var(--keyboard-bottom) - 12px)); }
+  .emoji-picker em-emoji-picker { max-height:min(50vh, calc(100vh - var(--safe-area-inset-top) - var(--keyboard-bottom) - 12px)); }
+}
+
+/* ═══════════════════════════════════════
+   ONBOARDING GUIDE — a client-drawn conversation, not a DM
+   ═══════════════════════════════════════ */
+.guide-avatar { width:24px;height:24px;border-radius:50%;flex-shrink:0;object-fit:cover; }
+.guide-avatar-lg { width:36px;height:36px;position:sticky;top:0; }
+.guide-badge { flex-shrink:0;font-size:13px;font-weight:600;line-height:1;padding:3px 7px;border-radius:999px;background:color-mix(in srgb, var(--primary) 16%, transparent);color:var(--primary);white-space:nowrap; }
+.ch-tree-guide .guide-badge-sm { margin-left:auto;padding:2px 6px; }
+.guide-scroll { flex:1;min-height:0;overflow-y:auto;padding:16px 14px 24px; }
+.guide-thread { display:flex;gap:10px;align-items:flex-start;max-width:640px; }
+.guide-lines { display:flex;flex-direction:column;gap:8px;min-width:0;flex:1; }
+.guide-line { display:flex;animation:guideLineIn .25s ease; }
+@keyframes guideLineIn { from{opacity:0;transform:translateY(6px);} to{opacity:1;transform:none;} }
+.guide-bubble { max-width:100%;background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:12px;padding:8px 12px;font-size:14px;line-height:1.45;color:var(--t0);white-space:pre-wrap;word-break:break-word;box-shadow:var(--panel-inset); }
+.guide-typing { display:flex;gap:4px;align-items:center;padding:12px 14px;background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:12px; }
+.guide-typing span { width:6px;height:6px;border-radius:50%;background:var(--t3);animation:guideDot 1s ease-in-out infinite; }
+.guide-typing span:nth-child(2) { animation-delay:.15s; }
+.guide-typing span:nth-child(3) { animation-delay:.3s; }
+@keyframes guideDot { 0%,60%,100%{opacity:.3;transform:translateY(0);} 30%{opacity:1;transform:translateY(-3px);} }
+.guide-card { width:100%;background:var(--bg-2);border:1px solid var(--primary);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:6px; }
+.guide-card.done { border-color:var(--panel-border);opacity:.85; }
+.guide-card-title { font-size:15px;font-weight:700;color:var(--t0); }
+.guide-card-desc { font-size:14px;line-height:1.45;color:var(--t2); }
+.guide-card-btn { display:inline-flex;align-items:center;text-decoration:none;align-self:flex-start;margin-top:4px;height:34px;padding:0 16px;border:none;border-radius:8px;background:var(--primary);color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s; }
+.guide-card-btn:hover { background:var(--primary-h); }
+.guide-card-done { display:flex;align-items:center;gap:6px;margin-top:2px;font-size:14px;font-weight:600;color:var(--green); }
+.guide-restore { display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;margin-bottom:16px;background:var(--bg-2);border:1px solid var(--b1);border-radius:10px; }
+.guide-restore-title { font-size:15px;font-weight:600;color:var(--t0); }
+/* "Show me": dims around one real control; the control itself stays clickable. */
+.guide-spot { position:fixed;inset:0;z-index:2000;pointer-events:none; }
+.guide-spot-dim { position:fixed;background:rgba(0,0,0,0.55);pointer-events:auto; }
+.guide-spot-ring { position:fixed;border:2px solid var(--primary);border-radius:10px;box-shadow:0 0 0 4px color-mix(in srgb, var(--primary) 30%, transparent);animation:guideSpotPulse 1.4s ease-in-out infinite;pointer-events:none; }
+@keyframes guideSpotPulse { 0%,100%{box-shadow:0 0 0 4px color-mix(in srgb, var(--primary) 30%, transparent);} 50%{box-shadow:0 0 0 8px color-mix(in srgb, var(--primary) 12%, transparent);} }
+.guide-spot-caption { position:fixed;width:260px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow-y:auto;padding:10px 12px;background:var(--bg-2);border:1px solid var(--primary);border-radius:10px;font-size:14px;line-height:1.45;color:var(--t0);box-shadow:0 8px 24px rgba(0,0,0,0.5);pointer-events:none;animation:guideLineIn .2s ease; }
+.guide-finale-btn { display:block;margin-top:10px; }
+/* Unsaved changes: pinned to the top of the settings pane while there are any. */
+.unsaved-bar { position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px;padding:10px 12px 10px 16px;background:var(--bg-2);border:1px solid color-mix(in srgb, var(--primary) 45%, transparent);border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.35);animation:guideLineIn .2s ease; }
+.unsaved-bar-text { font-size:14px;font-weight:600;color:var(--t0); }
+.guide-spot-caption.interactive { pointer-events:auto; }
+.guide-spot-actions { display:flex;align-items:center;gap:8px;margin-top:10px; }
+.guide-spot-count { font-size:13px;color:var(--t3);margin-right:auto; }
+.guide-spot-skip { height:30px;padding:0 10px;border:none;border-radius:6px;background:transparent;color:var(--t2);font-size:13px;font-weight:600;cursor:pointer; }
+.guide-spot-skip:hover { color:var(--t0); }
+.guide-spot-next { height:30px;padding:0 14px;border:none;border-radius:6px;background:var(--primary);color:#fff;font-size:13px;font-weight:600;cursor:pointer; }
+.guide-spot-next:hover { background:var(--primary-h); }
+

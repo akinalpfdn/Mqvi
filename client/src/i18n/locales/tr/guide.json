@@ -1,0 +1,95 @@
+{
+  "name": "mqvi Rehberi",
+  "badge": "Otomatik rehber",
+  "hide": "Rehberi gizle",
+  "showMe": "Bana göster",
+  "typing": "mqvi Rehberi yazıyor…",
+  "greeting": "Selam {{name}}, mqvi'ye hoş geldin! 👋",
+  "intro": "Ben mqvi Rehberi, otomatik bir yardımcıyım. Deneyebileceğin birkaç şey var — istediğini, istediğin sırayla seç. Yaptıkça işaretleyeceğim.",
+  "community": {
+    "title": "Bir topluluğa katıl",
+    "desc": "Herkese açık topluluklara göz at ya da kendi sunucunu kur. Topluluklarda yazışabilir, sesli konuşabilir ve ekranını paylaşabilirsin.",
+    "done": "Bir topluluğa katıldın"
+  },
+  "message": {
+    "title": "Bir kanalda merhaba de",
+    "desc": "Her topluluğun yazı kanalları var. Birini aç ve ilk mesajını gönder.",
+    "done": "İlk mesajını gönderdin"
+  },
+  "voice": {
+    "title": "Sesli bir kanala katıl",
+    "desc": "🔊 işaretli kanallar sesli kanallardır. Girip konuşabilir, ekranını paylaşabilir ya da başkalarının paylaşımını izleyebilirsin.",
+    "done": "Sesli bir kanala katıldın"
+  },
+  "friend": {
+    "title": "Bir arkadaş ekle",
+    "desc": "Arkadaşlarını kullanıcı adlarıyla ekle; onlara doğrudan yazıp arayabilirsin.",
+    "done": "Bir arkadaş ekledin"
+  },
+  "profile": {
+    "title": "Profilini kişiselleştir",
+    "desc": "Bir avatar ekle, sohbetlerde ve sesli kanallarda seni tanısınlar.",
+    "done": "Profiline avatar ekledin"
+  },
+  "roles": {
+    "title": "Bir rol oluştur",
+    "desc": "Kendi sunucunda roller insanlara renk ve yetki verir — moderatör, üye, ne istersen.",
+    "done": "Bir rol oluşturdun"
+  },
+  "app": {
+    "title": "Uygulamayı indir",
+    "desc": "mqvi masaüstünde ve mobilde de var: sesli kanalda arka planda kal, bildirimleri kaçırma.",
+    "done": "Uygulamayı kullanıyorsun"
+  },
+  "finale": "Hepsi bu kadar, artık hazırsın! 🎉 Bu rehberi şimdi gizleyebilirsin; tekrar istersen Ayarlar → Yardım'da bulursun.",
+  "restoreTitle": "mqvi Rehberi",
+  "restoreDesc": "Yeni kullanıcılara gösterilen adım adım rehber. Doğrudan mesajlarının en üstüne geri getir.",
+  "restoreButton": "Rehberi göster",
+  "spotlight": {
+    "stage": {
+      "sidebar-expand": "Kenar çubuğunu aç.",
+      "menu": "Menüyü aç.",
+      "servers-section": "Sunucular bölümünü aç.",
+      "friends-section": "Arkadaşlar bölümünü aç.",
+      "discover": "Herkese açık topluluklara buradan göz at.",
+      "discovery-join": "Bir topluluk seç ve katıl.",
+      "server": "Bir topluluğu aç.",
+      "channel-text": "Bir yazı kanalı aç.",
+      "composer": "İlk mesajını buraya yaz ve gönder.",
+      "channel-voice": "Katılmak için bir sesli kanala tıkla.",
+      "friends": "Arkadaşlar'ı aç.",
+      "add-friend-tab": "“Arkadaş Ekle”ye geç.",
+      "add-friend-input": "Arkadaşının kullanıcı adını yaz ve isteği gönder.",
+      "user-settings": "Ayarlarını aç.",
+      "settings-menu": "Ayarlar menüsünü aç.",
+      "settings-profile": "Profil'i aç.",
+      "avatar": "Dokunup bir fotoğraf seç, sonra kaydet.",
+      "server-settings": "“Sunucu Ayarları”nı aç.",
+      "settings-roles": "Roller'i aç.",
+      "create-role": "Bir rol oluştur.",
+      "add-server": "Kendi sunucunu buradan kur.",
+      "voice-mic": "Mikrofon: kendini susturur ya da açar. Oktan hangi mikrofonun kullanılacağını seçersin.",
+      "voice-deafen": "Kulaklık: sağırlaştırır — kimseyi duymazsın, mikrofonun da kapanır. Oktan çıkış cihazını ve sesi ayarlarsın.",
+      "voice-share": "Ekran paylaşımı: ekranını ya da bir pencereni kanala yayınlar. Oktan kaliteyi seçersin.",
+      "voice-soundboard": "Ses paneli: kanaldaki herkese kısa ses efektleri çalar.",
+      "voice-noise": "Gürültü azaltma: klavye, fan gibi arka plan seslerini bastırır.",
+      "voice-disconnect": "Sesli kanaldan buradan çıkarsın."
+    },
+    "roles": {
+      "owned-server": "Sunucunu aç, sonra ona sağ tıkla (telefonda basılı tut)."
+    },
+    "noServer": {
+      "discover": "Kanallar topluluklarda olur — önce buradan birine katıl."
+    },
+    "rolesNoServer": {
+      "add-server": "Roller kendi sunucunda olur — önce buradan bir sunucu kur."
+    }
+  },
+  "tourNext": "İleri",
+  "tourDone": "Bitti",
+  "tourSkip": "Atla",
+  "voiceTourTitle": "Ses paneli turu",
+  "voiceTourDesc": "Sesli kanalda karşına çıkan butonların kısa bir tanıtımı.",
+  "voiceTourButton": "Turu oynat",
+  "voiceTourNeedsVoice": "Oynatmak için bir sesli kanala katıl."
+}

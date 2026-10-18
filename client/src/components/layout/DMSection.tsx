@@ -24,6 +24,7 @@ import { useContextMenu, type ContextMenuItem } from "../../hooks/useContextMenu
 import { useLongPressContextMenu } from "../../hooks/useLongPressContextMenu";
 import { useAuthStore } from "../../stores/authStore";
 import type { DMChannelWithUser, User } from "../../types";
+import GuideSidebarRow from "../guide/GuideSidebarRow";
 
 type DMSectionProps = {
   onShowUserCard: (user: User, top: number, left: number) => void;
@@ -260,6 +261,7 @@ function DMSection({ onShowUserCard }: DMSectionProps) {
 
         {isExpanded && (
           <div className="ch-tree-section-body ch-tree-section-body--scroll">
+            <GuideSidebarRow />
             {/* ── Message Requests (collapsible, default collapsed) ── */}
             {pendingChannels.length > 0 && (
               <div className="ch-tree-dm-requests">

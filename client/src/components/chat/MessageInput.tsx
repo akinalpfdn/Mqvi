@@ -729,6 +729,7 @@ function MessageInput({ openSearch }: MessageInputProps) {
 
         <textarea
           ref={textareaRef}
+          data-tour={mode === "channel" ? "composer" : undefined}
           value={content}
           onChange={handleChange}
           onKeyDown={handleKeyDown}

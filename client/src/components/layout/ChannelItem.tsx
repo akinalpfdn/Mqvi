@@ -11,6 +11,8 @@ type ChannelItemProps = {
   unread: number;
   isEffectivelyMuted: boolean;
   isVoiceLocked: boolean;
+  /** `data-tour` marker: set only on a channel the user can actually use (guide tours). */
+  tourTarget?: string;
   voiceDropTarget: boolean;
   canManageChannels: boolean;
   isDragging: boolean;
@@ -39,6 +41,7 @@ function ChannelItem({
   unread,
   isEffectivelyMuted,
   isVoiceLocked,
+  tourTarget,
   voiceDropTarget,
   canManageChannels,
   isDragging,
@@ -81,6 +84,7 @@ function ChannelItem({
         onClick={onClick}
         onContextMenu={onContextMenu}
         {...longPressMenu}
+        data-tour={tourTarget}
         title={
           isVoiceLocked
             ? `${channel.name} — ${tVoice("voiceChannelLocked")}`

@@ -18,6 +18,8 @@ import { useToastStore } from "../../stores/toastStore";
 import { hasPermission, Permissions, resolveChannelPermissions } from "../../utils/permissions";
 import { useChannelPermissionStore } from "../../stores/channelPermissionStore";
 import { useMobileStore } from "../../stores/mobileStore";
+import { useSpotlightStore } from "../../stores/spotlightStore";
+import { channelTourTarget } from "../../utils/guideTours";
 import ContextMenu from "../shared/ContextMenu";
 import VoiceUserContextMenu from "../voice/VoiceUserContextMenu";
 import MuteDurationPicker from "../servers/MuteDurationPicker";
@@ -183,6 +185,27 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
       return (effective & Permissions.ConnectVoice) !== 0;
     },
     [currentMember, overridesByChannel]
+  );
+
+  // A guide tour points only at channels the user can use. Send permission needs a text
+  // channel's overrides, which the tree does not otherwise load: fetch them (once each, cached)
+  // only while the "say hi in a channel" tour is running.
+  const messageTourRunning = useSpotlightStore((s) => s.tour?.step === "message");
+  const fetchedChannels = useChannelPermissionStore((s) => s.fetchedChannels);
+  useEffect(() => {
+    if (!messageTourRunning) return;
+    const textIds = categories.flatMap((cg) => cg.channels.filter((ch) => ch.type === "text").map((ch) => ch.id));
+    if (textIds.length > 0) fetchOverridesForChannels(textIds);
+  }, [messageTourRunning, categories, fetchOverridesForChannels]);
+
+  const canSendText = useCallback(
+    (channelId: string): boolean => {
+      if (!currentMember || !fetchedChannels.has(channelId)) return false;
+      const roleIds = currentMember.roles.map((r) => r.id);
+      const effective = resolveChannelPermissions(currentMember.effective_permissions, roleIds, overridesByChannel[channelId] ?? []);
+      return (effective & (Permissions.Admin | Permissions.SendMessages)) !== 0;
+    },
+    [currentMember, overridesByChannel, fetchedChannels]
   );
 
   // WS send for voice user drag & drop
@@ -793,6 +816,13 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                     const isChannelMuted = mutedChannelIds.has(ch.id);
                     const isEffectivelyMuted = isServerMuted || isChannelMuted;
                     const isVoiceLocked = !isText && !canConnectVoice(ch.id);
+                    const tourTarget = channelTourTarget({
+                      isText,
+                      canSend: isText && canSendText(ch.id),
+                      isVoiceLocked,
+                      participants: participants.length,
+                      userLimit: ch.user_limit,
+                    });
 
                     return (
                       <ChannelItem
@@ -802,6 +832,7 @@ function ChannelTree({ onJoinVoice }: ChannelTreeProps) {
                         unread={unread}
                         isEffectivelyMuted={isEffectivelyMuted}
                         isVoiceLocked={isVoiceLocked}
+                        tourTarget={tourTarget}
                         voiceDropTarget={voiceDropTargetId === ch.id}
                         canManageChannels={canManageChannels}
                         isDragging={dragChannelIdRef.current === ch.id}

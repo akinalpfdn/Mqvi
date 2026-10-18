@@ -19,10 +19,13 @@
   <a href="https://github.com/akinalpfdn/Mqvi/releases/latest/download/mqvi-setup.exe"><img src="icons/btn-windows.svg" alt="Windows İndir" height="48" /></a>&nbsp;&nbsp;
   <a href="https://github.com/akinalpfdn/Mqvi/releases/latest/download/mqvi-setup.dmg"><img src="icons/btn-macos.svg" alt="macOS İndir" height="48" /></a>&nbsp;&nbsp;
   <a href="https://github.com/akinalpfdn/Mqvi/releases/latest/download/mqvi-setup.AppImage"><img src="icons/btn-linux.svg" alt="Linux İndir" height="48" /></a>
+  <br />
+  <a href="https://apps.apple.com/us/app/mqvi-voice-chat-communities/id6761312531"><img src="icons/btn-appstore.svg" alt="App Store'dan İndir" height="48" /></a>&nbsp;&nbsp;
+  <a href="https://play.google.com/store/apps/details?id=com.akinalpfdn.mqvi"><img src="icons/btn-googleplay.svg" alt="Google Play'den İndir" height="48" /></a>
 </p>
 
 <p align="center">
-  <sub>iOS ve Android'de de var &middot; bine yakın kayıtlı hesap</sub>
+  <sub>1.000'den fazla kayıtlı hesap</sub>
 </p>
 
 <p align="center">

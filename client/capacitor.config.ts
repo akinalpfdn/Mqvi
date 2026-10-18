@@ -24,7 +24,9 @@ const config: CapacitorConfig = {
 
   plugins: {
     Keyboard: {
-      resize: "native",
+      // The app follows the keyboard in CSS (utils/iosKeyboardInset.ts). The native resize
+      // snapped the WebView 0.2 s after the keyboard animation ended.
+      resize: "none",
     },
   },
 };

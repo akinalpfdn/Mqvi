@@ -11,6 +11,10 @@ import { API_BASE_URL } from "../utils/constants";
 import i18n, { changeLanguage, resolveLanguage, type Language, SUPPORTED_LANGUAGES } from "../i18n";
 import { useE2EEStore } from "./e2eeStore";
 import { usePreferencesStore } from "./preferencesStore";
+import { useGuideStore } from "./guideStore";
+import { useSpotlightStore } from "./spotlightStore";
+import { useUIStore } from "./uiStore";
+import { GUIDE_TAB_ID } from "../utils/guideScript";
 import { useVoiceStore } from "./voiceStore";
 import { endP2PCallForLogout } from "./shared/p2pCallControl";
 import { useSettingsStore } from "./settingsStore";
@@ -19,6 +23,26 @@ import { resetMarkReadTracking } from "./shared/markReadTracking";
 import type { User, UserStatus } from "../types";
 
 const MANUAL_STATUS_KEY = "mqvi_manual_status";
+/** Set on this device's first sign-in and kept through logout: the login screen greets accordingly. */
+const SIGNED_IN_BEFORE_KEY = "mqvi_signed_in_before";
+
+export function hasSignedInBefore(): boolean {
+  return localStorage.getItem(SIGNED_IN_BEFORE_KEY) === "1";
+}
+
+/** A tour and the guide tab belong to the account that opened them, not the next one. */
+function closeGuideSurfaces(): void {
+  useSpotlightStore.getState().close();
+  const ui = useUIStore.getState();
+  for (const panel of Object.values(ui.panels)) {
+    const tab = panel.tabs.find((tb) => tb.channelId === GUIDE_TAB_ID);
+    if (tab) ui.closeTab(panel.id, tab.id);
+  }
+}
+
+function rememberSignIn(): void {
+  localStorage.setItem(SIGNED_IN_BEFORE_KEY, "1");
+}
 
 /** Apply user's DB language preference to i18n (takes priority over browser locale). */
 function syncLanguageFromUser(user: User): void {
@@ -112,6 +136,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     if (res.success && res.data) {
       setTokens(res.data.access_token, res.data.refresh_token, res.data.file_token);
+      rememberSignIn();
       syncLanguageFromUser(res.data.user);
       set({ user: res.data.user, isLoading: false });
       usePreferencesStore.getState().fetchAndApply();
@@ -129,6 +154,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     if (res.success && res.data) {
       setTokens(res.data.access_token, res.data.refresh_token, res.data.file_token);
+      rememberSignIn();
       syncLanguageFromUser(res.data.user);
       set({ user: res.data.user, isLoading: false });
       // Fetch server-side preferences and apply to stores
@@ -170,6 +196,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     if (res.success && res.data) {
       setTokens(res.data.access_token, res.data.refresh_token, res.data.file_token);
+      rememberSignIn();
       syncLanguageFromUser(res.data.user);
       set({ user: res.data.user, isLoading: false, accountDeleted: null });
       usePreferencesStore.getState().fetchAndApply();
@@ -204,6 +231,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Reset E2EE state (IndexedDB keys preserved)
     await useE2EEStore.getState().reset();
     usePreferencesStore.getState().reset();
+    useGuideStore.getState().reset();
+    closeGuideSurfaces();
     // The SPA does not reload between logout and login: without this the next user inherits
     // this one's mark-read dedupe state and their DM badges never clear.
     resetMarkReadTracking();
@@ -262,6 +291,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     try {
       usePreferencesStore.getState().reset();
+      useGuideStore.getState().reset();
+      closeGuideSurfaces();
       clearCachedPushToken();
       useSettingsStore.getState().closeSettings();
     } catch (err) {
@@ -294,6 +325,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     const res = await authApi.getMe();
     if (res.success && res.data) {
+      rememberSignIn(); // an existing session from before this flag existed
       syncLanguageFromUser(res.data);
       set({ user: res.data, isInitialized: true });
       usePreferencesStore.getState().fetchAndApply();

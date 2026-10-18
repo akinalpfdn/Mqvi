@@ -27,7 +27,7 @@ func NewSQLiteUserRepo(db database.TxQuerier) UserRepository {
 //
 // Columns only, no SELECT and no FROM: callers append their own WHERE / ORDER BY / LIMIT.
 const userColumns = `id, username, display_name, avatar_url, wallpaper_url, password_hash, status, pref_status, custom_status,
-		email, language, dm_privacy, is_platform_admin, is_platform_banned, has_seen_download_prompt, has_seen_welcome,
+		email, language, dm_privacy, is_platform_admin, is_platform_banned, has_seen_download_prompt, has_seen_welcome, guide_hidden,
 		platform_ban_reason, platform_banned_by, platform_banned_at,
 		deleted_at, deleted_by_admin, is_hard_deleted, token_version, feedback_last_seen_at, reports_last_seen_at, created_at`
 
@@ -36,7 +36,7 @@ func scanUser(s scanner) (*models.User, error) {
 	err := s.Scan(
 		&u.ID, &u.Username, &u.DisplayName, &u.AvatarURL, &u.WallpaperURL,
 		&u.PasswordHash, &u.Status, &u.PrefStatus, &u.CustomStatus, &u.Email,
-		&u.Language, &u.DMPrivacy, &u.IsPlatformAdmin, &u.IsPlatformBanned, &u.HasSeenDownloadPrompt, &u.HasSeenWelcome,
+		&u.Language, &u.DMPrivacy, &u.IsPlatformAdmin, &u.IsPlatformBanned, &u.HasSeenDownloadPrompt, &u.HasSeenWelcome, &u.GuideHidden,
 		&u.PlatformBanReason, &u.PlatformBannedBy, &u.PlatformBannedAt,
 		&u.DeletedAt, &u.DeletedByAdmin, &u.IsHardDeleted, &u.TokenVersion,
 		&u.FeedbackLastSeenAt, &u.ReportsLastSeenAt,
@@ -896,6 +896,8 @@ func (r *sqliteUserRepo) HardDeleteUser(ctx context.Context, userID string, byAd
 				is_platform_admin = 0,
 				has_seen_download_prompt = 0,
 				has_seen_welcome = 0,
+				guide_hidden = 0,
+				guide_done = 0,
 				deleted_at = CURRENT_TIMESTAMP,
 				deleted_by_admin = ?,
 				is_hard_deleted = 1,

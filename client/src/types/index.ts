@@ -22,11 +22,24 @@ export type User = {
   is_platform_admin: boolean;
   has_seen_download_prompt: boolean;
   has_seen_welcome: boolean;
+  /** The user hid the onboarding guide conversation. */
+  guide_hidden?: boolean;
   /** Soft-delete or tombstone marker. Null when active. */
   deleted_at?: string | null;
   /** True when the user is a tombstone (anonymized, irreversible). */
   is_hard_deleted?: boolean;
   created_at: string;
+};
+
+// ──────────────────────────────────
+// Onboarding guide
+// ──────────────────────────────────
+export type GuideStepId = "community" | "message" | "voice" | "friend" | "profile" | "roles" | "app";
+
+/** GET /api/users/me/guide. A step, once done, stays done. */
+export type GuideState = {
+  steps: Record<GuideStepId, boolean>;
+  hidden: boolean;
 };
 
 // ──────────────────────────────────
@@ -829,6 +842,8 @@ export type ServerListItem = {
    * Build these with toServerListItem(). Operationally: upgrade the server before the clients.
    */
   e2ee_enabled: boolean | undefined;
+  /** Same convention: `undefined` from a server older than this client means "unknown". */
+  owner_id: string | undefined;
 };
 
 /**

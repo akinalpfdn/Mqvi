@@ -17,6 +17,8 @@
   "hero_download_macos": "macOS için İndir",
   "hero_download_linux": "Linux için İndir",
   "hero_download_desktop": "Masaüstü Uygulamasını İndir",
+  "hero_download_ios": "App Store'dan İndir",
+  "hero_download_android": "Google Play'den İndir",
 
   "showcase_label": "Neler Sunuyor?",
   "sc1_title": "Tanıdık hissettiriyor",

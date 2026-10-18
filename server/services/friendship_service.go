@@ -75,7 +75,7 @@ func (s *friendshipService) AreFriends(ctx context.Context, userA, userB string)
 
 func (s *friendshipService) SendRequest(ctx context.Context, senderID string, req *models.SendFriendRequestRequest) (*models.FriendshipWithUser, error) {
 	if err := req.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
+		return nil, pkg.WithCode(fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error()), pkg.CodeFriendInvalidUsername)
 	}
 
 	// GetActiveByUsername — friend requests cannot target deleted/tombstone users.
@@ -84,13 +84,13 @@ func (s *friendshipService) SendRequest(ctx context.Context, senderID string, re
 	target, err := s.userRepo.GetActiveByUsername(ctx, req.Username)
 	if err != nil {
 		if errors.Is(err, pkg.ErrNotFound) {
-			return nil, fmt.Errorf("%w: user %q not found", pkg.ErrNotFound, req.Username)
+			return nil, pkg.WithCode(fmt.Errorf("%w: user %q not found", pkg.ErrNotFound, req.Username), pkg.CodeFriendUserNotFound)
 		}
 		return nil, err
 	}
 
 	if senderID == target.ID {
-		return nil, fmt.Errorf("%w: cannot send friend request to yourself", pkg.ErrBadRequest)
+		return nil, pkg.WithCode(fmt.Errorf("%w: cannot send friend request to yourself", pkg.ErrBadRequest), pkg.CodeFriendSelf)
 	}
 
 	existing, err := s.friendRepo.GetByPair(ctx, senderID, target.ID)
@@ -101,16 +101,16 @@ func (s *friendshipService) SendRequest(ctx context.Context, senderID string, re
 	if existing != nil {
 		switch existing.Status {
 		case models.FriendshipStatusAccepted:
-			return nil, fmt.Errorf("%w: already friends with %s", pkg.ErrAlreadyExists, req.Username)
+			return nil, pkg.WithCode(fmt.Errorf("%w: already friends with %s", pkg.ErrAlreadyExists, req.Username), pkg.CodeFriendAlreadyFriends)
 		case models.FriendshipStatusPending:
 			// Mutual request: other party already sent one -> auto-accept
 			if existing.UserID == target.ID {
 				return s.acceptExisting(ctx, existing, senderID)
 			}
-			return nil, fmt.Errorf("%w: friend request already sent to %s", pkg.ErrAlreadyExists, req.Username)
+			return nil, pkg.WithCode(fmt.Errorf("%w: friend request already sent to %s", pkg.ErrAlreadyExists, req.Username), pkg.CodeFriendRequestPending)
 		case models.FriendshipStatusBlocked:
-			// Don't reveal blocked state
-			return nil, fmt.Errorf("%w: user %q not found", pkg.ErrNotFound, req.Username)
+			// Don't reveal blocked state: the same answer, and the same code, as an unknown user.
+			return nil, pkg.WithCode(fmt.Errorf("%w: user %q not found", pkg.ErrNotFound, req.Username), pkg.CodeFriendUserNotFound)
 		}
 	}
 

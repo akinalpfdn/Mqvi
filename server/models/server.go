@@ -57,6 +57,7 @@ type ServerListItem struct {
 	IconURL     *string `json:"icon_url"`
 	Verified    bool    `json:"verified"`
 	E2EEEnabled bool    `json:"e2ee_enabled"`
+	OwnerID     string  `json:"owner_id"`
 }
 
 // NewServerListItem narrows a Server to the sidebar shape. Callers needing a signed icon URL
@@ -69,6 +70,7 @@ func NewServerListItem(s *Server) ServerListItem {
 		IconURL:     s.IconURL,
 		Verified:    s.Verified,
 		E2EEEnabled: s.E2EEEnabled,
+		OwnerID:     s.OwnerID,
 	}
 }
 

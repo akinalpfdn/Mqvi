@@ -71,6 +71,7 @@ type Services struct {
 	PushToken          services.PushTokenService
 	Push               services.PushNotifier
 	Discovery          services.DiscoveryService
+	Guide              services.GuideService
 	EmailSender        email.EmailSender
 }
 
@@ -252,6 +253,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	adminUserService := services.NewAdminUserService(db, repos.User, repos.Session, repos.Server, hub, voiceService, emailSender, fileCleanupService)
 	adminServerService := services.NewAdminServerService(repos.Server, repos.User, repos.LiveKit, hub, voiceService, emailSender, fileCleanupService, urlSigner)
 	discoveryService := services.NewDiscoveryService(repos.Discovery, hub, urlSigner)
+	guideService := services.NewGuideService(repos.Guide)
 
 	linkPreviewService := services.NewLinkPreviewService(repos.LinkPreview)
 	badgeService := services.NewBadgeService(repos.Badge, hub)
@@ -365,6 +367,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		VoiceMessage:       voiceMessageService,
 		PushToken:          pushTokenService,
 		Discovery:          discoveryService,
+		Guide:              guideService,
 		Push:               pushService,
 		EmailSender:        emailSender,
 	}

@@ -16,6 +16,7 @@ import { useE2EEStore } from "../../stores/e2eeStore";
 import { decryptChannelMessage } from "../../crypto/channelEncryption";
 import * as keyStorage from "../../crypto/keyStorage";
 import { playNotificationSound } from "../../utils/sounds";
+import { useGuideStore } from "../../stores/guideStore";
 import type {
   WSMessage,
   Channel,
@@ -58,6 +59,7 @@ export async function handleChannelEvent(msg: WSMessage): Promise<boolean> {
 
     case "message_create": {
       let message = msg.d as Message;
+      if (message.user_id === useAuthStore.getState().user?.id) useGuideStore.getState().refreshFor("message");
 
       const e2eeReady = useE2EEStore.getState().initStatus === "ready";
       if (e2eeReady && message.encryption_version === 1 && message.ciphertext && message.sender_device_id) {

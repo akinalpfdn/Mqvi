@@ -26,6 +26,7 @@ type Repositories struct {
 	Reaction          repository.ReactionRepository
 	ChannelPermission repository.ChannelPermissionRepository
 	Friendship        repository.FriendshipRepository
+	Guide             repository.GuideRepository
 	LiveKit           repository.LiveKitRepository
 	ResetToken        repository.PasswordResetRepository
 	MetricsHistory    repository.MetricsHistoryRepository
@@ -74,6 +75,7 @@ func initRepositories(conn *sql.DB) *Repositories {
 		Reaction:          repository.NewSQLiteReactionRepo(conn),
 		ChannelPermission: repository.NewSQLiteChannelPermRepo(conn),
 		Friendship:        repository.NewSQLiteFriendshipRepo(conn),
+		Guide:             repository.NewSQLiteGuideRepo(conn),
 		LiveKit:           repository.NewSQLiteLiveKitRepo(conn),
 		ResetToken:        repository.NewSQLiteResetTokenRepo(conn),
 		MetricsHistory:    repository.NewSQLiteMetricsHistoryRepo(conn),

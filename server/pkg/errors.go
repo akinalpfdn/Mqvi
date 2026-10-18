@@ -20,6 +20,13 @@ const (
 	// The reverse: an encrypted message aimed at a conversation that does not use E2EE, where
 	// nobody could decrypt it.
 	CodeEncryptionNotAvailable = "encryption_not_available"
+
+	// Friend request refusals the client words kindly instead of showing the server's text.
+	CodeFriendInvalidUsername = "friend_invalid_username"
+	CodeFriendUserNotFound    = "friend_user_not_found"
+	CodeFriendSelf            = "friend_self"
+	CodeFriendAlreadyFriends  = "friend_already_friends"
+	CodeFriendRequestPending  = "friend_request_pending"
 )
 
 type codedError struct {

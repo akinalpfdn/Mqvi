@@ -14,6 +14,8 @@ export type ContextMenuItem = {
   disabled?: boolean;
   /** Show separator line before this item */
   separator?: boolean;
+  /** `data-tour` marker, for a guide tour to point at this item. */
+  tour?: string;
 };
 
 export type ContextMenuState = {

@@ -40,6 +40,7 @@ type User struct {
 	IsPlatformBanned      bool       `json:"is_platform_banned"`
 	HasSeenDownloadPrompt bool       `json:"has_seen_download_prompt"`
 	HasSeenWelcome        bool       `json:"has_seen_welcome"`
+	GuideHidden           bool       `json:"guide_hidden"`
 	PlatformBanReason     string     `json:"-"`
 	PlatformBannedBy      string     `json:"-"`
 	PlatformBannedAt      *time.Time `json:"-"`

@@ -1,0 +1,95 @@
+{
+  "name": "mqvi Guide",
+  "badge": "Automatic guide",
+  "hide": "Hide guide",
+  "showMe": "Show me",
+  "typing": "mqvi Guide is typing…",
+  "greeting": "Hi {{name}}, welcome to mqvi! 👋",
+  "intro": "I'm the mqvi Guide, an automatic helper. Here are some things to try — pick any, in any order. I'll tick them off as you go.",
+  "community": {
+    "title": "Join a community",
+    "desc": "Browse public communities or create your own server. In a community you can chat, talk in voice and share your screen.",
+    "done": "You're in a community"
+  },
+  "message": {
+    "title": "Say hi in a channel",
+    "desc": "Every community has text channels. Open one and send your first message.",
+    "done": "You sent your first message"
+  },
+  "voice": {
+    "title": "Join a voice channel",
+    "desc": "Channels marked 🔊 are voice channels. Hop in to talk, share your screen or watch others share theirs.",
+    "done": "You joined a voice channel"
+  },
+  "friend": {
+    "title": "Add a friend",
+    "desc": "Add friends by their username to message and call them directly.",
+    "done": "You added a friend"
+  },
+  "profile": {
+    "title": "Make your profile yours",
+    "desc": "Add an avatar so people recognise you in chats and voice.",
+    "done": "Your profile has an avatar"
+  },
+  "roles": {
+    "title": "Create a role",
+    "desc": "In a server you own, roles give people colours and permissions — moderators, members, anything you like.",
+    "done": "You created a role"
+  },
+  "app": {
+    "title": "Get the app",
+    "desc": "mqvi runs on desktop and mobile too: stay in voice in the background and get notifications.",
+    "done": "You're using the app"
+  },
+  "finale": "That's everything — you're all set! 🎉 You can hide this guide now; you'll find it again under Settings → Help.",
+  "restoreTitle": "mqvi Guide",
+  "restoreDesc": "The step-by-step guide shown to new users. Bring it back to the top of your direct messages.",
+  "restoreButton": "Show the guide",
+  "spotlight": {
+    "stage": {
+      "sidebar-expand": "Open the sidebar.",
+      "menu": "Open the menu.",
+      "servers-section": "Open the Servers section.",
+      "friends-section": "Open the Friends section.",
+      "discover": "Browse public communities here.",
+      "discovery-join": "Pick a community and join it.",
+      "server": "Open a community.",
+      "channel-text": "Open a text channel.",
+      "composer": "Write your first message here and send it.",
+      "channel-voice": "Click a voice channel to join it.",
+      "friends": "Open Friends.",
+      "add-friend-tab": "Go to “Add Friend”.",
+      "add-friend-input": "Type your friend's username and send the request.",
+      "user-settings": "Open your settings.",
+      "settings-menu": "Open the settings menu.",
+      "settings-profile": "Open Profile.",
+      "avatar": "Tap to choose a picture, then save.",
+      "server-settings": "Open “Server Settings”.",
+      "settings-roles": "Open Roles.",
+      "create-role": "Create a role.",
+      "add-server": "Create a server of your own here.",
+      "voice-mic": "Microphone: mute or unmute yourself. The arrow picks which microphone to use.",
+      "voice-deafen": "Headphones: deafen — you hear no one and your mic turns off too. The arrow sets your output device and volume.",
+      "voice-share": "Screen share: stream your screen or a window to the channel. The arrow sets the quality.",
+      "voice-soundboard": "Soundboard: play short sound effects for everyone in the channel.",
+      "voice-noise": "Noise reduction: filters out background sounds like keyboards and fans.",
+      "voice-disconnect": "Leave the voice channel here."
+    },
+    "roles": {
+      "owned-server": "Open your server, then right-click it (long-press on a phone)."
+    },
+    "noServer": {
+      "discover": "Channels live in communities — join one here first."
+    },
+    "rolesNoServer": {
+      "add-server": "Roles live in a server you own — create one here first."
+    }
+  },
+  "tourNext": "Next",
+  "tourDone": "Done",
+  "tourSkip": "Skip",
+  "voiceTourTitle": "Voice panel tour",
+  "voiceTourDesc": "A short walk through the buttons you get in a voice channel.",
+  "voiceTourButton": "Play the tour",
+  "voiceTourNeedsVoice": "Join a voice channel to play it."
+}

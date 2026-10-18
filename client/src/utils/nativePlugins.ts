@@ -9,6 +9,7 @@ import { StatusBar, Style } from "@capacitor/status-bar";
 import { isCapacitor, getCapacitorPlatform } from "./constants";
 import { handleBack } from "./backStack";
 import { initKeyboardScroll } from "./keyboardScroll";
+import { initIosKeyboardInset } from "./iosKeyboardInset";
 import type { RemoteAudioGains } from "./remoteAudioGain";
 import { ensureFreshToken } from "../api/client";
 
@@ -264,9 +265,16 @@ export async function configureMobileUI(): Promise<void> {
   // - iOS: CSS env(safe-area-inset-*) works natively in WKWebView
   // - CSS: #root uses padding-top/bottom with var(--safe-area-inset-*, env(..., 0px))
 
-  if (getCapacitorPlatform() === "android") {
-    await initKeyboardScroll();
+  const platform = getCapacitorPlatform();
+  if (platform === "ios") await initIosKeyboardInset();
+  if (platform === "android" || platform === "ios") {
+    await initKeyboardScroll(platform);
   }
+
+  // An app screen, not a document: pinch zoom and iOS's zoom-on-focus only break the layout.
+  document
+    .querySelector('meta[name="viewport"]')
+    ?.setAttribute("content", "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover");
 
   try {
     await StatusBar.setStyle({ style: Style.Dark });

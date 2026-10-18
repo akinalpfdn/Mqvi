@@ -19,10 +19,13 @@
   <a href="https://github.com/akinalpfdn/Mqvi/releases/latest/download/mqvi-setup.exe"><img src="icons/btn-windows.svg" alt="Download for Windows" height="48" /></a>&nbsp;&nbsp;
   <a href="https://github.com/akinalpfdn/Mqvi/releases/latest/download/mqvi-setup.dmg"><img src="icons/btn-macos.svg" alt="Download for macOS" height="48" /></a>&nbsp;&nbsp;
   <a href="https://github.com/akinalpfdn/Mqvi/releases/latest/download/mqvi-setup.AppImage"><img src="icons/btn-linux.svg" alt="Download for Linux" height="48" /></a>
+  <br />
+  <a href="https://apps.apple.com/us/app/mqvi-voice-chat-communities/id6761312531"><img src="icons/btn-appstore.svg" alt="Download on the App Store" height="48" /></a>&nbsp;&nbsp;
+  <a href="https://play.google.com/store/apps/details?id=com.akinalpfdn.mqvi"><img src="icons/btn-googleplay.svg" alt="Get it on Google Play" height="48" /></a>
 </p>
 
 <p align="center">
-  <sub>Also on iOS and Android &middot; close to 1,000 registered accounts</sub>
+  <sub>Over 1,000 registered accounts</sub>
 </p>
 
 <p align="center">

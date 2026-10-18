@@ -98,6 +98,7 @@ function ContextMenu({ state, onClose }: ContextMenuProps) {
               }
             }}
             disabled={item.disabled}
+            data-tour={item.tour}
           >
             {item.label}
           </button>

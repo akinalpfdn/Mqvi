@@ -206,7 +206,7 @@ function ServerList({
 
     const items: ContextMenuItem[] = [
       ...(canAccessSettings
-        ? [{ label: tServers("serverSettings"), onClick: () => openSettings("server-general") }]
+        ? [{ label: tServers("serverSettings"), onClick: () => openSettings("server-general"), tour: "server-settings" }]
         : []),
       {
         label: tServers("markAllAsRead"),
@@ -284,6 +284,7 @@ function ServerList({
         <button
           className="ch-tree-section-header"
           onClick={() => toggleSection("servers")}
+          data-tour={isSectionExpanded("servers") ? undefined : "servers-section"}
         >
           <Chevron expanded={isSectionExpanded("servers")} />
           <span>{tServers("servers")}</span>
@@ -294,6 +295,7 @@ function ServerList({
             <button
               className="ch-tree-item ch-tree-add-server"
               onClick={onAddServer}
+              data-tour="add-server"
             >
               <span className="ch-tree-icon">+</span>
               <span className="ch-tree-label">{tServers("addServer")}</span>
@@ -302,6 +304,7 @@ function ServerList({
             <button
               className="ch-tree-item ch-tree-add-server"
               onClick={openDiscovery}
+              data-tour="discover"
             >
               <span className="ch-tree-icon">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -344,6 +347,7 @@ function ServerList({
                     <button
                       className={`ch-tree-server-header${isActive ? " active" : ""}${mutedServerIds.has(srv.id) ? " muted" : ""}`}
                       onClick={handleSrvHeaderClick}
+                      data-tour={srv.owner_id && srv.owner_id === currentUser?.id ? "server owned-server" : "server"}
                       onContextMenu={(e) => handleServerContextMenu(e, srv.id, srv.name)}
                       {...longPressMenu}
                       onMouseEnter={(e) => handleServerMouseEnter(e, srv.id)}

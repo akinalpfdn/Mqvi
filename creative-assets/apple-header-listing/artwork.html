@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mqvi — App Store creative artwork</title>
+<!-- Render with node render.cjs. Both compositions use the existing Mqvi logo.
+     All other shapes are decorative communication symbols, not product screenshots.
+     No promotional copy or locale-specific UI. Apple placement preview still required. -->
+<style>
+*{box-sizing:border-box}html,body{margin:0;background:#091b23}body{font-family:"Avenir Next",Avenir,Arial,sans-serif}.art{position:relative;overflow:hidden;isolation:isolate;background:#0b2029;color:#f4f8f7}
+.header{width:3840px;height:1646px}.search{width:3840px;height:2560px}
+.art:before{content:"";position:absolute;inset:0;z-index:-2;background:radial-gradient(ellipse at 73% 39%,#18535c 0,transparent 48%),radial-gradient(ellipse at 15% 93%,#15414b 0,transparent 48%),linear-gradient(120deg,#091b23,#112d37 60%,#0b2029)}
+.art:after{content:"";position:absolute;inset:0;z-index:10;pointer-events:none;background:linear-gradient(0deg,rgba(3,15,21,.32),transparent 24%,transparent 85%,rgba(3,15,21,.12))}
+.orbit{position:absolute;border:2px solid #53848b24;border-radius:50%;width:2800px;height:2800px;left:1320px;top:-1270px;transform:rotate(-18deg)}
+.orbit:before,.orbit:after{content:"";position:absolute;border:2px solid #74adb021;border-radius:50%;inset:145px}.orbit:after{inset:340px}
+.brand{position:absolute;display:flex;align-items:center;gap:48px;left:690px;top:620px;z-index:3}
+.brand img{width:225px;height:225px;object-fit:contain;filter:drop-shadow(0 12px 28px #0002)}
+.wordmark{font-size:310px;font-weight:650;letter-spacing:-15px;line-height:1;padding-bottom:20px}
+.signature{position:absolute;left:752px;top:1008px;display:flex;gap:36px;align-items:center;opacity:.75}
+.signature svg{width:60px;height:60px;stroke:#a1cbcf;stroke-width:1.6;fill:none;stroke-linecap:round;stroke-linejoin:round}.signature i{width:6px;height:6px;border-radius:50%;background:#6f9da5;margin:0 8px}
+.scene{position:absolute;width:1330px;height:1050px;left:1940px;top:244px}
+.bubble{position:absolute;filter:drop-shadow(0 45px 45px #03101866)}
+.main-bubble{left:220px;top:65px;width:780px;height:625px;transform:rotate(-8deg);border-radius:154px;background:linear-gradient(145deg,#f6fff9 0,#e2f7ed 65%,#b5e7dc);box-shadow:inset 0 5px 3px #fff,inset 0 -12px 0 #82c6bb55;display:flex;align-items:center;justify-content:center}
+.main-bubble:after{content:"";position:absolute;left:98px;bottom:-74px;width:150px;height:160px;background:#d7f1e7;clip-path:polygon(0 0,100% 0,0 100%);border-radius:0 0 0 20px}
+.main-bubble img{width:440px;height:440px;object-fit:contain;position:relative;z-index:2}
+.voice-bubble{left:525px;top:635px;width:615px;height:254px;transform:rotate(7deg);border-radius:80px;background:linear-gradient(145deg,#43d5d5,#10a9b7 66%,#07808f);border:3px solid #7ee5e1;box-shadow:inset 0 -12px 0 #06798c55;display:flex;align-items:center;justify-content:center;gap:15px}
+.voice-bubble:after{content:"";position:absolute;right:65px;bottom:-42px;width:80px;height:85px;background:#119eac;clip-path:polygon(0 0,100% 0,100% 100%)}
+.voice-bubble b{display:block;width:17px;border-radius:20px;background:#edfffa;box-shadow:0 2px 4px #03647420}
+.video-bubble{left:0;top:565px;width:266px;height:224px;border-radius:66px;background:linear-gradient(140deg,#f5d7ae,#dfab7e);transform:rotate(-13deg);border:3px solid #ffe7c5;box-shadow:inset 0 -10px 0 #b8815d33;display:flex;align-items:center;justify-content:center}
+.video-bubble svg{width:132px;height:132px;fill:none;stroke:#79513a;stroke-width:2;stroke-linejoin:round}
+.spark{position:absolute;border:5px solid #81cec8;border-radius:50%;width:24px;height:24px}.s1{left:1120px;top:218px}.s2{left:330px;top:920px;width:15px;height:15px;background:#d7b18b;border:0}.s3{left:85px;top:270px;width:16px;height:16px;background:#6cb1b8;border:0}
+.dash{position:absolute;left:1055px;top:105px;width:65px;height:7px;background:#75c4c3;transform:rotate(-42deg);border-radius:10px}.dash:after{content:"";position:absolute;width:48px;height:7px;background:#75c4c3;left:52px;top:41px;transform:rotate(62deg);border-radius:10px}
+.search .orbit{left:450px;top:-450px;width:3000px;height:3000px}
+.search .brand{top:340px;left:0;width:100%;justify-content:center;gap:36px}.search .brand img{width:156px;height:156px}.search .wordmark{font-size:230px;letter-spacing:-11px;padding-bottom:14px}
+.search .scene{left:1130px;top:790px;transform:scale(1.22);transform-origin:50% 0}
+.search .signature{left:0;top:2200px;width:100%;justify-content:center;gap:42px}.search .signature svg{width:65px;height:65px}
+.search:before{background:radial-gradient(ellipse at 50% 50%,#20616a 0,transparent 61%),linear-gradient(145deg,#091b23,#12333d 60%,#0b2029)}
+</style>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="chat" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z"/></symbol>
+<symbol id="mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></symbol>
+<symbol id="video" viewBox="0 0 24 24"><rect x="2" y="5" width="13" height="14" rx="3"/><path d="m15 9 7-4v14l-7-4"/></symbol>
+</defs></svg>
+<template id="composition">
+ <div class="orbit"></div>
+ <div class="brand"><img src="../../icons/mqvi-icon-512x512.png" alt=""><span class="wordmark">mqvi</span></div>
+ <div class="scene" aria-label="Decorative chat, voice and video illustration">
+  <div class="bubble main-bubble"><img src="../../icons/mqvi-icon-512x512.png" alt="Mqvi"></div>
+  <div class="bubble video-bubble"><svg><use href="#video"/></svg></div>
+  <div class="bubble voice-bubble"></div>
+  <div class="spark s1"></div><div class="spark s2"></div><div class="spark s3"></div><div class="dash"></div>
+ </div>
+ <div class="signature"><svg><use href="#chat"/></svg><i></i><svg><use href="#mic"/></svg><i></i><svg><use href="#video"/></svg></div>
+</template>
+<main id="header" class="art header"></main>
+<main id="search" class="art search"></main>
+<script>
+for(const art of document.querySelectorAll('.art')){
+ art.append(document.querySelector('#composition').content.cloneNode(true));
+ for(const height of [24,45,76,114,67,138,94,52,114,76,40,25]){
+  const bar=document.createElement('b');bar.style.height=height+'px';art.querySelector('.voice-bubble').append(bar);
+ }
+}
+const selected=new URLSearchParams(location.search).get('placement');
+if(selected)for(const art of document.querySelectorAll('.art'))art.hidden=art.id!==selected;
+</script>
+</body>
+</html>

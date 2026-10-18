@@ -29,6 +29,8 @@ import FeedbackSettings from "./FeedbackSettings";
 import BlockedUsersSettings from "./BlockedUsersSettings";
 import AdminFeedbackList from "./AdminFeedbackList";
 import HelpCenter from "../shared/HelpCenter";
+import GuideRestore from "../guide/GuideRestore";
+import VoiceTourReplay from "../guide/VoiceTourReplay";
 
 function SettingsModal() {
   const { t } = useTranslation("settings");
@@ -105,7 +107,7 @@ function SettingsModal() {
       <SettingsNav drawerOpen={navOpen} onNavigate={() => setNavOpen(false)} />
 
       {/* Content area — close button anchored to the panel's top-right corner */}
-      <div className="settings-panel">
+      <div className="settings-panel" inert={isMobile && navOpen}>
         {/* Mobile is a full-screen sheet, so it gets a real toolbar instead of the two
             buttons floating over the content. */}
         {isMobile ? (
@@ -113,6 +115,7 @@ function SettingsModal() {
             <button
               className="settings-topbar-btn"
               onClick={() => setNavOpen(true)}
+              data-tour="settings-menu"
               aria-label={t("title")}
             >
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -198,6 +201,8 @@ function SettingsContent({ activeTab }: { activeTab: string }) {
     case "help":
       return (
         <div className="settings-section settings-help">
+          <GuideRestore />
+          <VoiceTourReplay />
           <HelpCenter view="tabs" />
         </div>
       );

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "../../stores/authStore";
-import { detectOS, shouldShowDownloadPrompt } from "../../utils/detectOS";
+import { detectOS, isDownloadPromptPending } from "../../utils/detectOS";
 import { dismissDownloadPrompt } from "../../api/auth";
 
 function DownloadPromptModal() {
@@ -12,7 +12,7 @@ function DownloadPromptModal() {
   const updateUser = useAuthStore((s) => s.updateUser);
   const [dismissed, setDismissed] = useState(false);
 
-  if (!user || user.has_seen_download_prompt || dismissed || !shouldShowDownloadPrompt()) {
+  if (dismissed || !isDownloadPromptPending(user)) {
     return null;
   }
 

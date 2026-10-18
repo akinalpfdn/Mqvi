@@ -178,6 +178,7 @@ function FriendsView() {
           <button
             className={`fv-tab fv-tab-add${activeTab === "add" ? " active" : ""}`}
             onClick={() => handleTabChange("add")}
+            data-tour="add-friend-tab"
           >
             {t("addFriend")}
           </button>

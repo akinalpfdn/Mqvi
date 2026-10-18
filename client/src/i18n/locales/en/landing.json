@@ -17,6 +17,8 @@
   "hero_download_macos": "Download for macOS",
   "hero_download_linux": "Download for Linux",
   "hero_download_desktop": "Download Desktop App",
+  "hero_download_ios": "Get it on the App Store",
+  "hero_download_android": "Get it on Google Play",
 
   "showcase_label": "What You Get",
   "sc1_title": "Feels like home",
