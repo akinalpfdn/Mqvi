@@ -324,6 +324,10 @@ func (r *sqliteUserRepo) updatePasswordTx(ctx context.Context, tx *sql.Tx, userI
 	if err != nil {
 		return 0, fmt.Errorf("update password: %w", err)
 	}
+	// Pre-099 push tokens carry no session for the cascade to follow; every device is signed out.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM push_tokens WHERE user_id = ? AND session_id IS NULL`, userID); err != nil {
+		return 0, fmt.Errorf("revoke unbound push tokens: %w", err)
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ?`, userID); err != nil {
 		return 0, fmt.Errorf("revoke sessions: %w", err)
 	}

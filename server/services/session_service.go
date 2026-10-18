@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
@@ -39,8 +40,14 @@ func (s *sessionService) List(ctx context.Context, userID, currentSessionID stri
 	if err != nil {
 		return nil, err
 	}
+	now := time.Now()
 	views := make([]models.SessionView, 0, len(sessions))
 	for _, session := range sessions {
+		// An expired row cannot refresh and is only waiting for the daily sweep; it is not a
+		// signed-in device. Compared in Go: pre-098 rows may carry a local offset in the text.
+		if now.After(session.ExpiresAt) {
+			continue
+		}
 		lastActive := session.CreatedAt
 		if session.RotatedAt != nil {
 			lastActive = *session.RotatedAt

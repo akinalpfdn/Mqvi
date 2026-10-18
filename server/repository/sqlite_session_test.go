@@ -91,3 +91,28 @@ func TestSessionRepo_ShouldClearPendingTokensOnlyPastTheCutoff(t *testing.T) {
 		t.Fatal("pending token cleared inside its grace window")
 	}
 }
+
+// The sweep deletes thousands of expired pre-098 rows on its first run. It must not take the push
+// registrations of the devices those users are still signed in on.
+func TestSessionRepo_ShouldKeepUnboundPushTokensWhenExpiredSessionsAreSwept(t *testing.T) {
+	ctx := context.Background()
+	fx := dbtest.New(t)
+	repo := NewSQLiteSessionRepo(fx.DB)
+	uid := fx.User("")
+	seedSession(t, repo, "old", uid, time.Now().Add(-time.Hour))
+	if _, err := fx.DB.ExecContext(ctx, `INSERT INTO push_tokens (user_id, token, platform) VALUES (?, 'legacy-fcm', 'android')`, uid); err != nil {
+		t.Fatalf("seed push token: %v", err)
+	}
+
+	if _, err := repo.DeleteExpired(ctx, time.Now()); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+
+	var left int
+	if err := fx.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM push_tokens WHERE user_id = ?`, uid).Scan(&left); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if left != 1 {
+		t.Fatal("the expiry sweep removed a push registration")
+	}
+}

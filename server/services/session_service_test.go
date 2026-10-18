@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
@@ -419,5 +420,25 @@ func TestChangePassword_ShouldNotSpareUnnamedConnectionsWhenThisDeviceIsUnnamed(
 
 	if len(keep) != 1 || keep[0] == "" {
 		t.Fatalf("kept %v, want only the new session", keep)
+	}
+}
+
+// Sessions from before the sweep existed were never deleted; an expired one is not a device.
+func TestSessions_ShouldNotListExpiredSessions(t *testing.T) {
+	h := newDevicesHarness(t)
+	uid := h.fx.User("")
+	current := h.signIn(uid, models.ClientInfo{})
+	stale := h.signIn(uid, models.ClientInfo{})
+	if _, err := h.fx.DB.Exec(`UPDATE sessions SET expires_at = ? WHERE id = ?`, time.Now().UTC().Add(-time.Hour), stale); err != nil {
+		t.Fatalf("expire: %v", err)
+	}
+
+	views, err := h.devices.List(context.Background(), uid, current)
+
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(views) != 1 || views[0].ID != current {
+		t.Fatalf("listed %d sessions, want only the live one", len(views))
 	}
 }

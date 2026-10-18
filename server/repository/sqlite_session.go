@@ -140,7 +140,31 @@ func (r *sqliteSessionRepo) ListByUser(ctx context.Context, userID string) ([]mo
 	return sessions, nil
 }
 
+// deleteUnboundPushTokens drops the user's push tokens registered before 099 (no session_id), which
+// ON DELETE CASCADE cannot reach. Which device each belongs to is unknown, so a sign-out the user
+// starts takes all of them; devices still signed in register again on next launch. Never on expiry
+// or logout: the sweep would otherwise wipe nearly every user's registration at once.
+// Runs before the session delete, so a failure in between costs a re-registration, not a leak.
+func (r *sqliteSessionRepo) deleteUnboundPushTokens(ctx context.Context, userID string) error {
+	if _, err := r.db.ExecContext(ctx,
+		`DELETE FROM push_tokens WHERE user_id = ? AND session_id IS NULL`, userID); err != nil {
+		return fmt.Errorf("failed to delete unbound push tokens: %w", err)
+	}
+	return nil
+}
+
 func (r *sqliteSessionRepo) DeleteForUser(ctx context.Context, id, userID string) (bool, error) {
+	var owned int
+	if err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sessions WHERE id = ? AND user_id = ?`, id, userID).Scan(&owned); err != nil {
+		return false, fmt.Errorf("failed to check session owner: %w", err)
+	}
+	if owned == 0 {
+		return false, nil
+	}
+	if err := r.deleteUnboundPushTokens(ctx, userID); err != nil {
+		return false, err
+	}
 	res, err := r.db.ExecContext(ctx, `DELETE FROM sessions WHERE id = ? AND user_id = ?`, id, userID)
 	if err != nil {
 		return false, fmt.Errorf("failed to delete session: %w", err)
@@ -153,6 +177,9 @@ func (r *sqliteSessionRepo) DeleteForUser(ctx context.Context, id, userID string
 }
 
 func (r *sqliteSessionRepo) DeleteOthersForUser(ctx context.Context, userID, keepID string) ([]string, error) {
+	if err := r.deleteUnboundPushTokens(ctx, userID); err != nil {
+		return nil, err
+	}
 	rows, err := r.db.QueryContext(ctx,
 		`DELETE FROM sessions WHERE user_id = ? AND id != ? RETURNING id`, userID, keepID)
 	if err != nil {
@@ -183,6 +210,9 @@ func (r *sqliteSessionRepo) DeleteByID(ctx context.Context, id string) error {
 }
 
 func (r *sqliteSessionRepo) DeleteByUserID(ctx context.Context, userID string) error {
+	if err := r.deleteUnboundPushTokens(ctx, userID); err != nil {
+		return err
+	}
 	_, err := r.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ?`, userID)
 	if err != nil {
 		return fmt.Errorf("failed to delete user sessions: %w", err)

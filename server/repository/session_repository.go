@@ -21,10 +21,12 @@ type SessionRepository interface {
 	// ListByUser returns the user's sessions, most recently used first.
 	ListByUser(ctx context.Context, userID string) ([]models.Session, error)
 	// DeleteForUser deletes a session only if it belongs to userID. false = no such session.
+	// Like the other user-initiated sign-outs below, it also drops the user's pre-099 push tokens.
 	DeleteForUser(ctx context.Context, id, userID string) (bool, error)
 	// DeleteOthersForUser deletes every session of userID except keepID and returns their IDs.
 	DeleteOthersForUser(ctx context.Context, userID, keepID string) ([]string, error)
 	DeleteByID(ctx context.Context, id string) error
+	// DeleteByUserID signs the user out everywhere (account deactivation).
 	DeleteByUserID(ctx context.Context, userID string) error
 	DeleteExpired(ctx context.Context, now time.Time) (int64, error)
 	// ClearPending drops encrypted pending tokens whose grace window ended before cutoff.
