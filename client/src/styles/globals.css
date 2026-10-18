@@ -3427,7 +3427,6 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 
 /* Mobil-specific CSS custom properties */
 :root {
-  --mobile-header-h: 48px;
   --mobile-drawer-w: min(85vw, 320px);
   --mobile-drawer-right-w: min(80vw, 300px);
   --mobile-touch-target: 44px;
@@ -3497,56 +3496,6 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
   transform: translateX(0);
 }
 
-
-/* ─── Mobile Header ─── */
-.mobile-header {
-  display: none;
-  height: var(--mobile-header-h);
-  min-height: var(--mobile-header-h);
-  padding: 0 8px;
-  align-items: center;
-  gap: 8px;
-  background: var(--bg-1);
-  border-bottom: 1px solid var(--b1);
-  flex-shrink: 0;
-}
-@media (max-width: 768px), (pointer: coarse) and (max-height: 500px) {
-  .mobile-header { display: flex; }
-}
-
-.mobile-header-btn {
-  width: var(--mobile-touch-target);
-  height: var(--mobile-touch-target);
-  border: none;
-  background: transparent;
-  color: var(--t1);
-  cursor: pointer;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: background 0.1s, color 0.1s;
-}
-.mobile-header-btn:active { background: var(--bg-h); color: var(--t0); }
-
-.mobile-header-title {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--t0);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mobile-header-hash {
-  color: var(--t2);
-  font-weight: 500;
-}
 
 /* ─── Mobile Bottom Sheet ─── */
 .mobile-bottom-sheet-backdrop {
