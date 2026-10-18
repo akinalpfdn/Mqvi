@@ -109,6 +109,7 @@ function PanelTabBar({ panelId }: PanelTabBarProps) {
         <button
           className="panel-tab-nav-btn"
           onClick={leftDrawerOpen ? closeLeftDrawer : openLeftDrawer}
+          data-tour="menu"
           title={t("openSidebar")}
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
