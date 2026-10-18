@@ -24,7 +24,7 @@ import {
 import { autoUpdater } from "electron-updater";
 import { uIOhook, UiohookKey } from "uiohook-napi";
 import { spawn, ChildProcess } from "child_process";
-import { readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
+import { readFileSync, writeFileSync, existsSync } from "fs";
 import { readFile } from "fs/promises";
 import path from "path";
 import {
@@ -36,6 +36,7 @@ import {
   type ProbeCandidate,
   type SuffixIndex,
 } from "./gameDetect";
+import { createCredentialStore } from "./credentialStore";
 import { createRedactor } from "./redact";
 import { createOutputTracker } from "./helperOutput";
 
@@ -1560,38 +1561,25 @@ function setupIPC(): void {
   });
 
   // ─── Credential Storage (Remember Me) ───
-  // Encrypted via Windows DPAPI (safeStorage), stored at %APPDATA%/mqvi/cred.enc
+  // Encrypted with safeStorage (DPAPI-protected key on Windows, Keychain on macOS, the desktop's
+  // secret store on Linux), stored at <userData>/cred.enc. See credentialStore.ts.
 
-  const credPath = path.join(app.getPath("userData"), "cred.enc");
+  const credentials = createCredentialStore(
+    path.join(app.getPath("userData"), "cred.enc"),
+    safeStorage,
+    () => ({
+      platform: process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux",
+      backend: process.platform === "linux" ? safeStorage.getSelectedStorageBackend() : "",
+    })
+  );
 
   ipcMain.handle(
     "save-credentials",
-    (_e: Electron.IpcMainInvokeEvent, username: string, password: string) => {
-      const data = JSON.stringify({ username, password });
-      const encrypted = safeStorage.encryptString(data);
-      writeFileSync(credPath, encrypted);
-    }
+    (_e: Electron.IpcMainInvokeEvent, username: string, password: string) =>
+      credentials.save({ username, password })
   );
-
-  ipcMain.handle("load-credentials", () => {
-    try {
-      if (!existsSync(credPath)) return null;
-      const encrypted = readFileSync(credPath);
-      const decrypted = safeStorage.decryptString(Buffer.from(encrypted));
-      return JSON.parse(decrypted) as { username: string; password: string };
-    } catch {
-      // Silently return null on corrupt file or decrypt failure
-      return null;
-    }
-  });
-
-  ipcMain.handle("clear-credentials", () => {
-    try {
-      if (existsSync(credPath)) unlinkSync(credPath);
-    } catch {
-      // Ignore deletion errors
-    }
-  });
+  ipcMain.handle("load-credentials", () => credentials.load());
+  ipcMain.handle("clear-credentials", () => credentials.clear());
 
   // ─── Global PTT (Push-to-Talk) Shortcut ───
   // Renderer tells us which key to watch; uIOhook fires keydown/keyup globally.

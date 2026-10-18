@@ -7,6 +7,14 @@
 
 import { contextBridge, ipcRenderer } from "electron";
 
+/** Why a "remember me" save or read failed, as main reports it. */
+type CredentialStoreFailure = {
+  reason: "unavailable" | "encrypt_failed" | "write_failed" | "decrypt_failed" | "read_failed";
+  detail: string;
+  platform: "windows" | "macos" | "linux";
+  backend: string;
+};
+
 contextBridge.exposeInMainWorld("electronAPI", {
   // ─── Invoke-style IPC (renderer → main → response) ───
 
@@ -229,13 +237,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // ─── Credential Storage (Remember Me) ───
 
-  /** Save credentials encrypted via safeStorage */
-  saveCredentials: (username: string, password: string): Promise<void> =>
+  /** Save credentials encrypted via safeStorage; reports why when it could not. */
+  saveCredentials: (
+    username: string,
+    password: string
+  ): Promise<{ ok: true } | { ok: false; failure: CredentialStoreFailure }> =>
     ipcRenderer.invoke("save-credentials", username, password),
 
-  /** Load saved credentials (null if none) */
-  loadCredentials: (): Promise<{ username: string; password: string } | null> =>
-    ipcRenderer.invoke("load-credentials"),
+  /** Load saved credentials (null if none); `failure` says why a stored copy could not be read. */
+  loadCredentials: (): Promise<{
+    credentials: { username: string; password: string } | null;
+    failure?: CredentialStoreFailure;
+  }> => ipcRenderer.invoke("load-credentials"),
 
   /** Clear saved credentials */
   clearCredentials: (): Promise<void> =>

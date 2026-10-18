@@ -105,6 +105,8 @@ type RateLimiters struct {
 	ChannelRead *ratelimit.MessageRateLimiter
 	// SessionRevoke caps devices-screen sign-outs per user.
 	SessionRevoke *ratelimit.LoginRateLimiter
+	// CredentialStore caps "remember me" failure reports per user.
+	CredentialStore *ratelimit.MessageRateLimiter
 }
 
 // initServices creates all services. Order matters:
@@ -380,7 +382,6 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 
 	limiters := &RateLimiters{
 		Login:          loginLimiter,
-		SessionRevoke:  ratelimit.NewLoginRateLimiter(10, time.Minute),
 		Message:        messageLimiter,
 		Register:       registerLimiter,
 		ForgotPwd:      forgotPwdLimiter,
@@ -394,6 +395,9 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		NoiseReduction: noiseReductionLimiter,
 		DMRead:         dmReadLimiter,
 		ChannelRead:    channelReadLimiter,
+		SessionRevoke:  ratelimit.NewLoginRateLimiter(10, time.Minute),
+		// A real failure reports once per login attempt; a handful an hour is plenty.
+		CredentialStore: ratelimit.NewMessageRateLimiter(5, time.Hour, time.Hour),
 	}
 
 	return svcs, limiters, metricsCollector

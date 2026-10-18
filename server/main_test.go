@@ -59,6 +59,8 @@ func (s fileTokenAuthStub) RestoreAccount(context.Context, string, string, model
 	return nil, nil
 }
 func (s fileTokenAuthStub) SetAppLogger(services.AuthAppLogger) {}
+func (s fileTokenAuthStub) RecordCredentialStoreFailure(string, *models.CredentialStoreFailureRequest) {
+}
 
 func TestReadJWTTokens_CookieOnly(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/api/files/avatars/u/x.png", nil)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/akinalp/mqvi/models"
@@ -23,6 +24,7 @@ type AuthHandler struct {
 	resetPwdLimiter  *ratelimit.LoginRateLimiter
 	urlSigner        services.FileURLSigner
 	fileCookieTTL    time.Duration
+	credentialRL     *ratelimit.MessageRateLimiter // credential-store failure reports, per user
 }
 
 // NewAuthHandler creates a new AuthHandler. All limiters may be nil to disable rate limiting.
@@ -34,6 +36,7 @@ func NewAuthHandler(
 	resetPwdLimiter *ratelimit.LoginRateLimiter,
 	urlSigner services.FileURLSigner,
 	fileCookieTTL time.Duration,
+	credentialRL *ratelimit.MessageRateLimiter,
 ) *AuthHandler {
 	return &AuthHandler{
 		authService:      authService,
@@ -43,7 +46,39 @@ func NewAuthHandler(
 		resetPwdLimiter:  resetPwdLimiter,
 		urlSigner:        urlSigner,
 		fileCookieTTL:    fileCookieTTL,
+		credentialRL:     credentialRL,
 	}
+}
+
+// CredentialStoreFailure handles POST /api/auth/credential-store-failure.
+// The desktop app reports a "remember me" save or read that failed. Without it the only symptom is
+// an empty login form, which the user can only describe as "it forgets my password".
+func (h *AuthHandler) CredentialStoreFailure(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+	if h.credentialRL != nil && !h.credentialRL.Allow(user.ID) {
+		w.Header().Set("Retry-After", strconv.Itoa(h.credentialRL.CooldownSeconds(user.ID)))
+		pkg.ErrorWithMessage(w, http.StatusTooManyRequests, "too many credential store reports")
+		return
+	}
+
+	var req models.CredentialStoreFailureRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if !models.CredentialStoreOperations[req.Operation] || !models.CredentialStoreFailureReasons[req.Reason] ||
+		!models.CredentialStorePlatforms[req.Platform] || !models.CredentialStoreBackends[req.Backend] {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "unknown operation, reason, platform or backend")
+		return
+	}
+	req.Detail = truncateRunes(req.Detail, models.CredentialStoreDetailMax)
+
+	h.authService.RecordCredentialStoreFailure(user.ID, &req)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // Headers the clients send so the devices screen can tell one session from another.

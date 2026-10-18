@@ -37,7 +37,7 @@ func TestLogout_ShouldEndTheSessionWithoutAnAccessToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("login: %v", err)
 	}
-	h := NewAuthHandler(authSvc, nil, nil, nil, nil, nil, 0)
+	h := NewAuthHandler(authSvc, nil, nil, nil, nil, nil, 0, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/auth/logout",
 		strings.NewReader(`{"refresh_token":"`+tokens.RefreshToken+`"}`))

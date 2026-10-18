@@ -61,6 +61,10 @@ type AuthService interface {
 	// Returns auth tokens like a regular login. Tombstone (is_hard_deleted=1) is not recoverable.
 	RestoreAccount(ctx context.Context, username, password string, client models.ClientInfo) (*AuthTokens, error)
 
+	// RecordCredentialStoreFailure logs a desktop app that could not save or read its
+	// remembered credentials. The request is validated by the handler.
+	RecordCredentialStoreFailure(userID string, req *models.CredentialStoreFailureRequest)
+
 	SetAppLogger(logger AuthAppLogger)
 }
 
@@ -110,6 +114,22 @@ const rotateAttempts = 3
 
 func (s *authService) SetAppLogger(logger AuthAppLogger) {
 	s.appLogger = logger
+}
+
+func (s *authService) RecordCredentialStoreFailure(userID string, req *models.CredentialStoreFailureRequest) {
+	metadata := map[string]string{
+		"operation": req.Operation,
+		"reason":    req.Reason,
+		"platform":  req.Platform,
+	}
+	if req.Backend != "" {
+		metadata["backend"] = req.Backend
+	}
+	if req.Detail != "" {
+		metadata["detail"] = req.Detail
+	}
+	// Operation and reason in the message: the log list is scanned by eye.
+	s.logWarn(&userID, "remember-me credentials "+req.Operation+" failed: "+req.Reason+" ("+req.Platform+")", metadata)
 }
 
 func (s *authService) logWarn(userID *string, message string, metadata map[string]string) {

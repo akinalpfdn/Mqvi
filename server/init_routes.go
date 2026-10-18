@@ -72,6 +72,7 @@ func initRoutes(
 	mux.Handle("GET /api/auth/sessions", auth(h.Session.List))
 	mux.Handle("DELETE /api/auth/sessions", auth(h.Session.RevokeOthers))
 	mux.Handle("DELETE /api/auth/sessions/{sessionId}", auth(h.Session.Revoke))
+	mux.Handle("POST /api/auth/credential-store-failure", auth(h.Auth.CredentialStoreFailure))
 	mux.HandleFunc("POST /api/auth/forgot-password", h.Auth.ForgotPassword)
 	mux.HandleFunc("POST /api/auth/reset-password", h.Auth.ResetPassword)
 	mux.HandleFunc("POST /api/auth/restore", h.Auth.RestoreAccount)
