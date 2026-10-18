@@ -121,10 +121,17 @@ export function currentStage(stages: readonly TourStage[]): { stage: TourStage; 
   return null;
 }
 
-/** Whether any control with this marker is on screen. */
-export function isTargetOnScreen(target: string): boolean {
-  return Array.from(document.querySelectorAll(`[data-tour~="${target}"]`)).some(isOnScreen);
+/**
+ * Whether this user has the control at all: drawn with a size, wherever it is. A control in a
+ * drawer that is closed or still sliding in is off screen but present.
+ */
+export function isTargetRendered(target: string): boolean {
+  return Array.from(document.querySelectorAll(`[data-tour~="${target}"]`)).some((el) => {
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  });
 }
+
 
 /**
  * A channel row's tour marker, or none: a tour never points at a channel the user cannot use —

@@ -159,6 +159,29 @@ describe("introducing the voice panel", () => {
     expect(screen.getByText("spotlight.voice.voice-disconnect")).toBeTruthy();
   });
 
+  it("does not pass over controls still sliding in with the drawer", () => {
+    render(<GuideSpotlight />);
+    act(() => useSpotlightStore.getState().open({ ...voiceTour, stages: [] }));
+    useVoiceStore.setState({ currentVoiceChannelId: "v1" });
+    // Mid-slide: the wide panel's right edge is on screen, the buttons on its left are not yet.
+    const at = (el: HTMLElement, left: number, width: number) =>
+      (el.getBoundingClientRect = () => ({ width, height: 32, top: 400, left, right: left + width, bottom: 432 }) as DOMRect);
+    const panel = control("voice-panel");
+    const mic = control("voice-mic");
+    const sb = control("voice-soundboard");
+    at(panel, -250, 300);
+    at(mic, -240, 40);
+    at(sb, -180, 40);
+    frames();
+    frames();
+
+    at(panel, 10, 300);
+    at(mic, 20, 40);
+    at(sb, 80, 40);
+    frames();
+    expect(screen.getByText("spotlight.voice.voice-mic")).toBeTruthy();
+  });
+
   it("still introduces the panel when the user got into voice another way", () => {
     control("channel-voice");
     render(<GuideSpotlight />);

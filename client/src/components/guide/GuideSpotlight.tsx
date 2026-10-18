@@ -16,7 +16,7 @@ import { useTranslation } from "react-i18next";
 import { useGuideStore } from "../../stores/guideStore";
 import { useSpotlightStore } from "../../stores/spotlightStore";
 import { useVoiceStore } from "../../stores/voiceStore";
-import { SIDEBAR, currentStage, isTargetOnScreen, type TourStage } from "../../utils/guideTours";
+import { SIDEBAR, currentStage, isTargetRendered, type TourStage } from "../../utils/guideTours";
 
 /** How long the tour may have nothing on screen (a drawer sliding, a dialog opening). */
 export const SPOTLIGHT_WAIT_MS = 1500;
@@ -95,9 +95,10 @@ function GuideSpotlight() {
       // The introductions are about being in voice: they wait for the connection, not for the
       // buttons — microphone and headphones are on screen in voice or not.
       const waitingForVoice = explainAt !== null && !useVoiceStore.getState().currentVoiceChannelId;
-      // An introduction whose control this user does not have (no soundboard permission):
-      // the panel is there, the control is not — pass over it.
-      if (!waitingForVoice && explainAt !== null && explain && isTargetOnScreen("voice-panel") && !isTargetOnScreen(explain[explainAt])) {
+      // An introduction whose control this user does not have: the panel is there, the control
+      // is not drawn at all. Off screen is not missing — a drawer sliding in shows the panel's
+      // right edge before the buttons on its left.
+      if (!waitingForVoice && explainAt !== null && explain && isTargetRendered("voice-panel") && !isTargetRendered(explain[explainAt])) {
         advance();
         return;
       }
