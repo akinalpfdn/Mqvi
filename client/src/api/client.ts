@@ -134,11 +134,11 @@ async function withTokenRefresh<T>(
 ): Promise<APIResponse<T>> {
   const token = getAccessToken();
   const first = await send(token);
-  if (first.status !== 401) return first.response;
+  if (first.status !== 401) return withStatus(first);
 
   if (!getRefreshToken()) {
     console.warn(`[api] 401 on ${label} but NO refresh_token in storage`, { hadAuthHeader: !!token });
-    return first.response;
+    return withStatus(first);
   }
 
   console.warn(`[api] 401 on ${label} — attempting refresh`, {
@@ -152,11 +152,19 @@ async function withTokenRefresh<T>(
   });
   if (!refreshed) {
     console.warn(`[api] refresh FAILED on ${label} — returning original 401`);
-    return first.response;
+    return withStatus(first);
   }
 
-  const retry = await send(getAccessToken());
-  return retry.response;
+  return withStatus(await send(getAccessToken()));
+}
+
+function withStatus<T>(result: XhrResult<T>): APIResponse<T> {
+  return { ...result.response, httpStatus: result.status };
+}
+
+/** No response, a timeout, rate limiting or a server error: the session may be fine, the server is not. */
+function isTransientStatus(status: number | undefined): boolean {
+  return status === undefined || status === 0 || status === 408 || status === 429 || status >= 500;
 }
 
 /**
@@ -395,11 +403,24 @@ async function ensureFreshToken(): Promise<string | null> {
   return getAccessToken();
 }
 
+/**
+ * Renews the file token if it has lapsed. Media requests carry it with no 401 retry of their own,
+ * so after a long sleep images would fail until something else happened to refresh.
+ */
+async function ensureFreshFileToken(): Promise<void> {
+  const fileToken = localStorage.getItem("file_token");
+  if (!fileToken || !getRefreshToken() || !isTokenExpired(fileToken)) return;
+  await refreshAccessToken();
+}
+
 export {
   setTokens,
   clearTokens,
   getAccessToken,
+  getRefreshToken,
   ensureFreshToken,
+  ensureFreshFileToken,
+  isTransientStatus,
   setAuthRejectedHandler,
   uploadRequest,
   UPLOAD_ABORTED,

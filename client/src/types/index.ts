@@ -760,6 +760,8 @@ export type APIResponse<T = unknown> = {
   data?: T;
   error?: string;
   code?: string;
+  /** HTTP status of the final attempt, set by the API client (0 = no response). Never sent by the server. */
+  httpStatus?: number;
 };
 
 // ──────────────────────────────────

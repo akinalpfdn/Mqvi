@@ -52,7 +52,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockVoice.currentVoiceChannelId = null;
   mockVoice._onLeaveCallback = null;
-  useAuthStore.setState({ user: null, isInitialized: false, isLoading: false, error: null });
+  useAuthStore.setState({
+    user: null,
+    isInitialized: false,
+    isServerUnreachable: false,
+    isLoading: false,
+    error: null,
+  });
 });
 
 describe("authStore.initialize (F4 — offline/transient failure must not wipe the session)", () => {
@@ -93,6 +99,99 @@ describe("authStore.initialize (F4 — offline/transient failure must not wipe t
 
     expect(getMe).not.toHaveBeenCalled();
     expect(useAuthStore.getState().isInitialized).toBe(true);
+  });
+});
+
+describe("authStore.initialize — a stored session the server cannot confirm yet", () => {
+  beforeEach(() => {
+    localStorage.setItem("access_token", "valid-token");
+    localStorage.setItem("refresh_token", "valid-refresh");
+  });
+
+  it.each([
+    ["no response", 0],
+    ["a server error", 503],
+    ["rate limiting", 429],
+  ])("should show connecting, not login, when getMe gets %s", async (_name, httpStatus) => {
+    getMe.mockResolvedValue({ success: false, error: "x", httpStatus });
+
+    await useAuthStore.getState().initialize();
+
+    expect(useAuthStore.getState().isServerUnreachable).toBe(true);
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(localStorage.getItem("refresh_token")).toBe("valid-refresh");
+  });
+
+  it("should show login when the refresh was rejected", async () => {
+    getMe.mockImplementation(async () => {
+      localStorage.removeItem("access_token");
+      localStorage.removeItem("refresh_token");
+      return { success: false, error: "unauthorized", httpStatus: 401 };
+    });
+
+    await useAuthStore.getState().initialize();
+
+    expect(useAuthStore.getState().isServerUnreachable).toBe(false);
+  });
+
+  it("should sign in and leave connecting when a retry reaches the server", async () => {
+    getMe.mockResolvedValueOnce({ success: false, error: "x", httpStatus: 0 });
+    await useAuthStore.getState().initialize();
+    getMe.mockResolvedValueOnce({ success: true, data: fakeUser, httpStatus: 200 });
+
+    await useAuthStore.getState().initialize();
+
+    expect(useAuthStore.getState().isServerUnreachable).toBe(false);
+    expect(useAuthStore.getState().user).toEqual(fakeUser);
+  });
+
+  it("should make one attempt when retries fire at the same time", async () => {
+    getMe.mockResolvedValue({ success: false, error: "x", httpStatus: 0 });
+
+    await Promise.all([
+      useAuthStore.getState().initialize(),
+      useAuthStore.getState().initialize(),
+      useAuthStore.getState().initialize(),
+    ]);
+
+    expect(getMe).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("authStore.abandonSession — signing out while the server is unreachable", () => {
+  const logout = vi.mocked(authApi.logout);
+
+  it("should clear the session locally and queue the server logout", () => {
+    localStorage.setItem("access_token", "a");
+    localStorage.setItem("refresh_token", "sid.secret");
+    useAuthStore.setState({ isServerUnreachable: true });
+
+    useAuthStore.getState().abandonSession();
+
+    expect(localStorage.getItem("access_token")).toBeNull();
+    expect(localStorage.getItem("refresh_token")).toBeNull();
+    expect(localStorage.getItem("mqvi_pending_logout")).toBe("sid.secret");
+    expect(useAuthStore.getState().isServerUnreachable).toBe(false);
+  });
+
+  it("should send the queued logout on the next boot and forget it once the server answers", async () => {
+    localStorage.setItem("mqvi_pending_logout", "sid.secret");
+    logout.mockResolvedValue({ success: true, httpStatus: 200 } as Awaited<ReturnType<typeof authApi.logout>>);
+
+    await useAuthStore.getState().initialize();
+    await vi.waitFor(() => expect(localStorage.getItem("mqvi_pending_logout")).toBeNull());
+
+    expect(logout).toHaveBeenCalledWith("sid.secret");
+  });
+
+  it("should keep the queued logout while the server is still unreachable", async () => {
+    localStorage.setItem("mqvi_pending_logout", "sid.secret");
+    logout.mockResolvedValue({ success: false, error: "offline", httpStatus: 0 } as Awaited<ReturnType<typeof authApi.logout>>);
+
+    await useAuthStore.getState().initialize();
+    await vi.waitFor(() => expect(logout).toHaveBeenCalled());
+
+    expect(localStorage.getItem("mqvi_pending_logout")).toBe("sid.secret");
   });
 });
 

@@ -34,6 +34,11 @@ on the row and keeps the previous hash:
 Pre-098 plaintext tokens sit in `legacy_token` and are converted on first refresh. Expired rows and
 stale `pending_token` copies are removed by the daily cleanup sweep.
 
+`POST /api/auth/logout` takes no access token — the refresh token is the credential, as for
+`/refresh`. A client that signs out while the server is unreachable keeps the refresh token in
+`mqvi_pending_logout` and sends it on the next contact; at launch, a stored session the server
+cannot confirm (no response, 408/429/5xx) shows the connecting screen, never the login screen.
+
 **Revocation is `TokenVersion` (`tv`).** Every signed token carries the user's current `tv`;
 bumping the column invalidates every outstanding token for that account at once. Used on password
 change and forced logout. There is no denylist.
