@@ -752,5 +752,8 @@
   "sessionPlatformUnknown": "Bilinmeyen cihaz",
   "sessionLabelDesktop": "Masaüstü uygulaması",
   "sessionLabelMobile": "Mobil uygulama",
-  "sessionGeoAttribution": "IP Geolocation by DB-IP"
+  "sessionGeoAttribution": "IP Geolocation by DB-IP",
+  "platformUserIdCopy": "Kopyalamak için tıkla",
+  "platformUserIdCopied": "Kullanıcı ID'si kopyalandı",
+  "platformUserIdCopyFailed": "Kullanıcı ID'si kopyalanamadı"
 }

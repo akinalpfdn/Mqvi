@@ -2231,9 +2231,11 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 
 /* ── ID (monospace, truncated) ── */
 .admin-user-id {
+  display:block;max-width:100%;padding:0;border:none;background:none;text-align:left;
   font-family:var(--f-m);font-size:13px;color:var(--t2);
-  max-width:100px;overflow:hidden;text-overflow:ellipsis;cursor:default;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;
 }
+.admin-user-id:hover { color:var(--t0); }
 
 /* ── Status badge ── */
 .admin-user-status-badge {

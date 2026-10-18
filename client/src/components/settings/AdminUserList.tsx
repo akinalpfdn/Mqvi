@@ -85,6 +85,13 @@ function AdminUserList() {
   const { t } = useTranslation("settings");
   const { t: tCommon } = useTranslation("common");
   const addToast = useToastStore((s) => s.addToast);
+
+  function handleCopyUserId(id: string) {
+    navigator.clipboard.writeText(id).then(
+      () => addToast("success", t("platformUserIdCopied")),
+      () => addToast("error", t("platformUserIdCopyFailed"))
+    );
+  }
   const currentUser = useAuthStore((s) => s.user);
   const { menuState, openMenu, closeMenu } = useContextMenu();
   const confirm = useConfirm();
@@ -568,10 +575,16 @@ function AdminUserList() {
         );
 
       case "id":
+        // Full id, clipped by CSS: widening the column shows more, and a click copies it whole.
         return (
-          <span className="admin-user-id" title={user.id}>
-            {user.id.slice(0, 8)}...
-          </span>
+          <button
+            type="button"
+            className="admin-user-id"
+            title={t("platformUserIdCopy")}
+            onClick={() => handleCopyUserId(user.id)}
+          >
+            {user.id}
+          </button>
         );
 
       case "created_at":
@@ -584,7 +597,7 @@ function AdminUserList() {
         return user.is_platform_admin ? (
           <span className="admin-user-admin-badge">{t("platformUserAdminYes")}</span>
         ) : (
-          <span className="admin-user-text-muted">\u2014</span>
+          <span className="admin-user-text-muted">{"\u2014"}</span>
         );
 
       case "last_activity":

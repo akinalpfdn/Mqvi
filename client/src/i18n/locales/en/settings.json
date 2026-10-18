@@ -752,5 +752,8 @@
   "sessionPlatformUnknown": "Unknown device",
   "sessionLabelDesktop": "Desktop app",
   "sessionLabelMobile": "Mobile app",
-  "sessionGeoAttribution": "IP Geolocation by DB-IP"
+  "sessionGeoAttribution": "IP Geolocation by DB-IP",
+  "platformUserIdCopy": "Click to copy",
+  "platformUserIdCopied": "User ID copied",
+  "platformUserIdCopyFailed": "Couldn't copy the user ID"
 }
