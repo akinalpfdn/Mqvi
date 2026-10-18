@@ -8,7 +8,9 @@
  *
  * iOS starts at keyboardWillShow and scrolls on the keyboard's duration and curve, so the field
  * rises with the keyboard. The page gains its scroll room on that same curve as the inset
- * grows, so a field near the end of the page follows it up in one movement.
+ * grows, so a field near the end of the page follows it up in one movement. A page that cannot
+ * scroll yet (a short form) is looked at again every frame of the rise, and its scroll joins the
+ * keyboard's curve where the keyboard is by then.
  */
 
 import { Keyboard } from "@capacitor/keyboard";
@@ -19,8 +21,13 @@ const CLEARANCE = 12;
 const KEYBOARD_ANIMATION_MS = 250;
 const KEYBOARD_CURVE = [0.38, 0.7, 0.125, 1] as const;
 
-let keyboardHeight = 0;
-let animation: { scroller: HTMLElement; top: number; frame: number } | null = null;
+/** One `initKeyboardScroll` call's state. */
+type Revealer = {
+  keyboardHeight: number;
+  animation: { scroller: HTMLElement; top: number; frame: number } | null;
+  /** The frame that looks again for a scrollable page while the iOS keyboard rises. */
+  riseFrame: number | null;
+};
 
 function isTextEntry(element: Element | null): element is HTMLElement {
   if (!element) return false;
@@ -59,31 +66,38 @@ export function cubicBezier([x1, y1, x2, y2]: readonly [number, number, number, 
   return at(y1, y2, (low + high) / 2);
 }
 
-function cancelAnimation(): void {
-  if (animation) cancelAnimationFrame(animation.frame);
-  animation = null;
+function cancelAnimation(r: Revealer): void {
+  if (r.animation) cancelAnimationFrame(r.animation.frame);
+  r.animation = null;
+  if (r.riseFrame !== null) cancelAnimationFrame(r.riseFrame);
+  r.riseFrame = null;
 }
 
-/** Scrolls on the keyboard's curve. The browser clamps each step to the room the page has then. */
-function animateScroll(scroller: HTMLElement, top: number): void {
-  cancelAnimation();
+/**
+ * Scrolls on the keyboard's curve, ending when a keyboard that started moving at `startedAt`
+ * stops; joining late, it covers the rest of the curve. The browser clamps each step to the
+ * room the page has then.
+ */
+function animateScroll(r: Revealer, scroller: HTMLElement, top: number, startedAt = performance.now()): void {
+  if (r.animation) cancelAnimationFrame(r.animation.frame);
   const from = scroller.scrollTop;
-  const started = performance.now();
+  const progress = (now: number) => cubicBezier(KEYBOARD_CURVE, Math.min(1, Math.max(0, (now - startedAt) / KEYBOARD_ANIMATION_MS)));
+  const joined = progress(performance.now());
 
   const step = (now: number) => {
-    const t = Math.min(1, (now - started) / KEYBOARD_ANIMATION_MS);
-    scroller.scrollTop = from + (top - from) * cubicBezier(KEYBOARD_CURVE, t);
+    const t = Math.min(1, (now - startedAt) / KEYBOARD_ANIMATION_MS);
+    scroller.scrollTop = from + (top - from) * (joined >= 1 ? 1 : (progress(now) - joined) / (1 - joined));
     if (t < 1) {
-      animation = { scroller, top, frame: requestAnimationFrame(step) };
+      r.animation = { scroller, top, frame: requestAnimationFrame(step) };
     } else {
-      animation = null;
+      r.animation = null;
     }
   };
-  animation = { scroller, top, frame: requestAnimationFrame(step) };
+  r.animation = { scroller, top, frame: requestAnimationFrame(step) };
 }
 
-function revealFocusedField(): void {
-  if (keyboardHeight === 0) return;
+function revealFocusedField(r: Revealer, startedAt?: number): void {
+  if (r.keyboardHeight === 0) return;
 
   const element = document.activeElement;
   if (!isTextEntry(element)) return;
@@ -92,51 +106,65 @@ function revealFocusedField(): void {
 
   // The WebView never resizes for the keyboard, so its bottom edge minus the keyboard is the
   // visible bottom. Measured in the scroller's content, so the answer holds mid-animation.
-  const visibleBottom = window.innerHeight - keyboardHeight;
+  const visibleBottom = window.innerHeight - r.keyboardHeight;
   const scrollerTop = scroller.getBoundingClientRect().top;
   const fieldBottom = element.getBoundingClientRect().bottom - scrollerTop + scroller.scrollTop;
   const target = Math.ceil(fieldBottom + CLEARANCE - (visibleBottom - scrollerTop));
 
-  if (animation?.scroller === scroller && animation.top === target) return;
+  if (r.animation?.scroller === scroller && r.animation.top === target) return;
   if (target <= scroller.scrollTop) return;
 
-  animateScroll(scroller, target);
+  animateScroll(r, scroller, target, startedAt);
 }
 
-function clearHeight(): void {
-  keyboardHeight = 0;
-  cancelAnimation();
+/** iOS: looks for the field's scroller every frame of the rise until it can scroll. */
+function revealWhileRising(r: Revealer): void {
+  const startedAt = performance.now();
+  const tick = () => {
+    r.riseFrame = null;
+    revealFocusedField(r, startedAt);
+    if (!r.animation && performance.now() - startedAt < KEYBOARD_ANIMATION_MS) r.riseFrame = requestAnimationFrame(tick);
+  };
+  if (r.riseFrame !== null) cancelAnimationFrame(r.riseFrame);
+  r.riseFrame = requestAnimationFrame(tick);
+}
+
+function clearHeight(r: Revealer): void {
+  r.keyboardHeight = 0;
+  cancelAnimation(r);
 }
 
 /** Starts revealing fields; the returned function removes every listener it added. */
 export async function initKeyboardScroll(platform: "android" | "ios"): Promise<() => void> {
+  const r: Revealer = { keyboardHeight: 0, animation: null, riseFrame: null };
+  const clear = () => clearHeight(r);
   const handles =
     platform === "ios"
       ? [
           // The height the WebView will lose (adjusted for iPad windows), as the keyboard starts.
           await Keyboard.addListener("keyboardWillShow", (info) => {
-            keyboardHeight = info.keyboardHeight;
-            requestAnimationFrame(revealFocusedField);
+            r.keyboardHeight = info.keyboardHeight;
+            revealWhileRising(r);
           }),
           // Whatever the page could not reach while its room was still growing.
-          await Keyboard.addListener("keyboardDidShow", () => revealFocusedField()),
+          await Keyboard.addListener("keyboardDidShow", () => revealFocusedField(r)),
         ]
       : [
           await Keyboard.addListener("keyboardDidShow", (info) => {
-            keyboardHeight = info.keyboardHeight;
-            revealFocusedField();
+            r.keyboardHeight = info.keyboardHeight;
+            revealFocusedField(r);
           }),
         ];
   handles.push(
-    await Keyboard.addListener("keyboardWillHide", clearHeight),
-    await Keyboard.addListener("keyboardDidHide", clearHeight),
+    await Keyboard.addListener("keyboardWillHide", clear),
+    await Keyboard.addListener("keyboardDidHide", clear),
   );
 
   // A resize is a rotation; the keyboard reports its new height, the field may need moving.
-  const onResize = () => revealFocusedField();
+  const onResize = () => revealFocusedField(r);
   // Moving between fields while the keyboard is already up fires no keyboard event.
   const onFocusIn = () => {
-    requestAnimationFrame(revealFocusedField);
+    requestAnimationFrame(() => revealFocusedField(r));
   };
   window.addEventListener("resize", onResize);
   document.addEventListener("focusin", onFocusIn);
@@ -145,6 +173,6 @@ export async function initKeyboardScroll(platform: "android" | "ios"): Promise<(
     handles.forEach((handle) => void handle.remove());
     window.removeEventListener("resize", onResize);
     document.removeEventListener("focusin", onFocusIn);
-    clearHeight();
+    clear();
   };
 }

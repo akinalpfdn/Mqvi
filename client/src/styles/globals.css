@@ -100,7 +100,7 @@ button, a, [role="button"] { touch-action: manipulation; }
 :root.keyboard-instant { transition:none !important; }
 /* Chat moves with the keyboard by translation only, never re-laying out its message list each
    frame; the layout follows in one step when the keyboard stops (utils/iosKeyboardInset.ts). */
-:root.keyboard-lifting .messages-scroll > *,
+:root.keyboard-lifting .messages-scroll > * { translate:0 calc(var(--keyboard-lift) * var(--keyboard-lift-share, 1) * -1);will-change:translate; }
 :root.keyboard-lifting .chat-msg-viewport > :not(.messages-scroll),
 :root.keyboard-lifting .chat-msg-viewport ~ * { translate:0 calc(var(--keyboard-lift) * -1);will-change:translate; }
 
@@ -119,6 +119,9 @@ button, a, [role="button"] { touch-action: manipulation; }
   /* The same keyboard measured from the screen's bottom edge, for position:fixed layers that
      ignore #root's padding: the safe area joins in only while a keyboard is up. */
   --keyboard-bottom: calc(var(--keyboard-inset) + min(var(--keyboard-inset) * 1000, var(--safe-area-inset-bottom)));
+  /* The bottom safe area, for the inside of a layer lifted to --keyboard-bottom: that lift already
+     clears it while a keyboard is up, so padding by it again would leave a gap above the keyboard. */
+  --safe-bottom-unless-keyboard: max(0px, calc(var(--safe-area-inset-bottom) - var(--keyboard-inset) * 1000));
 
   /* Server banner shape. The crop frame the owner drags and every box that renders the result
      must be this exact ratio — anything else and object-fit:cover silently re-crops the image
@@ -335,7 +338,7 @@ select option:disabled {
 
 /* ─── Discovery (public server directory) ─── */
 .disc-overlay { position:fixed;inset:0;z-index:500;display:flex;flex-direction:column;background:var(--bg-1);color:var(--t0);overflow:hidden;
-  padding:var(--safe-area-inset-top) var(--safe-area-inset-right) var(--safe-area-inset-bottom) var(--safe-area-inset-left); }
+  padding:var(--safe-area-inset-top) var(--safe-area-inset-right) var(--safe-bottom-unless-keyboard) var(--safe-area-inset-left); }
 .disc-header { padding:32px 40px 16px;border-bottom:1px solid var(--b1);flex-shrink:0;background:linear-gradient(180deg, var(--bg-2), var(--bg-1)); }
 .disc-header-top { display:flex;align-items:flex-start;justify-content:space-between; }
 .disc-title { font-size:28px;font-weight:800;color:var(--t0);letter-spacing:-0.02em; }
@@ -3592,7 +3595,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   /* var(), not env(): Android WebView reports env(safe-area-inset-*) as 0 — MainActivity
      injects the real WindowInsets into these custom properties. */
-  padding-bottom: var(--safe-area-inset-bottom);
+  padding-bottom: var(--safe-bottom-unless-keyboard);
 }
 .mobile-bottom-sheet.open {
   transform: translateY(0);
@@ -3909,7 +3912,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
     box-shadow: none;
     /* The overlay now runs to the screen edges, so the content clears the bars itself. */
     padding: 16px calc(16px + var(--safe-area-inset-right))
-             calc(16px + var(--safe-area-inset-bottom))
+             calc(16px + var(--safe-bottom-unless-keyboard))
              calc(16px + var(--safe-area-inset-left));
   }
   .settings-topbar {
@@ -4020,7 +4023,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
     border: none;
     /* Without this the header — and its only close button — sits under the status bar. */
     padding: var(--safe-area-inset-top) var(--safe-area-inset-right)
-             var(--safe-area-inset-bottom) var(--safe-area-inset-left);
+             var(--safe-bottom-unless-keyboard) var(--safe-area-inset-left);
   }
 
   /* ─── GIF Picker → Bottom Sheet ─── */

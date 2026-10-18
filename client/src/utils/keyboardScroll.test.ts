@@ -127,6 +127,25 @@ describe("iOS, where the app rises with the keyboard", () => {
     expect(positions.every((p, i) => i === 0 || p <= positions[i - 1])).toBe(true);
   });
 
+  it("brings up a field on a page that only becomes scrollable as the keyboard rises", async () => {
+    // A short form with room to spare below it: it can only scroll once the app has shrunk past
+    // its end, two thirds into the keyboard's rise.
+    const field = page(580, 600);
+    await start("ios");
+    iosKeyboardStarts();
+
+    const positions: number[] = [];
+    for (let elapsed = 0; elapsed < 250; elapsed += 16) {
+      vi.advanceTimersByTime(16);
+      positions.push(field.onScreenBottom());
+    }
+    vi.advanceTimersByTime(16);
+
+    // Up with the keyboard, before keyboardDidShow — not in a second step after it.
+    expect(field.onScreenBottom()).toBe(ABOVE_KEYBOARD);
+    expect(positions.every((p, i) => i === 0 || p <= positions[i - 1])).toBe(true);
+  });
+
   it("measures from the rotated screen", async () => {
     await start("ios");
     setInnerHeight(400);

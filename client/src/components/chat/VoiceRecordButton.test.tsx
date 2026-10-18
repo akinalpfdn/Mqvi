@@ -107,4 +107,64 @@ describe("holding the mic", () => {
 
     expect(recorder.stop).not.toHaveBeenCalled();
   });
+
+  describe("pressed again while the recorder is still starting", () => {
+    function deferredStarts() {
+      const pending: ((ok: boolean) => void)[] = [];
+      recorder.start.mockImplementation(
+        () =>
+          new Promise<boolean>((resolve) =>
+            pending.push((ok) => {
+              if (ok) recorder.state = "recording";
+              resolve(ok);
+            }),
+          ),
+      );
+      return pending;
+    }
+    const press = async (mic: HTMLElement) =>
+      act(async () => {
+        fireEvent(mic, new FakePointerEvent("pointerdown", { clientY: 500 }));
+      });
+    const lift = async () =>
+      act(async () => {
+        window.dispatchEvent(new FakePointerEvent("pointerup"));
+      });
+
+    it("ignores a quick second tap instead of losing track of the hold", async () => {
+      const pending = deferredStarts();
+      render(<VoiceRecordButton onRecorded={vi.fn()} />);
+      const mic = screen.getByTitle("voiceMessageHold");
+
+      await press(mic);
+      await lift();
+      await press(mic);
+      expect(recorder.start).toHaveBeenCalledTimes(1);
+
+      await act(async () => pending[0](true));
+      // The first tap was released before it went live: staged and discarded as too short.
+      expect(recorder.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps the new hold's lift when a dropped hold's start resolves late", async () => {
+      const pending = deferredStarts();
+      const onRecorded = vi.fn();
+      const view = render(<VoiceRecordButton onRecorded={onRecorded} />);
+      const mic = screen.getByTitle("voiceMessageHold");
+
+      await press(mic);
+      await act(async () => {
+        window.dispatchEvent(new FakePointerEvent("pointercancel"));
+      });
+      await press(mic);
+      await act(async () => pending[0](false)); // the dropped hold's start, aborted
+      await act(async () => pending[1](true));
+      view.rerender(<VoiceRecordButton onRecorded={onRecorded} />);
+
+      now += 2000;
+      await lift();
+      expect(recorder.stop).toHaveBeenCalledTimes(1);
+      expect(onRecorded).toHaveBeenCalledWith(clip);
+    });
+  });
 });
