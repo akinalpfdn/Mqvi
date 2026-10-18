@@ -13,7 +13,7 @@ function add(tour: string, { onScreen = true, active = false } = {}) {
   return el;
 }
 
-const ctx = { ownsServer: false };
+const ctx = { hasServer: true, ownsServer: false };
 
 beforeEach(() => {
   document.body.innerHTML = "";
@@ -49,6 +49,16 @@ describe("guide tours", () => {
 
   it("sends someone without a server of their own to create one", () => {
     expect(buildTour("roles", ctx)).toMatchObject({ scope: "rolesNoServer", stages: expect.arrayContaining([{ target: "add-server", final: true }]) });
+  });
+
+  it("sends someone in no server to join a community before a channel or voice", () => {
+    for (const step of ["message", "voice"] as const) {
+      const tour = buildTour(step, { hasServer: false, ownsServer: false });
+      expect(tour?.scope).toBe("noServer");
+      expect(tour?.stages.map((s) => s.target).slice(2)).toEqual(["servers-section", "discover", "discovery-join"]);
+      expect(tour?.stages.at(-1)?.final).toBe(true);
+      expect(tour?.explain).toBeUndefined();
+    }
   });
 
   it("introduces the voice panel after joining voice, and on its own for a replay", () => {

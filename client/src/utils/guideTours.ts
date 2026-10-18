@@ -41,6 +41,8 @@ export function voicePanelTour(): Tour {
 }
 
 export type TourContext = {
+  /** The user is in at least one server, so it has channels to point at. */
+  hasServer: boolean;
   /** The user owns a server, so it has settings (and roles) for them to open. */
   ownsServer: boolean;
 };
@@ -57,10 +59,16 @@ const FRIEND: TourStage[] = [
   FINAL("add-friend-input"),
 ];
 
+const JOIN_COMMUNITY: TourStage[] = [...SIDEBAR, { target: "servers-section" }, { target: "discover" }, FINAL("discovery-join")];
+
 export function buildTour(step: GuideStepId, ctx: TourContext): Tour | null {
+  // Channels live in servers: with none, the way to a channel is joining a community first.
+  if ((step === "message" || step === "voice") && !ctx.hasServer) {
+    return { step, scope: "noServer", stages: JOIN_COMMUNITY };
+  }
   switch (step) {
     case "community":
-      return { step, scope: step, stages: [...SIDEBAR, { target: "servers-section" }, { target: "discover" }, FINAL("discovery-join")] };
+      return { step, scope: step, stages: JOIN_COMMUNITY };
     case "message":
       return {
         step,

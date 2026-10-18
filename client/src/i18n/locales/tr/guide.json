@@ -78,6 +78,9 @@
     "roles": {
       "owned-server": "Sunucunu aç, sonra ona sağ tıkla (telefonda basılı tut)."
     },
+    "noServer": {
+      "discover": "Kanallar topluluklarda olur — önce buradan birine katıl."
+    },
     "rolesNoServer": {
       "add-server": "Roller kendi sunucunda olur — önce buradan bir sunucu kur."
     }

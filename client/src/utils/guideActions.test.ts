@@ -45,4 +45,15 @@ describe("Show me", () => {
     showGuideStep("roles");
     expect(useSpotlightStore.getState().tour?.scope).toBe("rolesNoServer");
   });
+
+  it("points someone in no server at a community before a channel", () => {
+    showGuideStep("message");
+    expect(useSpotlightStore.getState().tour?.scope).toBe("noServer");
+  });
+
+  it("points someone in a server at its channels", () => {
+    useServerStore.setState({ servers: [{ id: "s2", owner_id: "someone" } as ServerListItem] });
+    showGuideStep("voice");
+    expect(useSpotlightStore.getState().tour?.scope).toBe("voice");
+  });
 });

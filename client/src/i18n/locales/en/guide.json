@@ -78,6 +78,9 @@
     "roles": {
       "owned-server": "Open your server, then right-click it (long-press on a phone)."
     },
+    "noServer": {
+      "discover": "Channels live in communities — join one here first."
+    },
     "rolesNoServer": {
       "add-server": "Roles live in a server you own — create one here first."
     }
