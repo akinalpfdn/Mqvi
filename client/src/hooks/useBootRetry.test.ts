@@ -12,31 +12,24 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("useBootRetry", () => {
-  it("should retry on its own after the first backoff delay", async () => {
-    const retry = vi.fn().mockResolvedValue(undefined);
-    renderHook(() => useBootRetry(retry));
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_999);
-    });
-    expect(retry).not.toHaveBeenCalled();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1);
-    });
-
-    expect(retry).toHaveBeenCalledTimes(1);
+async function advance(ms: number) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
   });
+}
 
-  it("should wait longer before each further attempt", async () => {
+describe("useBootRetry", () => {
+  it("should retry after 1s, 1s, 2s, 2s, 2s, 3s, 5s, 7s, 10s, then every 15s", async () => {
     const retry = vi.fn().mockResolvedValue(undefined);
     renderHook(() => useBootRetry(retry));
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2_000 + 3_999);
-    });
-
-    expect(retry).toHaveBeenCalledTimes(1);
+    const schedule = [1, 1, 2, 2, 2, 3, 5, 7, 10, 15, 15];
+    for (const [i, seconds] of schedule.entries()) {
+      await advance(seconds * 1_000 - 1);
+      expect(retry).toHaveBeenCalledTimes(i);
+      await advance(1);
+      expect(retry).toHaveBeenCalledTimes(i + 1);
+    }
   });
 
   it("should retry at once when the network comes back", async () => {
@@ -64,17 +57,15 @@ describe("useBootRetry", () => {
   it("should not start a second attempt while one is running", async () => {
     let finish: () => void = () => {};
     const retry = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
-    const { result } = renderHook(() => useBootRetry(retry));
+    renderHook(() => useBootRetry(retry));
 
     await act(async () => {
-      result.current.retryNow();
       window.dispatchEvent(new Event("online"));
-      result.current.retryNow();
+      window.dispatchEvent(new Event("online"));
     });
-    expect(result.current.isRetrying).toBe(true);
+    await advance(30_000);
     await act(async () => finish());
 
     expect(retry).toHaveBeenCalledTimes(1);
-    expect(result.current.isRetrying).toBe(false);
   });
 });

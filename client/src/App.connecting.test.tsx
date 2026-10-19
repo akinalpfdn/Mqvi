@@ -41,7 +41,7 @@ describe("App while the server is unreachable", () => {
 
     renderAt("/login");
 
-    expect(screen.getByText("connectingTitle")).toBeTruthy();
+    expect(screen.getByText("connectingMessage")).toBeTruthy();
     expect(screen.queryByText("login-page")).toBeNull();
   });
 

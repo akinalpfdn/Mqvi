@@ -7,25 +7,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppFocusStore } from "../stores/appFocusStore";
 
-const RETRY_DELAYS_MS = [2_000, 4_000, 8_000, 15_000, 30_000];
+/** Quick at first (a restart or a blip clears in seconds), then settling at 15s. */
+const RETRY_DELAYS_MS = [1_000, 1_000, 2_000, 2_000, 2_000, 3_000, 5_000, 7_000, 10_000, 15_000];
 
 function delayFor(attempt: number): number {
   return RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)];
 }
 
-type BootRetry = {
-  /** Whole seconds until the next scheduled attempt; null while one is running. */
-  secondsLeft: number | null;
-  isRetrying: boolean;
-  retryNow: () => void;
-};
-
-export function useBootRetry(retry: () => Promise<void>): BootRetry {
+export function useBootRetry(retry: () => Promise<void>): void {
   const retryRef = useRef(retry);
   const attemptRef = useRef(0);
   const runningRef = useRef(false);
   const [deadline, setDeadline] = useState<number | null>(() => Date.now() + delayFor(0));
-  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     retryRef.current = retry;
@@ -51,11 +44,6 @@ export function useBootRetry(retry: () => Promise<void>): BootRetry {
   }, [deadline, run]);
 
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1_000);
-    return () => clearInterval(id);
-  }, []);
-
-  useEffect(() => {
     const onOnline = () => void run();
     window.addEventListener("online", onOnline);
     const unsubscribe = useAppFocusStore.subscribe((state, prev) => {
@@ -66,12 +54,4 @@ export function useBootRetry(retry: () => Promise<void>): BootRetry {
       unsubscribe();
     };
   }, [run]);
-
-  const retryNow = useCallback(() => void run(), [run]);
-
-  return {
-    secondsLeft: deadline === null ? null : Math.max(0, Math.ceil((deadline - now) / 1_000)),
-    isRetrying: deadline === null,
-    retryNow,
-  };
 }
