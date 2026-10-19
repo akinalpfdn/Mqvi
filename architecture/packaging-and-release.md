@@ -104,10 +104,28 @@ Recorded in `DECISIONS.md` 2026-07-16, five entries:
 - **The helper addresses the picked source exactly** and reports when it is *really* publishing.
 - **Screen-share audio is scoped to the shared source**, not the system.
 
-Screen share is **one flow with two engines** — "Smooth Video" (smooth, native) and "Sharp Video"
-(sharp, browser). When smooth fails the client falls back to sharp and **reports it to the server**
-(`RecordScreenShareFallback`), because every step that can fail happens on the user's machine and
-would otherwise be invisible.
+Screen share is **one flow with two modes**, and the mode picks where it runs
+(`client/src/utils/publishEngine.ts`):
+
+| Mode | Engine | Track name |
+|---|---|---|
+| "Smooth Video" | the helper: WGC + hardware H264/H265 (`smooth`) | `native-game-capture` |
+| "Sharp Video", SDR display | the browser: getDisplayMedia + VP9 (`browser`) | — |
+| "Sharp Video", HDR display | the helper: WGC FP16 → tone-map → software VP9 (`sharp_hdr`) | `native-hdr-sharp-capture` |
+
+Chromium captures an HDR display 8-bit and clips HDR content, so sharp moves to the helper there; a
+screen share asks about its own monitor, a window about any (`--probe-hdr`). Viewers read the track
+name to label the share.
+
+Every step that can fail happens on the user's machine and would otherwise be invisible, so two
+reports reach the server, both under the `screen_share` log category:
+
+- **`screen-share-fallback`** (`RecordScreenShareFallback`): a helper engine could not start and the
+  share went out in the browser instead. Carries the engine.
+- **`screen-share-stopped`** (`RecordScreenShareStop`): a share ended without the stop button — on
+  any engine, the phone's included. A helper that dies mid-share reports `helper_exited` with its last
+  words; one whose source closed exits with code 3 and ends quietly. A share that ran over 10 s and
+  ended with its source is someone closing it, logged at Info; everything else is Warn.
 
 `perf(voice): register the capture pump with MMCSS so a busy game can't starve it` (08-14) — the
 capture thread needs a scheduler class or a game preempts it.

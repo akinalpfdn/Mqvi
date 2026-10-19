@@ -68,13 +68,14 @@ function createProcessor(
 function reportShareStoppedItself(
   reason: voiceApi.ScreenShareStopReason,
   startedAt: number | null,
-  detail?: string
+  detail?: string,
+  engine: voiceApi.StopReportEngine = "browser"
 ) {
   const { currentVoiceServerId, currentVoiceChannelId } = useVoiceStore.getState();
   const serverId = currentVoiceServerId ?? useServerStore.getState().activeServerId;
   if (!serverId || !currentVoiceChannelId) return;
   const aliveMs = startedAt === null ? 0 : Date.now() - startedAt;
-  void voiceApi.reportScreenShareStop(serverId, currentVoiceChannelId, "browser", reason, aliveMs, detail);
+  void voiceApi.reportScreenShareStop(serverId, currentVoiceChannelId, engine, reason, aliveMs, detail);
 }
 
 /** See utils/micSubscription — a silenced mic is never received, or it plays for ~1s on join. */
@@ -218,13 +219,13 @@ function VoiceStateManager() {
       if (!useVoiceStore.getState().isNativeCapturing) {
         console.error("[VoiceStateManager] Failed to toggle screen share:", err);
         const worthReporting = isStartFailureWorthReporting({
-          isElectronApp: isElectron(),
+          platform: useNativeScreenShare ? "mobile" : isElectron() ? "electron" : "web",
           pickedShareSourceId: useVoiceStore.getState().pickedShareSourceId,
           err,
         });
         if (isStreaming && worthReporting) {
           const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-          reportShareStoppedItself("start_failed", null, detail);
+          reportShareStoppedItself("start_failed", null, detail, useNativeScreenShare ? "mobile" : "browser");
         }
       }
       // Either way the JS engine isn't streaming. Presence stays up via isNativeCapturing.

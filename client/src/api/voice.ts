@@ -57,6 +57,9 @@ export async function reportScreenShareFallback(
   });
 }
 
+/** Every engine a share can run on: the desktop's three, and the phone's native capture. */
+export type StopReportEngine = PublishEngine | "mobile";
+
 /** How a share ended without the stop button, on any engine. Mirrors the server's closed set. */
 export type ScreenShareStopReason = "start_failed" | "track_ended" | "unpublished" | "helper_exited";
 
@@ -68,7 +71,7 @@ export type ScreenShareStopReason = "start_failed" | "track_ended" | "unpublishe
 export async function reportScreenShareStop(
   serverId: string,
   channelId: string,
-  engine: PublishEngine,
+  engine: StopReportEngine,
   reason: ScreenShareStopReason,
   aliveMs: number,
   detail?: string

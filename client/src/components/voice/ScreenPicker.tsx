@@ -34,10 +34,16 @@ function ScreenPicker() {
   /** Set from the first moment of a pick: `startingId` lands a render later, too late for a double click. */
   const pickingRef = useRef(false);
   /**
-   * Whether any monitor is in HDR, asked when the picker opens — by the time a source is clicked the
-   * answer is usually in. HDR is a Windows toggle, flipped at will, so it is asked every opening.
+   * Whether any monitor is in HDR, for this opening. Asked up front when the share will be sharp, so
+   * the answer is usually in by the click; a smooth share never needs it, and spawning the helper
+   * for nothing on every opening is not free. HDR is a Windows toggle, flipped at will, so it is
+   * never carried from one opening to the next. null = not asked yet.
    */
-  const hdrRef = useRef<Promise<boolean | null>>(Promise.resolve(null));
+  const hdrRef = useRef<Promise<boolean | null> | null>(null);
+  const askAnyHdr = useCallback((): Promise<boolean | null> => {
+    hdrRef.current ??= window.electronAPI?.getHdrActive().catch(() => null) ?? Promise.resolve(null);
+    return hdrRef.current;
+  }, []);
   const screenShareAudio = useVoiceStore((s) => s.screenShareAudio);
   const setScreenShareAudio = useVoiceStore((s) => s.setScreenShareAudio);
   const screenShareMode = useVoiceStore((s) => s.screenShareMode);
@@ -70,7 +76,9 @@ function ScreenPicker() {
 
     api.onShowScreenPicker((incoming) => {
       setSources(incoming);
-      hdrRef.current = api.getHdrActive().catch(() => null);
+      hdrRef.current = null;
+      const { screenShareMode: mode, smoothCaptureSupported: smooth } = useVoiceStore.getState();
+      if (mode === "sharp" || smooth === false) void askAnyHdr();
       // A launch-time probe that could not tell (an encoder listed but busy) settles nothing; ask
       // again rather than carry the doubt for the rest of the session.
       if (useVoiceStore.getState().smoothCaptureSupported === null) {
@@ -79,7 +87,7 @@ function ScreenPicker() {
     });
 
     return () => api.removeScreenPickerListener();
-  }, []);
+  }, [askAnyHdr]);
 
   const handleSelect = useCallback(
     async (source: PickerSource) => {
@@ -106,7 +114,7 @@ function ScreenPicker() {
             // A screen is one fixed monitor: ask about that one, so an SDR screen next to an HDR
             // one stays in the browser. A window can be dragged onto the HDR monitor mid-share,
             // which only the helper follows, so for a window "any monitor in HDR" is the question.
-            const any = await hdrRef.current;
+            const any = await askAnyHdr();
             if (any !== true || !source.id.startsWith("screen:")) return any;
             return (await window.electronAPI?.getHdrActive(source.id).catch(() => any)) ?? any;
           },
@@ -156,6 +164,7 @@ function ScreenPicker() {
       stopNativeCapture,
       setPickedShareSourceId,
       reportNativeFallback,
+      askAnyHdr,
     ]
   );
 
@@ -276,7 +285,10 @@ function ScreenPicker() {
                 </button>
                 <button
                   className={`sp-mode-opt${effectiveMode === "sharp" ? " sp-mode-opt-active" : ""}`}
-                  onClick={() => setScreenShareMode("sharp")}
+                  onClick={() => {
+                    setScreenShareMode("sharp");
+                    if (smoothOffered) void askAnyHdr(); // so the answer is in by the click
+                  }}
                 >
                   <span className="sp-mode-name">{t("screenModeSharp")}</span>
                   <span className="sp-mode-hint">{t("screenModeSharpHint")}</span>

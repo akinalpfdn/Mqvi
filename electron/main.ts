@@ -1558,24 +1558,37 @@ function setupIPC(): void {
           });
         };
 
+        // Tells the renderer the share ended, with what the helper last said: once the share is live
+        // this is the only place a mid-stream failure's cause is still known. Sent once, and only
+        // for the live helper — a superseded one (or one replaced during the drain below) must not
+        // end the share that took its place.
+        let announced = false;
+        const announceStopped = (code: number | null) => {
+          if (announced || thisGen !== gameCaptureGeneration) return;
+          announced = true;
+          mainWindow?.webContents.send("game-capture-stopped", code, output.said());
+        };
+
         child.on("exit", (code) => {
           console.log(`[main] Game capture exited code=${code}`);
-          // A superseded helper must not clear the live one's handle (it would become unkillable)
-          // nor tell the renderer that sharing stopped.
+          // A superseded helper must not clear the live one's handle (it would become unkillable).
           if (thisGen === gameCaptureGeneration) {
             gameCaptureProcess = null;
-            // With what it last said: once the share is live this is the only place a mid-stream
-            // failure's cause is still known.
-            mainWindow?.webContents.send("game-capture-stopped", code, output.said());
           }
-          // Deliberately not reporting yet. The helper's last act is to print why it is dying, and
-          // `exit` can fire while that line is still in the pipe — which is exactly how the first
-          // production report came back as a bare exit code. `close` is the event that means the
-          // pipes are drained; this only bounds the wait in case one never closes.
-          drainTimer = setTimeout(() => reportExit(code), GAME_CAPTURE_DRAIN_MS);
+          // Deliberately not reporting or announcing yet. The helper's last act is to print why it
+          // is dying, and `exit` can fire while that line is still in the pipe — which is exactly
+          // how the first production report came back as a bare exit code. `close` is the event
+          // that means the pipes are drained; this only bounds the wait in case one never closes.
+          drainTimer = setTimeout(() => {
+            announceStopped(code);
+            reportExit(code);
+          }, GAME_CAPTURE_DRAIN_MS);
         });
 
-        child.on("close", (code) => reportExit(code));
+        child.on("close", (code) => {
+          announceStopped(code);
+          reportExit(code);
+        });
 
         child.on("error", (err) => {
           console.error("[main] Game capture spawn error:", err);

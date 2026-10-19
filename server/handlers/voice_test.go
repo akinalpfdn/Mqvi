@@ -783,6 +783,16 @@ func TestScreenShareStop_ShouldRecordTheEngine(t *testing.T) {
 	}
 }
 
+// A phone's share fails on the phone; filing it under the browser engine sends the operator to the
+// wrong code entirely.
+func TestScreenShareStop_ShouldAcceptTheMobileEngine(t *testing.T) {
+	rec, svc := stopRequest(t, `{"channel_id":"ch1","engine":"mobile","reason":"start_failed","alive_ms":0}`)
+
+	if rec.Code != http.StatusNoContent || svc.engine != "mobile" {
+		t.Fatalf("status %d, engine %q", rec.Code, svc.engine)
+	}
+}
+
 // Clients from before the field only reported the browser engine.
 func TestScreenShareStop_ShouldReadAMissingEngineAsBrowser(t *testing.T) {
 	_, svc := stopRequest(t, `{"channel_id":"ch1","reason":"track_ended","alive_ms":1}`)

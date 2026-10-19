@@ -25,6 +25,9 @@ let monitorHdr: boolean | null = true;
 const sendScreenPickerResult = vi.fn();
 const startNativeCapture = vi.fn<(id: string, engine: string) => Promise<NativeCaptureResult>>();
 const reportNativeFallback = vi.fn();
+const getHdrActive = vi.fn((sourceId?: string) =>
+  sourceId ? Promise.resolve(monitorHdr) : Promise.resolve(hdrAnswers.shift() ?? false)
+);
 
 function installElectron(smooth: boolean | null) {
   (window as unknown as { electronAPI: unknown }).electronAPI = {
@@ -33,8 +36,7 @@ function installElectron(smooth: boolean | null) {
     removeScreenPickerListener: () => {},
     sendScreenPickerResult,
     getSmoothCaptureSupport: () => Promise.resolve(smooth),
-    getHdrActive: (sourceId?: string) =>
-      sourceId ? Promise.resolve(monitorHdr) : Promise.resolve(hdrAnswers.shift() ?? false),
+    getHdrActive,
   };
 }
 
@@ -67,6 +69,7 @@ async function pick(name = "Screen 1") {
 
 beforeEach(() => {
   sendScreenPickerResult.mockReset();
+  getHdrActive.mockClear();
   monitorHdr = true;
   startNativeCapture.mockReset().mockResolvedValue({ ok: true });
   reportNativeFallback.mockReset();
@@ -162,6 +165,24 @@ describe("ScreenPicker sharing smooth", () => {
     await pick();
 
     await waitFor(() => expect(startNativeCapture).toHaveBeenCalledWith("screen:1:0", "smooth"));
+  });
+
+  // The probe spawns the helper; a smooth share never needs its answer.
+  it("should not spawn the HDR probe when the picker opens on smooth", async () => {
+    useVoiceStore.setState({ screenShareMode: "smooth" });
+    await mountAndOpen(true, true);
+
+    expect(getHdrActive).not.toHaveBeenCalled();
+  });
+
+  it("should ask about HDR once the user switches to sharp, and route by the answer", async () => {
+    useVoiceStore.setState({ screenShareMode: "smooth" });
+    await mountAndOpen(true, true);
+    await userEvent.click(screen.getByRole("button", { name: /screenModeSharp/ }));
+    expect(getHdrActive).toHaveBeenCalled();
+
+    await pick();
+    await waitFor(() => expect(startNativeCapture).toHaveBeenCalledWith("screen:1:0", "sharp_hdr"));
   });
 
   it("should give a machine without a hardware encoder the HDR engine on an HDR display", async () => {

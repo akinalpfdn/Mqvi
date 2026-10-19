@@ -95,6 +95,7 @@ var ScreenShareStopEngines = map[string]bool{
 	"browser":   true, // getDisplayMedia — "Sharp Video" on an SDR display
 	"smooth":    true, // the helper's hardware engine — "Smooth Video"
 	"sharp_hdr": true, // the helper's tone-mapping VP9 engine — "Sharp Video" on an HDR display
+	"mobile":    true, // the phone's native capture (ReplayKit / MediaProjection)
 }
 
 // ScreenShareShortLivedMs splits a share that ended with its source into the reported bug (it ends

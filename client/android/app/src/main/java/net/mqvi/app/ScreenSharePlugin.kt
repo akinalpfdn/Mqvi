@@ -61,7 +61,9 @@ class ScreenSharePlugin : Plugin() {
     @ActivityCallback
     private fun handleScreenCaptureResult(call: PluginCall, result: ActivityResult) {
         if (result.resultCode != Activity.RESULT_OK || result.data == null) {
-            call.reject("Screen capture permission denied")
+            // Coded, so the app can tell the user saying no from a share that failed to start —
+            // the first is not worth reporting (client/src/utils/shareStartFailure.ts).
+            call.reject("Screen capture permission denied", "PERMISSION_DENIED")
             pendingUrl = null
             pendingToken = null
             return
