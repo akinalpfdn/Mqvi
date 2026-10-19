@@ -67,13 +67,13 @@ struct Args {
     config_stdin: bool,
 
     /// Check whether this machine can hardware-encode, print `{"h264":bool,"h265":bool}` on one
-    /// line and exit. The app runs it once per launch to decide whether to offer "Akıcı Görüntü",
+    /// line and exit. The app runs it once per launch to decide whether to offer "Smooth Video",
     /// instead of letting every share try the helper and fall back.
     #[arg(long)]
     probe_encoders: bool,
 
     /// Print `{"hdr":bool}` — whether any monitor is in HDR — and exit. The app asks before each
-    /// share to warn that "Net Görüntü" streams HDR content clipped.
+    /// share to warn that "Sharp Video" streams HDR content clipped.
     #[arg(long)]
     probe_hdr: bool,
 
@@ -142,7 +142,7 @@ struct Args {
     #[arg(long, value_enum, default_value_t = Engine::Smooth)]
     engine: Engine,
 
-    /// Bitrate ceiling for `--engine sharp`, from the app's own "Net Görüntü" settings so both
+    /// Bitrate ceiling for `--engine sharp`, from the app's own "Sharp Video" settings so both
     /// paths stream the same. Ignored by smooth, which sizes its own.
     #[arg(long)]
     max_bitrate: Option<u64>,

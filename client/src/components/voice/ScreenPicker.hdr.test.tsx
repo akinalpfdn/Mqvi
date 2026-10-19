@@ -1,5 +1,5 @@
 /**
- * "Net Görüntü" in the browser captures an HDR display 8-bit and streams HDR video and games
+ * "Sharp Video" in the browser captures an HDR display 8-bit and streams HDR video and games
  * overexposed, while the streamer's own screen looks fine. On an HDR display the picker hands a
  * sharp share to the helper instead, which tone-maps; everywhere else sharp stays in the browser.
  */

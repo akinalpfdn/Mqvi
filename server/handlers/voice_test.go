@@ -732,7 +732,7 @@ func TestToken_IgnoresAnyOtherCountryHeader(t *testing.T) {
 	}
 }
 
-// ─── "Net Görüntü" share that ended by itself ───
+// ─── "Sharp Video" share that ended by itself ───
 
 // A share that starts and stops on its own leaves no trace anywhere else: every cause lives on the
 // user's machine. The duration is what tells the reported bug (sub-second) from a closed window.

@@ -1,5 +1,5 @@
 /**
- * A Windows machine with no hardware encoder used to try "Akıcı Görüntü" on every share, wait for
+ * A Windows machine with no hardware encoder used to try "Smooth Video" on every share, wait for
  * the helper to fail, and fall back with a warning. The picker now asks the machine once and, when
  * it cannot, offers smooth disabled and shares sharp straight away.
  */

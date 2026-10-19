@@ -1,8 +1,8 @@
 /**
  * shareEngine.ts — which engine carries a screen share.
  *
- * Two modes, three engines. "Akıcı Görüntü" is always the native helper (hardware H264/H265).
- * "Net Görüntü" is the browser's getDisplayMedia + VP9 — except on an HDR display, where Chromium
+ * Two modes, three engines. "Smooth Video" is always the native helper (hardware H264/H265).
+ * "Sharp Video" is the browser's getDisplayMedia + VP9 — except on an HDR display, where Chromium
  * captures 8-bit and clips HDR content, so the helper takes it instead: the same tone-mapped
  * capture as smooth, fed to libwebrtc's software VP9 with the browser engine's own settings.
  */
@@ -13,7 +13,7 @@ import type { ScreenShareMode, ScreenShareQuality } from "../stores/slices/voice
 export type NativeEngine = "smooth" | "sharp_hdr";
 export type ShareEngine = NativeEngine | "browser";
 
-/** "Net Görüntü"'s encoding. The browser publishes with it; the helper's sharp engine copies it. */
+/** "Sharp Video"'s encoding. The browser publishes with it; the helper's sharp engine copies it. */
 export function sharpShareEncoding(quality: ScreenShareQuality): { maxBitrate: number; maxFramerate: number } {
   return { maxBitrate: quality === "720p" ? 1_500_000 : 3_000_000, maxFramerate: 30 };
 }

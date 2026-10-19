@@ -1,4 +1,4 @@
-//! "Net Görüntü" through the helper: the same WGC capture (and HDR tone-map) as smooth, handed to
+//! "Sharp Video" through the helper: the same WGC capture (and HDR tone-map) as smooth, handed to
 //! libwebrtc as raw NV12 for its software VP9 — the encoder the browser engine uses too.
 //!
 //! The app routes a sharp share here only when the browser cannot capture it correctly, i.e. on an

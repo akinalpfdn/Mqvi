@@ -104,7 +104,7 @@ Recorded in `DECISIONS.md` 2026-07-16, five entries:
 - **The helper addresses the picked source exactly** and reports when it is *really* publishing.
 - **Screen-share audio is scoped to the shared source**, not the system.
 
-Screen share is **one flow with two engines** — "Akıcı Görüntü" (smooth, native) and "Net Görüntü"
+Screen share is **one flow with two engines** — "Smooth Video" (smooth, native) and "Sharp Video"
 (sharp, browser). When smooth fails the client falls back to sharp and **reports it to the server**
 (`RecordScreenShareFallback`), because every step that can fail happens on the user's machine and
 would otherwise be invisible.

@@ -92,7 +92,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   /** Stop native game capture */
   stopGameCapture: (): Promise<void> => ipcRenderer.invoke("stop-game-capture"),
 
-  /** Whether this machine can hardware-encode ("Akıcı Görüntü"); null if it could not be told. */
+  /** Whether this machine can hardware-encode ("Smooth Video"); null if it could not be told. */
   getSmoothCaptureSupport: (): Promise<boolean | null> => ipcRenderer.invoke("get-smooth-capture-support"),
 
   /** Whether any monitor is in HDR right now; null if it could not be told. */

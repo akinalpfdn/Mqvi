@@ -57,11 +57,11 @@ export async function reportScreenShareFallback(
   });
 }
 
-/** How a "Net Görüntü" share ended without the user stopping it. Mirrors the server's closed set. */
+/** How a "Sharp Video" share ended without the user stopping it. Mirrors the server's closed set. */
 export type ScreenShareStopReason = "start_failed" | "track_ended" | "unpublished";
 
 /**
- * Tells the server a "Net Görüntü" share ended by itself, and after how long. Like the fallback
+ * Tells the server a "Sharp Video" share ended by itself, and after how long. Like the fallback
  * report, every cause lives on this machine, so this is the only way it is ever seen.
  * Fire-and-forget.
  */

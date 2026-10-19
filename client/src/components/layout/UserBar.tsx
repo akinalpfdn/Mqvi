@@ -46,7 +46,7 @@ function UserBar({
   const isMuted = useActiveMicMuted();
   const isDeafened = useActiveDeafened();
   const isStreaming = useVoiceStore((s) => s.isStreaming);
-  // "Akıcı Görüntü" runs the native helper instead of getDisplayMedia — one sharing concept,
+  // "Smooth Video" runs the native helper instead of getDisplayMedia — one sharing concept,
   // two engines, so the button reflects either.
   const isNativeCapturing = useVoiceStore((s) => s.isNativeCapturing);
   const stopNativeCapture = useVoiceStore((s) => s.stopNativeCapture);

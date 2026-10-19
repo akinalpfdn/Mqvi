@@ -160,7 +160,7 @@ func (s *voiceService) logScreenShareRefusal(level models.LogLevel, userID, chan
 	s.appLogger.Log(level, models.LogCategoryScreenShare, &userID, nil, "screen share token refused: "+reason, metadata)
 }
 
-// RecordScreenShareStop notes a "Net Görüntü" share that ended on its own. Same `screen_share`
+// RecordScreenShareStop notes a "Sharp Video" share that ended on its own. Same `screen_share`
 // category: from the operator's side it is still "someone tried to share and did not get it".
 // The duration is in the message, not only the metadata: a sub-second share is the bug, and the
 // log list is scanned by eye.

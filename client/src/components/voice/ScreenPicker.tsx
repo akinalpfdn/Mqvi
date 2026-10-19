@@ -6,9 +6,9 @@
  * cancel sends null -> main callback({}) cancels the stream.
  *
  * One share flow, two modes — picked here alongside audio:
- * - "Akıcı Görüntü" (smooth): the native WGC + hardware-encode helper. Selecting a source cancels
+ * - "Smooth Video" (smooth): the native WGC + hardware-encode helper. Selecting a source cancels
  *   getDisplayMedia and hands the share to the helper (falls back to sharp if it can't start).
- * - "Net Görüntü" (sharp): getDisplayMedia — or, on an HDR display, the helper's tone-mapped
+ * - "Sharp Video" (sharp): getDisplayMedia — or, on an HDR display, the helper's tone-mapped
  *   software VP9, because the browser clips HDR content. See utils/shareEngine.
  */
 
@@ -50,7 +50,7 @@ function ScreenPicker() {
   const loadSmoothCaptureSupport = useVoiceStore((s) => s.loadSmoothCaptureSupport);
 
   // The helper is Windows-only. Offering the choice everywhere meant a macOS or Linux user could
-  // pick "Akıcı Görüntü", get "Net Görüntü" on every single share, and never be told why — the
+  // pick "Smooth Video", get "Sharp Video" on every single share, and never be told why — the
   // same silent lie this whole arc has been closing, just on a platform nobody here tests on.
   const smoothOffered = window.electronAPI?.platform === "win32";
   // A Windows machine with no hardware encoder is the same lie: every share tried the helper,

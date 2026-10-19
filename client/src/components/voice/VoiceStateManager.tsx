@@ -60,7 +60,7 @@ function createProcessor(
 }
 
 /**
- * Reports a "Net Görüntü" share that ended without the user stopping it. The voice channel's own
+ * Reports a "Sharp Video" share that ended without the user stopping it. The voice channel's own
  * server, not the one on screen: the user may be browsing another server while in voice.
  */
 function reportShareStoppedItself(
@@ -135,7 +135,7 @@ function VoiceStateManager() {
   systemAudioCaptureRef.current = systemAudioCapture;
 
   const customAudioPubRef = useRef<LocalTrackPublication | null>(null);
-  /** When the current "Net Görüntü" share went live; null while none is. */
+  /** When the current "Sharp Video" share went live; null while none is. */
   const sharePublishedAtRef = useRef<number | null>(null);
   /** Which run of the screen-share audio effect owns the capture process — see that effect. */
   const audioRunRef = useRef(0);
@@ -144,7 +144,7 @@ function VoiceStateManager() {
   // Capacitor (iOS/Android): native plugin via separate LiveKit connection.
   //   iOS: ReplayKit + LiveKit Swift SDK. Android: MediaProjection + LiveKit Android SDK.
   // Electron/Browser: getDisplayMedia. Share audio is its own effect below — on Electron it
-  // belongs to the share, not to this engine ("Akıcı Görüntü" draws video without it).
+  // belongs to the share, not to this engine ("Smooth Video" draws video without it).
   useEffect(() => {
     if (!initialSyncDone.current) return;
 
@@ -208,7 +208,7 @@ function VoiceStateManager() {
 
     toggleScreenShare().catch((err: unknown) => {
       if (cancelled) return;
-      // "Akıcı Görüntü" hands the share to the native helper and deliberately cancels
+      // "Smooth Video" hands the share to the native helper and deliberately cancels
       // getDisplayMedia — that rejection is expected, not a failure.
       if (!useVoiceStore.getState().isNativeCapturing) {
         console.error("[VoiceStateManager] Failed to toggle screen share:", err);
@@ -231,8 +231,8 @@ function VoiceStateManager() {
   // Mirror local streaming state to the server on every change, whatever the
   // trigger (button, OS "stop sharing", window/game close, track drop). Other
   // clients only learn we stopped through this — the button alone wasn't enough.
-  // One sharing concept, two engines: getDisplayMedia ("Net Görüntü") or the native helper
-  // ("Akıcı Görüntü") — presence follows either being live.
+  // One sharing concept, two engines: getDisplayMedia ("Sharp Video") or the native helper
+  // ("Smooth Video") — presence follows either being live.
   const isNativeCapturing = useVoiceStore((s) => s.isNativeCapturing);
 
   // Two different questions, and they were the same flag until now.
@@ -255,7 +255,7 @@ function VoiceStateManager() {
   // Screen share audio (Electron). Scoped to the picked source by the native capture: a shared
   // window contributes only its own audio — not the film playing next to it — while a shared
   // monitor contributes everything except our own tree (which would echo voice chat back).
-  // It follows isSharing, not isStreaming: with "Akıcı Görüntü" the helper draws the video and
+  // It follows isSharing, not isStreaming: with "Smooth Video" the helper draws the video and
   // getDisplayMedia is cancelled, but this track is still published by us.
   useEffect(() => {
     if (!isElectron() || !initialSyncDone.current) return;

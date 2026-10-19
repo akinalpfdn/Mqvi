@@ -14,8 +14,8 @@ export type InputMode = "voice_activity" | "push_to_talk";
 export type ScreenShareQuality = "720p" | "1080p";
 /**
  * Which engine renders a screen share:
- * - "smooth" (Akıcı Görüntü) — native WGC + hardware encode helper; for games, films, video.
- * - "sharp"  (Net Görüntü)  — getDisplayMedia; for text, code, presentations.
+ * - "smooth" (Smooth Video) — native WGC + hardware encode helper; for games, films, video.
+ * - "sharp"  (Sharp Video)  — getDisplayMedia; for text, code, presentations.
  * One share flow, two engines — chosen in the screen-share modal.
  */
 export type ScreenShareMode = "smooth" | "sharp";

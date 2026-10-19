@@ -62,11 +62,11 @@ var ScreenShareFallbackReasons = map[string]bool{
 
 // ScreenShareFallbackEngines is the closed set of helper engines a fallback can come from.
 var ScreenShareFallbackEngines = map[string]bool{
-	"smooth":    true, // "Akıcı Görüntü": hardware H264/H265
-	"sharp_hdr": true, // "Net Görüntü" on an HDR display: software VP9 after tone-mapping
+	"smooth":    true, // "Smooth Video": hardware H264/H265
+	"sharp_hdr": true, // "Sharp Video" on an HDR display: software VP9 after tone-mapping
 }
 
-// ScreenShareStopRequest is the client saying a "Net Görüntü" share ended without the user stopping
+// ScreenShareStopRequest is the client saying a "Sharp Video" share ended without the user stopping
 // it. Like the fallback above, everything that ends it happens on the user's machine, so without
 // this report nothing reaches the server at all.
 type ScreenShareStopRequest struct {

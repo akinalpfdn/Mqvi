@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { hdrActiveFrom, parseProbeAnswer, smoothSupportFrom } from "./helperProbe";
 
 // The helper's answer decides what the share picker offers and warns about. A misread answer either
-// hides "Akıcı Görüntü" from a machine that can run it or warns about HDR that is not there, so
+// hides "Smooth Video" from a machine that can run it or warns about HDR that is not there, so
 // everything that is not a clean answer must come out as "could not tell".
 
 const LOG = "[2026-10-19T12:16:33Z INFO  mqvi_game_capture::mf_encoder] encoder cfg cbr: ok";

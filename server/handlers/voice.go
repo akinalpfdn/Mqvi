@@ -146,7 +146,7 @@ func truncateRunes(s string, n int) string {
 
 // ScreenShareStop handles POST /api/servers/{serverId}/voice/screen-share-stopped
 //
-// The client reporting that a "Net Görüntü" share ended without the user stopping it. Same guards
+// The client reporting that a "Sharp Video" share ended without the user stopping it. Same guards
 // and the same bucket as the fallback report: one attempt, at most one row.
 func (h *VoiceHandler) ScreenShareStop(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
@@ -186,8 +186,8 @@ func (h *VoiceHandler) ScreenShareStop(w http.ResponseWriter, r *http.Request) {
 
 // ScreenShareFallback handles POST /api/servers/{serverId}/voice/screen-share-fallback
 //
-// The client reporting that the native helper could not start — "Akıcı Görüntü", or "Net Görüntü"
-// on an HDR display — and it used the browser's "Net Görüntü" instead.
+// The client reporting that the native helper could not start — "Smooth Video", or "Sharp Video"
+// on an HDR display — and it used the browser's "Sharp Video" instead.
 // Every step that can fail there runs on the user's machine — the helper is missing, the GPU has
 // no encoder, the capture target vanished — so without this the operator cannot see it at all,
 // and the user cannot be asked to fetch a log.

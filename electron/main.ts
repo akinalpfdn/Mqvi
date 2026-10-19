@@ -906,7 +906,7 @@ function setupPermissions(): void {
   session.defaultSession.setDisplayMediaRequestHandler(
     async (_request, callback) => {
       // Chromium allows exactly one answer, and it reports an empty one — our way of cancelling,
-      // which "Akıcı Görüntü" does on every share — by throwing back at us. That throw *is* the
+      // which "Smooth Video" does on every share — by throwing back at us. That throw *is* the
       // rejection the renderer is waiting for. Treating it as a failure and answering again (which
       // is what the catch below used to do) earns a "callback was called more than once" and an
       // unhandled rejection on a share that is working fine.
@@ -975,7 +975,7 @@ function setupPermissions(): void {
             answer({});
           }
         } else {
-          // User cancelled, or "Akıcı Görüntü" took the share
+          // User cancelled, or "Smooth Video" took the share
           answer({});
         }
       } catch (err) {
@@ -1423,7 +1423,7 @@ function setupIPC(): void {
   // Whether this machine can hardware-encode, asked of the helper once per launch and kept in
   // memory: it is a property of this machine (GPU, driver), not of the account, and it can change
   // with a new GPU or driver — a stored answer could go stale, a launch-time one cannot.
-  // null = the probe could not answer; the renderer then keeps offering "Akıcı Görüntü" as before.
+  // null = the probe could not answer; the renderer then keeps offering "Smooth Video" as before.
   let smoothCaptureSupport: Promise<boolean | null> | null = null;
 
   ipcMain.handle("get-smooth-capture-support", () => {
@@ -1511,7 +1511,7 @@ function setupIPC(): void {
 
       // Spawning proves a process exists, not that anything is on the wire — the helper still has
       // to find the source, connect and publish. Report started only once it says so, so a failure
-      // falls back to "Net Görüntü" instead of leaving a share that never appears.
+      // falls back to "Sharp Video" instead of leaving a share that never appears.
       return await new Promise((resolve) => {
         let settled = false;
         let timer: ReturnType<typeof setTimeout> | undefined;

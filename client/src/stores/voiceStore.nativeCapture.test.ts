@@ -1,6 +1,6 @@
 /**
  * The helper is started from here for both engines. What it is handed decides what viewers get:
- * the HDR engine must carry "Net Görüntü"'s own bitrate, and the token must come from the voice
+ * the HDR engine must carry "Sharp Video"'s own bitrate, and the token must come from the voice
  * channel's server — not whichever server happens to be on screen, which refuses it.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";

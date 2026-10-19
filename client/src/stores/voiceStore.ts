@@ -121,10 +121,10 @@ type VoiceCoreState = {
   isMuted: boolean;
   isDeafened: boolean;
   isStreaming: boolean;
-  /** A helper engine is live ("Akıcı Görüntü", or "Net Görüntü" on HDR): it publishes {userId}_ss */
+  /** A helper engine is live ("Smooth Video", or "Sharp Video" on HDR): it publishes {userId}_ss */
   isNativeCapturing: boolean;
   /**
-   * Whether this machine can hardware-encode — "Akıcı Görüntü" needs it. null until asked, or if
+   * Whether this machine can hardware-encode — "Smooth Video" needs it. null until asked, or if
    * the probe could not answer (then it is offered as before). Never persisted: it belongs to this
    * machine, while the smooth/sharp preference is the account's and stays untouched.
    */
@@ -371,7 +371,7 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
       }
     }
 
-    // Stop the "Akıcı Görüntü" helper if it's running (it outlives the JS otherwise).
+    // Stop the "Smooth Video" helper if it's running (it outlives the JS otherwise).
     if (get().isNativeCapturing) {
       void window.electronAPI?.stopGameCapture();
     }
@@ -474,7 +474,7 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
       token,
       e2eePassphrase: e2ee_passphrase,
       sourceId,
-      // The same setting "Net Görüntü" already honours — a cap on the stream, not the capture.
+      // The same setting "Sharp Video" already honours — a cap on the stream, not the capture.
       maxHeight: quality === "720p" ? 720 : 1080,
       ...(engine === "sharp_hdr"
         ? { engine: "sharp" as const, maxBitrate: sharpShareEncoding(quality).maxBitrate }

@@ -171,7 +171,7 @@ export type ShareEngine = "smooth" | "mobile" | "sharp";
  *
  * The identity alone cannot do it: the "_ss" sub-participant is how *every* native share arrives,
  * the phone's included. Only the track name separates our Windows helper from a ReplayKit or
- * MediaProjection stream, and calling those "Akıcı Görüntü" would be a lie.
+ * MediaProjection stream, and calling those "Smooth Video" would be a lie.
  */
 export function shareEngine(trackName: string, identity: string): ShareEngine {
   if (trackName === NATIVE_CAPTURE_TRACK_NAME) return "smooth";

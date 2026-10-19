@@ -104,7 +104,7 @@ interface ElectronAPI {
     maxBitrate?: number;
   }) => Promise<{ started: boolean; error?: string }>;
   stopGameCapture: () => Promise<void>;
-  /** Whether this machine can hardware-encode ("Akıcı Görüntü"); null if it could not be told. */
+  /** Whether this machine can hardware-encode ("Smooth Video"); null if it could not be told. */
   getSmoothCaptureSupport: () => Promise<boolean | null>;
   /** Whether any monitor is in HDR right now; null if it could not be told. */
   getHdrActive: () => Promise<boolean | null>;
