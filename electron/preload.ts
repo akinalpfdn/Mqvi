@@ -84,6 +84,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     e2eePassphrase: string;
     sourceId: string;
     maxHeight: number;
+    engine?: "smooth" | "sharp";
+    maxBitrate?: number;
   }): Promise<{ started: boolean; error?: string }> =>
     ipcRenderer.invoke("start-game-capture", opts),
 

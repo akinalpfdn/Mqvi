@@ -98,6 +98,10 @@ interface ElectronAPI {
     sourceId: string;
     /** Cap on the stream's height, from the screen-share quality setting. */
     maxHeight: number;
+    /** "sharp" streams software VP9 from the helper — used on an HDR display. Default smooth. */
+    engine?: "smooth" | "sharp";
+    /** Sharp's bitrate ceiling, the browser engine's own. */
+    maxBitrate?: number;
   }) => Promise<{ started: boolean; error?: string }>;
   stopGameCapture: () => Promise<void>;
   /** Whether this machine can hardware-encode ("Akıcı Görüntü"); null if it could not be told. */

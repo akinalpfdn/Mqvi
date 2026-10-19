@@ -27,6 +27,7 @@ import { useVoiceStore } from "../../stores/voiceStore";
 import { useToastStore } from "../../stores/toastStore";
 import { useTranslation } from "react-i18next";
 import { useNativeVoice, nativeVoiceConnect, onNativeVoiceActiveSpeakers, onNativeVoiceDisconnected } from "../../utils/nativePlugins";
+import { sharpShareEncoding } from "../../utils/shareEngine";
 import VoiceStateManager from "./VoiceStateManager";
 import NativeVoiceStateSync from "./NativeVoiceStateSync";
 
@@ -289,10 +290,8 @@ function VoiceProvider({ children }: VoiceProviderProps) {
     () => {
       const is720 = screenShareQuality === "720p";
       return {
-        screenShareEncoding: {
-          maxBitrate: is720 ? 1_500_000 : 3_000_000,
-          maxFramerate: 30,
-        },
+        // Shared with the helper's sharp engine, so an HDR share streams like any other.
+        screenShareEncoding: sharpShareEncoding(screenShareQuality),
         screenShareSimulcastLayers: is720
           ? [new VideoPreset(1280, 720, 800_000, 15)]
           : [

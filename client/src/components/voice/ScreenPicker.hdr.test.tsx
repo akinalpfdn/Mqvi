@@ -1,10 +1,11 @@
 /**
- * "Net Görüntü" captures an HDR display 8-bit and streams HDR video and games overexposed, while
- * the streamer's own screen looks fine — so nobody finds out until a viewer complains. The picker
- * says it before the share, and only when it is true: HDR on, and the share about to go out sharp.
+ * "Net Görüntü" in the browser captures an HDR display 8-bit and streams HDR video and games
+ * overexposed, while the streamer's own screen looks fine. On an HDR display the picker hands a
+ * sharp share to the helper instead, which tone-maps; everywhere else sharp stays in the browser.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -13,24 +14,24 @@ vi.mock("react-i18next", () => ({
 vi.mock("../../i18n", () => ({ default: { t: (k: string) => k, language: "en" } }));
 
 import ScreenPicker from "./ScreenPicker";
-import { useVoiceStore } from "../../stores/voiceStore";
+import { useVoiceStore, type NativeCaptureResult } from "../../stores/voiceStore";
 
-type HdrAnswer = boolean | null | "throws";
+type HdrAnswer = boolean | null | Promise<boolean | null>;
 
 let showPicker: (sources: { id: string; name: string; thumbnail: string }[]) => void = () => {};
 let hdrAnswers: HdrAnswer[] = [];
+const sendScreenPickerResult = vi.fn();
+const startNativeCapture = vi.fn<(id: string, engine: string) => Promise<NativeCaptureResult>>();
+const reportNativeFallback = vi.fn();
 
 function installElectron(smooth: boolean | null) {
   (window as unknown as { electronAPI: unknown }).electronAPI = {
     platform: "win32",
     onShowScreenPicker: (cb: typeof showPicker) => (showPicker = cb),
     removeScreenPickerListener: () => {},
-    sendScreenPickerResult: vi.fn(),
+    sendScreenPickerResult,
     getSmoothCaptureSupport: () => Promise.resolve(smooth),
-    getHdrActive: () => {
-      const answer = hdrAnswers.shift() ?? false;
-      return answer === "throws" ? Promise.reject(new Error("ipc")) : Promise.resolve(answer);
-    },
+    getHdrActive: () => Promise.resolve(hdrAnswers.shift() ?? false),
   };
 }
 
@@ -51,46 +52,94 @@ async function mountAndOpen(smooth: boolean | null, ...answers: HdrAnswer[]) {
   await open();
 }
 
+async function pick() {
+  await userEvent.click(screen.getByText("Screen 1"));
+}
+
 beforeEach(() => {
-  useVoiceStore.setState({ smoothCaptureSupported: null, screenShareMode: "sharp" });
+  sendScreenPickerResult.mockReset();
+  startNativeCapture.mockReset().mockResolvedValue({ ok: true });
+  reportNativeFallback.mockReset();
+  useVoiceStore.setState({
+    smoothCaptureSupported: null,
+    screenShareMode: "sharp",
+    startNativeCapture,
+    reportNativeFallback,
+  });
 });
 
 afterEach(() => {
   delete (window as unknown as { electronAPI?: unknown }).electronAPI;
 });
 
-describe("ScreenPicker on an HDR display", () => {
-  it("should warn and point at smooth when about to share sharp", async () => {
+describe("ScreenPicker sharing sharp", () => {
+  it("should hand the share to the helper's HDR engine on an HDR display", async () => {
     await mountAndOpen(true, true);
-    expect(screen.getByText("screenHdrSharpWarning")).toBeTruthy();
+    await pick();
+
+    await waitFor(() => expect(startNativeCapture).toHaveBeenCalledWith("screen:1:0", "sharp_hdr"));
+    // The helper carries the video, so getDisplayMedia is cancelled.
+    await waitFor(() => expect(sendScreenPickerResult).toHaveBeenCalledWith(null));
   });
 
-  it("should not warn when the share goes out smooth, which tone-maps", async () => {
-    useVoiceStore.setState({ screenShareMode: "smooth" });
-    await mountAndOpen(true, true);
-    expect(screen.queryByText("screenHdrSharpWarning")).toBeNull();
+  it("should keep the browser on an SDR display", async () => {
+    await mountAndOpen(true, false);
+    await pick();
+
+    await waitFor(() => expect(sendScreenPickerResult).toHaveBeenCalledWith("screen:1:0"));
+    expect(startNativeCapture).not.toHaveBeenCalled();
   });
 
-  it("should point at Windows' HDR setting when this machine cannot run smooth", async () => {
-    useVoiceStore.setState({ screenShareMode: "smooth" });
-    await mountAndOpen(false, true);
-    expect(screen.getByText("screenHdrNoSmoothWarning")).toBeTruthy();
-    expect(screen.queryByText("screenHdrSharpWarning")).toBeNull();
+  it("should fall back to the browser and say so when the HDR engine cannot start", async () => {
+    const failure = {
+      ok: false,
+      engine: "sharp_hdr",
+      reason: "helper_failed",
+      serverId: "s1",
+      channelId: "c1",
+    } as const;
+    startNativeCapture.mockResolvedValue(failure);
+    await mountAndOpen(true, true);
+    await pick();
+
+    await waitFor(() => expect(sendScreenPickerResult).toHaveBeenCalledWith("screen:1:0"));
+    expect(reportNativeFallback).toHaveBeenCalledWith(failure);
+  });
+
+  it("should wait for an HDR answer still on its way rather than guess", async () => {
+    let answer: (hdr: boolean) => void = () => {};
+    await mountAndOpen(true, new Promise<boolean>((resolve) => (answer = resolve)));
+    await pick();
+    expect(sendScreenPickerResult).not.toHaveBeenCalled();
+
+    await act(async () => answer(true));
+    await waitFor(() => expect(startNativeCapture).toHaveBeenCalledWith("screen:1:0", "sharp_hdr"));
   });
 
   it("should ask again on every opening, since HDR is toggled at will", async () => {
     await mountAndOpen(true, true, false);
-    expect(screen.getByText("screenHdrSharpWarning")).toBeTruthy();
+    await open(); // HDR has been switched off since the first opening
+    await pick();
 
-    await open();
-    expect(screen.queryByText("screenHdrSharpWarning")).toBeNull();
+    await waitFor(() => expect(sendScreenPickerResult).toHaveBeenCalledWith("screen:1:0"));
+    expect(startNativeCapture).not.toHaveBeenCalled();
   });
 });
 
-describe("ScreenPicker without a known HDR display", () => {
-  it.each([false, null, "throws"] as const)("should not warn (answer: %s)", async (answer) => {
-    await mountAndOpen(true, answer);
-    expect(screen.queryByText("screenHdrSharpWarning")).toBeNull();
-    expect(screen.queryByText("screenHdrNoSmoothWarning")).toBeNull();
+describe("ScreenPicker sharing smooth", () => {
+  it("should use smooth on an HDR display, which tone-maps on its own", async () => {
+    useVoiceStore.setState({ screenShareMode: "smooth" });
+    await mountAndOpen(true, true);
+    await pick();
+
+    await waitFor(() => expect(startNativeCapture).toHaveBeenCalledWith("screen:1:0", "smooth"));
+  });
+
+  it("should give a machine without a hardware encoder the HDR engine on an HDR display", async () => {
+    useVoiceStore.setState({ screenShareMode: "smooth" });
+    await mountAndOpen(false, true);
+    await pick();
+
+    await waitFor(() => expect(startNativeCapture).toHaveBeenCalledWith("screen:1:0", "sharp_hdr"));
   });
 });

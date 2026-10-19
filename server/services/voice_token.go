@@ -186,8 +186,8 @@ func (s *voiceService) RecordScreenShareStop(userID, channelID, reason, detail s
 // picked" — and a refusal often causes the fallback that follows it.
 //
 // Warn, not Error: the user is still sharing. Something worked.
-func (s *voiceService) RecordScreenShareFallback(userID, channelID, reason, detail string) {
-	extra := map[string]string{"fell_back_to": "sharp"}
+func (s *voiceService) RecordScreenShareFallback(userID, channelID, engine, reason, detail string) {
+	extra := map[string]string{"fell_back_to": "sharp", "engine": engine}
 	if detail != "" {
 		extra["detail"] = detail
 	}
@@ -197,8 +197,17 @@ func (s *voiceService) RecordScreenShareFallback(userID, channelID, reason, deta
 			metadata[k] = v
 		}
 		s.appLogger.Log(models.LogLevelWarn, models.LogCategoryScreenShare, &userID,
-			nil, "smooth capture fell back to sharp: "+reason, metadata)
+			nil, screenShareFallbackMessage(engine)+reason, metadata)
 	}
+}
+
+// screenShareFallbackMessage names what fell back, so the two engines read apart in the log. The
+// smooth wording is unchanged from before the engine field existed.
+func screenShareFallbackMessage(engine string) string {
+	if engine == "sharp_hdr" {
+		return "hdr sharp capture fell back to the browser: "
+	}
+	return "smooth capture fell back to sharp: "
 }
 
 // RecordNoiseReductionFailure notes that a mic denoiser could not be attached on a client.

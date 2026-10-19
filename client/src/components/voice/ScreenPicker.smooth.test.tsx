@@ -65,13 +65,13 @@ describe("ScreenPicker without a hardware encoder", () => {
 
   it("should share sharp straight away without starting the helper", async () => {
     installElectron(false);
-    const startNativeSmoothCapture = vi.fn();
-    useVoiceStore.setState({ startNativeSmoothCapture });
+    const startNativeCapture = vi.fn();
+    useVoiceStore.setState({ startNativeCapture });
     await openPicker();
 
     await userEvent.click(screen.getByText("Screen 1"));
 
-    expect(startNativeSmoothCapture).not.toHaveBeenCalled();
+    expect(startNativeCapture).not.toHaveBeenCalled();
     expect(sendScreenPickerResult).toHaveBeenCalledWith("screen:1:0");
   });
 

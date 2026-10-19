@@ -323,7 +323,7 @@ function VoiceStateManager() {
 
     window.electronAPI.onGameCaptureStopped(() => {
       if (!useVoiceStore.getState().isNativeCapturing) return; // we stopped it ourselves
-      useVoiceStore.getState().stopNativeSmoothCapture();
+      useVoiceStore.getState().stopNativeCapture();
       useToastStore.getState().addToast("error", tVoice("smoothCaptureStopped"));
     });
 

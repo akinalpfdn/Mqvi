@@ -218,3 +218,26 @@ func TestScreenShareToken_SurvivesWithNoLogger(t *testing.T) {
 func (m *workingLiveKitGetter) GetPlatformInstanceForRegion(ctx context.Context, _ string) (*models.LiveKitInstance, error) {
 	return m.GetByServerID(ctx, "")
 }
+
+// Two helper engines can fall back. Told apart, an HDR sharp failure does not send the operator
+// looking at hardware encoders, and the smooth row reads exactly as it always has.
+func TestScreenShareFallback_NamesTheEngineThatFellBack(t *testing.T) {
+	svc, logger := voiceServiceWithLogger()
+
+	svc.RecordScreenShareFallback("u1", "ch1", "smooth", "helper_failed", "")
+	svc.RecordScreenShareFallback("u1", "ch1", "sharp_hdr", "helper_failed", "")
+
+	got := logger.screenShare()
+	if len(got) != 2 {
+		t.Fatalf("got %d screen_share logs, want 2: %+v", len(got), got)
+	}
+	if got[0].message != "smooth capture fell back to sharp: helper_failed" {
+		t.Errorf("smooth message = %q, want the wording it always had", got[0].message)
+	}
+	if got[1].message != "hdr sharp capture fell back to the browser: helper_failed" {
+		t.Errorf("sharp_hdr message = %q", got[1].message)
+	}
+	if got[1].metadata["engine"] != "sharp_hdr" {
+		t.Errorf("engine metadata = %q, want sharp_hdr", got[1].metadata["engine"])
+	}
+}

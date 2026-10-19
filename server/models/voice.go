@@ -34,11 +34,14 @@ type VoiceTokenResponse struct {
 	E2EEPassphrase string `json:"e2ee_passphrase,omitempty"`
 }
 
-// ScreenShareFallbackRequest is the client saying "Akıcı Görüntü could not start, I used Net
-// Görüntü instead" — the one failure the operator cannot see from the server, because every step
-// that fails happens on the user's machine.
+// ScreenShareFallbackRequest is the client saying "the native helper could not start, I used the
+// browser engine instead" — the one failure the operator cannot see from the server, because every
+// step that fails happens on the user's machine.
 type ScreenShareFallbackRequest struct {
 	ChannelID string `json:"channel_id"`
+	// Engine is which helper engine was attempted, from ScreenShareFallbackEngines. Empty means
+	// smooth: clients that predate the field only ever had that one.
+	Engine string `json:"engine,omitempty"`
 	// Reason is a code from ScreenShareFallbackReasons, not free text: it lands in app_logs, so an
 	// unvalidated string would let any member write whatever they like into the operator's log.
 	Reason string `json:"reason"`
@@ -55,6 +58,12 @@ type ScreenShareFallbackRequest struct {
 var ScreenShareFallbackReasons = map[string]bool{
 	"no_token":      true, // the screen-token request was refused or carried no passphrase
 	"helper_failed": true, // the native helper never reported that it was publishing
+}
+
+// ScreenShareFallbackEngines is the closed set of helper engines a fallback can come from.
+var ScreenShareFallbackEngines = map[string]bool{
+	"smooth":    true, // "Akıcı Görüntü": hardware H264/H265
+	"sharp_hdr": true, // "Net Görüntü" on an HDR display: software VP9 after tone-mapping
 }
 
 // ScreenShareStopRequest is the client saying a "Net Görüntü" share ended without the user stopping

@@ -51,6 +51,7 @@ import {
   createVoiceScreenShareSlice,
   type VoiceScreenShareSlice,
 } from "./slices/voiceScreenShareSlice";
+import { sharpShareEncoding, type NativeEngine } from "../utils/shareEngine";
 
 export type { InputMode, ScreenShareQuality };
 
@@ -92,23 +93,24 @@ function saveMuteState(state: { isMuted: boolean; isDeafened: boolean }): void {
 const initialMuteState = loadMuteState();
 
 /**
- * Why smooth capture did not start, carried back to whoever asked for it.
+ * Why a helper engine did not start, carried back to whoever asked for it.
  *
  * `reason` is absent when nothing was attempted — no active channel, no Electron bridge. That is
  * not a fallback and must not be announced or logged as one; only the two real failures carry a
- * reason, along with the ids needed to report them.
+ * reason, along with what is needed to report them.
  */
-export type SmoothCaptureFailure =
+export type NativeCaptureFailure =
   | { ok: false; reason?: undefined }
   | {
       ok: false;
+      engine: NativeEngine;
       reason: voiceApi.ScreenShareFallbackReason;
       detail?: string;
       serverId: string;
       channelId: string;
     };
 
-export type SmoothCaptureResult = { ok: true } | SmoothCaptureFailure;
+export type NativeCaptureResult = { ok: true } | NativeCaptureFailure;
 
 type VoiceCoreState = {
   /** channelId -> VoiceState[] mapping */
@@ -119,7 +121,7 @@ type VoiceCoreState = {
   isMuted: boolean;
   isDeafened: boolean;
   isStreaming: boolean;
-  /** "Akıcı Görüntü" engine is live: the native capture helper is publishing {userId}_ss */
+  /** A helper engine is live ("Akıcı Görüntü", or "Net Görüntü" on HDR): it publishes {userId}_ss */
   isNativeCapturing: boolean;
   /**
    * Whether this machine can hardware-encode — "Akıcı Görüntü" needs it. null until asked, or if
@@ -169,27 +171,21 @@ type VoiceCoreActions = {
   toggleDeafen: () => void;
   setStreaming: (isStreaming: boolean) => void;
   /**
-   * "Akıcı Görüntü" engine (Electron/Windows): hand the share to the native WGC + hardware-encode
-   * helper instead of getDisplayMedia. Returns false if it couldn't start, so the caller can fall
-   * back to "Net Görüntü".
+   * Hand the share to the native helper (Electron/Windows) instead of getDisplayMedia: "smooth" is
+   * WGC + hardware encode, "sharp_hdr" is the same capture tone-mapped into software VP9 for an HDR
+   * display. Resolves not-ok if it couldn't start, so the caller can fall back to the browser.
    */
-  startNativeSmoothCapture: (sourceId: string) => Promise<SmoothCaptureResult>;
+  startNativeCapture: (sourceId: string, engine: NativeEngine) => Promise<NativeCaptureResult>;
   /**
-   * Tell the user, and the operator, that smooth capture did not start.
+   * Tell the user, and the operator, that a helper engine did not start.
    *
    * Separate from starting it because only the caller knows whether the failure is worth
    * announcing: backing out of the picker while the helper comes up also lands here, and warning
    * someone about a thing they just cancelled — then filing it as a fallback — makes the log worse
    * rather than better.
    */
-  reportSmoothFallback: (failure: SmoothCaptureFailure) => void;
-  /**
-   * Warns, after the fact, that a "Net Görüntü" share on an HDR display streams HDR content
-   * clipped. For shares that never show the picker, which says it up front. `smoothCanFix` picks
-   * whether to point at "Akıcı Görüntü" or at Windows' HDR setting.
-   */
-  warnIfHdrClipsSharpShare: (smoothCanFix: boolean) => Promise<void>;
-  stopNativeSmoothCapture: () => void;
+  reportNativeFallback: (failure: NativeCaptureFailure) => void;
+  stopNativeCapture: () => void;
   setPickedShareSourceId: (sourceId: string | null) => void;
   setRtt: (rtt: number) => void;
   setActiveSpeakers: (speakerIds: string[]) => void;
@@ -451,8 +447,10 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
     set({ isStreaming });
   },
 
-  startNativeSmoothCapture: async (sourceId: string) => {
-    const serverId = useServerStore.getState().activeServerId;
+  startNativeCapture: async (sourceId, engine) => {
+    // The voice channel's server, not the one on screen: someone in voice can be browsing another
+    // server, and a token asked of that one is refused — the share would fall back for no reason.
+    const serverId = get().currentVoiceServerId ?? useServerStore.getState().activeServerId;
     const channelId = get().currentVoiceChannelId;
     // Not reportable: nothing was attempted, and the picker does not offer smooth here anyway.
     if (!serverId || !channelId || !window.electronAPI) return { ok: false };
@@ -465,21 +463,25 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
     // publishes with these, so it decrypts on every client exactly like any screen share.
     const resp = await voiceApi.getScreenShareToken(serverId, channelId);
     if (!resp.success || !resp.data?.e2ee_passphrase) {
-      return { ok: false, reason: "no_token", detail: resp.error, serverId, channelId };
+      return { ok: false, engine, reason: "no_token", detail: resp.error, serverId, channelId };
     }
     const { url, token, e2ee_passphrase } = resp.data;
+    const quality = get().screenShareQuality;
     // Resolves only once the helper is really publishing — a false here means nothing was ever
-    // on the wire, so the caller can still fall back to sharp.
+    // on the wire, so the caller can still fall back to the browser.
     const res = await window.electronAPI.startGameCapture({
       url,
       token,
       e2eePassphrase: e2ee_passphrase,
       sourceId,
       // The same setting "Net Görüntü" already honours — a cap on the stream, not the capture.
-      maxHeight: get().screenShareQuality === "720p" ? 720 : 1080,
+      maxHeight: quality === "720p" ? 720 : 1080,
+      ...(engine === "sharp_hdr"
+        ? { engine: "sharp" as const, maxBitrate: sharpShareEncoding(quality).maxBitrate }
+        : {}),
     });
     if (!res.started) {
-      return { ok: false, reason: "helper_failed", detail: res.error, serverId, channelId };
+      return { ok: false, engine, reason: "helper_failed", detail: res.error, serverId, channelId };
     }
     // Presence is derived from (isStreaming || isNativeCapturing) in VoiceStateManager — one
     // sharing concept, two engines — so nothing to broadcast here.
@@ -497,26 +499,24 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
     set({ smoothCaptureSupported: supported });
   },
 
-  reportSmoothFallback: (failure) => {
-    if (!failure.reason) return; // nothing was attempted — see startNativeSmoothCapture
-    useToastStore.getState().addToast("warning", i18n.t("voice:smoothFellBackToSharp"));
+  reportNativeFallback: (failure) => {
+    if (!failure.reason) return; // nothing was attempted — see startNativeCapture
+    useToastStore
+      .getState()
+      .addToast(
+        "warning",
+        i18n.t(failure.engine === "sharp_hdr" ? "voice:hdrSharpFellBack" : "voice:smoothFellBackToSharp")
+      );
     void voiceApi.reportScreenShareFallback(
       failure.serverId,
       failure.channelId,
+      failure.engine,
       failure.reason,
       failure.detail
     );
   },
 
-  warnIfHdrClipsSharpShare: async (smoothCanFix) => {
-    const hdr = await window.electronAPI?.getHdrActive().catch(() => null);
-    if (hdr !== true) return;
-    useToastStore
-      .getState()
-      .addToast("warning", i18n.t(smoothCanFix ? "voice:screenHdrSharpWarning" : "voice:screenHdrNoSmoothWarning"));
-  },
-
-  stopNativeSmoothCapture: () => {
+  stopNativeCapture: () => {
     void window.electronAPI?.stopGameCapture();
     set({ isNativeCapturing: false });
   },

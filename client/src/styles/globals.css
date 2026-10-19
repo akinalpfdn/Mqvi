@@ -3393,7 +3393,6 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .sp-mode-opt:disabled:hover { background:var(--bg-5); }
 .sp-mode-name { font-size:14px;color:var(--t1);font-weight:500; }
 .sp-mode-hint { font-size:13px;color:var(--t3); }
-.sp-hdr-note { margin:0 0 12px;padding:8px 10px;border-radius:6px;background:var(--yellow-s);color:var(--yellow);font-size:13px;line-height:1.4; }
 
 /* Mini switch — footer toggle */
 .sp-switch { width:36px;height:20px;border-radius:10px;background:var(--bg-5);position:relative;cursor:pointer;transition:background .2s;flex-shrink:0; }

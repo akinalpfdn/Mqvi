@@ -38,6 +38,8 @@ use mqvi_game_capture::nv12;
 use tokio::sync::oneshot;
 #[cfg(windows)]
 use windows::core::PCWSTR;
+
+mod sharp_pump;
 #[cfg(windows)]
 use windows::Win32::Foundation::HANDLE;
 #[cfg(windows)]
@@ -133,6 +135,23 @@ struct Args {
     /// own size wins when it's smaller — we never upscale. Omit to stream at the source's size.
     #[arg(long)]
     max_height: Option<u32>,
+
+    /// Which share engine a WGC capture feeds: `smooth` (hardware H264/H265) or `sharp` (libwebrtc
+    /// software VP9, the browser engine's codec — what the app uses on an HDR display, where the
+    /// browser's own capture clips).
+    #[arg(long, value_enum, default_value_t = Engine::Smooth)]
+    engine: Engine,
+
+    /// Bitrate ceiling for `--engine sharp`, from the app's own "Net Görüntü" settings so both
+    /// paths stream the same. Ignored by smooth, which sizes its own.
+    #[arg(long)]
+    max_bitrate: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, clap::ValueEnum)]
+enum Engine {
+    Smooth,
+    Sharp,
 }
 
 /// Resolves when we are asked to stop, from wherever the request comes.
@@ -424,9 +443,16 @@ async fn run() -> Result<()> {
         room.name()
     );
 
-    let use_mf = args.encoder == Encoder::Mf || capture.is_some();
-    // WGC always hardware-encodes; default a wgc run (codec would otherwise be vp8) to h264.
-    let codec = if capture.is_some() && !matches!(args.codec, Codec::H264 | Codec::H265) {
+    let sharp = args.engine == Engine::Sharp;
+    if sharp && capture.is_none() {
+        bail!("--engine sharp needs a capture source");
+    }
+    let use_mf = !sharp && (args.encoder == Encoder::Mf || capture.is_some());
+    // WGC smooth always hardware-encodes; default its codec (otherwise vp8) to h264. Sharp is VP9,
+    // the browser engine's codec, whatever was asked.
+    let codec = if sharp {
+        Codec::Vp9
+    } else if capture.is_some() && !matches!(args.codec, Codec::H264 | Codec::H265) {
         Codec::H264
     } else {
         args.codec
@@ -439,10 +465,12 @@ async fn run() -> Result<()> {
     // MF path hands livekit pre-encoded access units (new_encoded); otherwise a raw I420
     // source that libwebrtc encodes itself (is_screencast=true = screen content hint).
     let res = VideoResolution { width, height };
+    // Sharp says "not screencast" on purpose: it is what livekit-client does for VP9 screen shares
+    // (contentHint "motion"), because libwebrtc's screencast path holds VP9 L1T3 to a few fps.
     let rtc_source = if use_mf {
         NativeVideoSource::new_encoded(res)
     } else {
-        NativeVideoSource::new(res, true)
+        NativeVideoSource::new(res, !sharp)
     };
     let track = LocalVideoTrack::create_video_track(
         "native-game-capture",
@@ -463,15 +491,26 @@ async fn run() -> Result<()> {
     // And say what the stream is worth, rather than letting the SDK guess from a track that hasn't
     // encoded a frame yet. WebRTC still pulls it down to what the link takes; this is the ceiling.
     publish_opts.video_encoding = Some(VideoEncoding {
-        max_bitrate: target_bitrate(width, height, fps),
+        max_bitrate: match (sharp, args.max_bitrate) {
+            (true, Some(b)) => b,
+            _ => target_bitrate(width, height, fps),
+        },
         max_framerate: fps as f64,
     });
     // We hand livekit already-encoded frames on the MF path → PreEncoded pass-through (no re-encode).
     publish_opts.video_encoder = if use_mf {
         VideoEncoderBackend::PreEncoded
+    } else if sharp {
+        VideoEncoderBackend::Software
     } else {
         args.encoder.to_lk()
     };
+    // The browser engine's exact shape: one spatial layer, three temporal, so the SFU can still thin
+    // the frame rate for a weak viewer. More spatial layers is what livekit-client avoids for VP9
+    // screen shares — it drops the publish resolution to the smallest layer.
+    if sharp {
+        publish_opts.scalability_mode = Some("L1T3".to_string());
+    }
 
     local
         .publish_track(LocalTrack::Video(track), publish_opts)
@@ -482,7 +521,8 @@ async fn run() -> Result<()> {
         codec, use_mf, args.source
     );
 
-    // MF encoding does blocking COM calls → dedicated OS thread. Raw path → tokio task.
+    // Capture and MF encoding make blocking calls → dedicated OS thread (smooth and sharp alike).
+    // The synthetic raw path → tokio task.
     let stop = Arc::new(AtomicBool::new(false));
     // `ready` fires on the first frame the encoder actually delivers; `died` on a fatal encode
     // failure. The hardware encoder is created inside the pump and can fail outright (no MFT on
@@ -491,10 +531,14 @@ async fn run() -> Result<()> {
     let (ready_tx, ready_rx) = oneshot::channel::<String>();
     let (died_tx, mut died_rx) = oneshot::channel::<String>();
     let cfg = VideoConfig { width, height, fps, hevc, max };
-    let mf_thread = if use_mf {
+    let mf_thread = if use_mf || sharp {
         let (src, stop) = (rtc_source.clone(), stop.clone());
         Some(std::thread::spawn(move || {
-            if let Err(e) = encoded_pump(src, cfg, capture, stop, ready_tx) {
+            let result = match (sharp, capture) {
+                (true, Some(cap)) => sharp_pump::sharp_pump(src, cfg, cap, stop, ready_tx),
+                (_, capture) => encoded_pump(src, cfg, capture, stop, ready_tx),
+            };
+            if let Err(e) = result {
                 // Bare, with no prefix of its own: the error the app finally reports embeds this
                 // same text, so an identical opening lets the reporter fold the two into one line
                 // instead of spending its length budget saying it twice.
@@ -505,15 +549,17 @@ async fn run() -> Result<()> {
     } else {
         None
     };
-    let raw_pump = (!use_mf).then(|| tokio::spawn(frame_pump(rtc_source, width, height, fps)));
+    let raw_pump =
+        (!use_mf && !sharp).then(|| tokio::spawn(frame_pump(rtc_source, width, height, fps)));
 
     // "Published" is not "streaming": the track exists, but nothing is on it until the encoder
     // delivers. Announcing readiness before that is how a machine with no hardware encoder ends up
     // with the app committed to a stream that stays black forever.
     let mut startup_error = None;
     let mut no_frames = false;
-    let mut streaming = !use_mf;
-    if use_mf {
+    let waits_for_first_frame = use_mf || sharp;
+    let mut streaming = !waits_for_first_frame;
+    if waits_for_first_frame {
         tokio::select! {
             first = ready_rx => match first {
                 Ok(encoder) => {
@@ -587,7 +633,8 @@ async fn run() -> Result<()> {
         // The distinction it buys is the one an encode error cannot make alone — "this GPU exposes
         // no H264 encoder at all" and "the encoder is right there and refused our settings" reach
         // the operator as the same failed share otherwise.
-        let encoders = describe_hardware_encoders();
+        // Only the hardware path has encoders to describe; sharp's encoder is libwebrtc's own.
+        let encoders = if sharp { sharp_pump::ENCODER_NAME.to_string() } else { describe_hardware_encoders() };
         startup_error = Some(match died_rx.try_recv() {
             Ok(cause) => anyhow!("{cause} (no frames produced; {encoders})"),
             // The pump only returns Ok once `stop` is set, and that happens above — so reaching

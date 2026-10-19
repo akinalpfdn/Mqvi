@@ -30,7 +30,7 @@ func (s *stubVoiceService) GenerateToken(_ context.Context, _, _, _, _ string) (
 func (s *stubVoiceService) GenerateScreenShareToken(_ context.Context, _, _, _, _ string) (*models.VoiceTokenResponse, error) {
 	return nil, nil
 }
-func (s *stubVoiceService) RecordScreenShareFallback(_, _, _, _ string) {}
+func (s *stubVoiceService) RecordScreenShareFallback(_, _, _, _, _ string) {}
 func (s *stubVoiceService) RecordScreenShareStop(_, _, _, _ string, _ int64) {}
 func (s *stubVoiceService) RecordNoiseReductionFailure(_, _, _, _, _ string) {}
 func (s *stubVoiceService) GetAllVoiceStates() []models.VoiceState      { return s.all }
@@ -289,10 +289,10 @@ type recordingVoiceService struct {
 	calls []fallbackCall
 }
 
-type fallbackCall struct{ userID, channelID, reason, detail string }
+type fallbackCall struct{ userID, channelID, engine, reason, detail string }
 
-func (s *recordingVoiceService) RecordScreenShareFallback(userID, channelID, reason, detail string) {
-	s.calls = append(s.calls, fallbackCall{userID, channelID, reason, detail})
+func (s *recordingVoiceService) RecordScreenShareFallback(userID, channelID, engine, reason, detail string) {
+	s.calls = append(s.calls, fallbackCall{userID, channelID, engine, reason, detail})
 }
 
 func fallbackRequest(h *VoiceHandler, userID, body string) *httptest.ResponseRecorder {
@@ -331,6 +331,45 @@ func TestScreenShareFallback_RecordsAKnownReason(t *testing.T) {
 	// The detail is the whole point of the row — it is what says *why* the helper refused.
 	if got.detail != "no hardware encoder MFT available" {
 		t.Errorf("detail = %q, want the helper's message", got.detail)
+	}
+}
+
+// Two helper engines can fall back now; the row has to say which, or an HDR sharp failure reads as
+// a smooth one and sends the operator looking at hardware encoders.
+func TestScreenShareFallback_RecordsTheEngineThatFellBack(t *testing.T) {
+	h, svc := fallbackHandler()
+
+	rec := fallbackRequest(h, "u1", `{"channel_id":"ch1","engine":"sharp_hdr","reason":"helper_failed"}`)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("got %d, want 204", rec.Code)
+	}
+	if got := svc.calls[0].engine; got != "sharp_hdr" {
+		t.Errorf("engine = %q, want sharp_hdr", got)
+	}
+}
+
+// Clients from before the field only had smooth, and still send reports without it.
+func TestScreenShareFallback_ReadsAMissingEngineAsSmooth(t *testing.T) {
+	h, svc := fallbackHandler()
+
+	fallbackRequest(h, "u1", `{"channel_id":"ch1","reason":"helper_failed"}`)
+
+	if got := svc.calls[0].engine; got != "smooth" {
+		t.Errorf("engine = %q, want smooth", got)
+	}
+}
+
+func TestScreenShareFallback_RejectsAnEngineItDoesNotKnow(t *testing.T) {
+	h, svc := fallbackHandler()
+
+	rec := fallbackRequest(h, "u1", `{"channel_id":"ch1","engine":"<b>x</b>","reason":"helper_failed"}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("got %d, want 400", rec.Code)
+	}
+	if len(svc.calls) != 0 {
+		t.Fatalf("an unknown engine reached the log: %+v", svc.calls)
 	}
 }
 

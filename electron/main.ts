@@ -40,6 +40,7 @@ import { createCredentialStore } from "./credentialStore";
 import { createRedactor } from "./redact";
 import { createOutputTracker } from "./helperOutput";
 import { hdrActiveFrom, parseProbeAnswer, smoothSupportFrom, type ProbeAnswer } from "./helperProbe";
+import { engineArgs, type CaptureEngine } from "./captureArgs";
 
 /** Main application window reference */
 let mainWindow: BrowserWindow | null = null;
@@ -1438,7 +1439,8 @@ function setupIPC(): void {
     return hdrActiveFrom(await runHelperProbe("--probe-hdr"));
   });
 
-  // Spawns mqvi-game-capture.exe (WGC capture + hardware encode). It joins the LiveKit room as
+  // Spawns mqvi-game-capture.exe (WGC capture + hardware encode, or software VP9 for a sharp share
+  // on an HDR display — see captureArgs). It joins the LiveKit room as
   // the "{userId}_ss" screen-share identity using the screen-token, so other clients subscribe
   // to it exactly like any screen share. Connection + capture params come from the renderer.
   ipcMain.handle(
@@ -1451,9 +1453,13 @@ function setupIPC(): void {
         e2eePassphrase: string;
         sourceId?: string;
         maxHeight?: number;
+        engine?: CaptureEngine;
+        maxBitrate?: number;
       }
     ): Promise<{ started: boolean; error?: string }> => {
       if (process.platform !== "win32") return { started: false, error: "windows only" };
+      const engine = engineArgs(opts.engine, opts.maxBitrate);
+      if (!engine) return { started: false, error: "invalid engine or bitrate" };
 
       if (gameCaptureProcess) {
         const previous = gameCaptureProcess;
@@ -1476,7 +1482,7 @@ function setupIPC(): void {
       // The quality setting is a ceiling on the stream, not on the capture — the helper grabs the
       // source at its own size and scales down, so a 1440p monitor honours a 720p setting.
       const quality = opts.maxHeight ? ["--max-height", String(opts.maxHeight)] : [];
-      const args = [...target, ...quality, "--config-stdin"];
+      const args = [...target, ...quality, ...engine, "--config-stdin"];
 
       console.log(`[main] Starting game capture: ${exePath} ${args.join(" ")}`);
 

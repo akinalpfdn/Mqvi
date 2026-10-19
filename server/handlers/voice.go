@@ -20,7 +20,7 @@ import (
 type voiceHandlerService interface {
 	GenerateToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error)
 	GenerateScreenShareToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error)
-	RecordScreenShareFallback(userID, channelID, reason, detail string)
+	RecordScreenShareFallback(userID, channelID, engine, reason, detail string)
 	RecordScreenShareStop(userID, channelID, reason, detail string, aliveMs int64)
 	RecordNoiseReductionFailure(userID, channelID, engine, reason, detail string)
 	GetAllVoiceStates() []models.VoiceState
@@ -186,7 +186,8 @@ func (h *VoiceHandler) ScreenShareStop(w http.ResponseWriter, r *http.Request) {
 
 // ScreenShareFallback handles POST /api/servers/{serverId}/voice/screen-share-fallback
 //
-// The client reporting that "Akıcı Görüntü" could not start and it used "Net Görüntü" instead.
+// The client reporting that the native helper could not start — "Akıcı Görüntü", or "Net Görüntü"
+// on an HDR display — and it used the browser's "Net Görüntü" instead.
 // Every step that can fail there runs on the user's machine — the helper is missing, the GPU has
 // no encoder, the capture target vanished — so without this the operator cannot see it at all,
 // and the user cannot be asked to fetch a log.
@@ -222,6 +223,14 @@ func (h *VoiceHandler) ScreenShareFallback(w http.ResponseWriter, r *http.Reques
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "unknown reason")
 		return
 	}
+	engine := req.Engine
+	if engine == "" {
+		engine = "smooth"
+	}
+	if !models.ScreenShareFallbackEngines[engine] {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "unknown engine")
+		return
+	}
 	// The channel id has a known shape, so an oversized one is not our client — refuse it rather
 	// than trim it into something that looks like a real id.
 	if len(req.ChannelID) > models.ScreenShareChannelIDMax {
@@ -235,7 +244,7 @@ func (h *VoiceHandler) ScreenShareFallback(w http.ResponseWriter, r *http.Reques
 	// into a replacement character.
 	detail := truncateRunes(req.Detail, models.ScreenShareFallbackDetailMax)
 
-	h.voiceService.RecordScreenShareFallback(user.ID, req.ChannelID, req.Reason, detail)
+	h.voiceService.RecordScreenShareFallback(user.ID, req.ChannelID, engine, req.Reason, detail)
 	w.WriteHeader(http.StatusNoContent)
 }
 
