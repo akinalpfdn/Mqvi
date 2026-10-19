@@ -1056,11 +1056,15 @@ func (h *Hub) RevokeAuthSessionsExcept(userID string, keep ...string) {
 // very device asking, so it is closed silently — its reconnect presents a current token, and a
 // revoked one is refused there. The close is deferred, not waited for: the caller is an HTTP request.
 func (h *Hub) revokeConnections(userID string, match func(*Client) bool) {
+	// authSessionID is guarded by h.mu (RetagAuthSession writes it), so who gets told is decided here.
 	h.mu.RLock()
-	var targets []*Client
+	var targets, told []*Client
 	for client := range h.clients[userID] {
 		if match(client) {
 			targets = append(targets, client)
+			if client.authSessionID != "" {
+				told = append(told, client)
+			}
 		}
 	}
 	h.mu.RUnlock()
@@ -1072,10 +1076,8 @@ func (h *Hub) revokeConnections(userID string, match func(*Client) bool) {
 	if err != nil {
 		log.Printf("[ws] failed to marshal session_revoked: %v", err)
 	} else {
-		for _, c := range targets {
-			if c.authSessionID != "" {
-				c.trySend(data)
-			}
+		for _, c := range told {
+			c.trySend(data)
 		}
 	}
 	time.AfterFunc(serverShutdownGrace, func() {

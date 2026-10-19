@@ -153,3 +153,21 @@ func TestHandleConnection_ShouldRefuseATokenWhoseSessionWasSignedOut(t *testing.
 		t.Fatalf("status %d, want 401", rec.Code)
 	}
 }
+
+// A password change (retag) and a revoke for the same user can run at once; deciding who is told
+// must read authSessionID under the lock that retag writes it under. Meaningful under -race.
+func TestHub_ShouldNotRaceRetagAgainstRevoke(t *testing.T) {
+	h := NewHub()
+	h.unregister = make(chan *Client, 64)
+	for range 8 {
+		revocableClient(h, "u1", "s-old")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.RetagAuthSession("u1", "s-old", "s-new")
+	}()
+	h.RevokeAuthSessionsExcept("u1", "s-keep")
+	<-done
+}

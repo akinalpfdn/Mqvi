@@ -189,11 +189,17 @@ func (s *cleanupService) scheduleLoop(ctx context.Context) {
 
 	timer := time.NewTimer(firstWait)
 	defer timer.Stop()
+	// The encrypted refresh-token copy is only needed for the 60s grace window; an active device
+	// rotates every ~10 minutes, so left to the daily sweep it would sit in the DB nearly always.
+	pendingTicker := time.NewTicker(pendingClearInterval)
+	defer pendingTicker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-pendingTicker.C:
+			s.clearPendingTokens(ctx)
 		case <-timer.C:
 			runCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 			if runErr := s.RunOnce(runCtx); runErr != nil {
@@ -272,6 +278,18 @@ func (s *cleanupService) RunOnce(ctx context.Context) error {
 		"pending_cleared":    itoa(int(st.pendingCleared)),
 	})
 	return nil
+}
+
+const pendingClearInterval = time.Minute
+
+// clearPendingTokens drops encrypted refresh-token copies whose grace window has ended.
+func (s *cleanupService) clearPendingTokens(ctx context.Context) {
+	if s.sessions == nil {
+		return
+	}
+	if _, err := s.sessions.ClearPending(ctx, time.Now().UTC().Add(-refreshGraceWindow)); err != nil {
+		log.Printf("[cleanup] pending refresh token clear failed: %v", err)
+	}
 }
 
 func (s *cleanupService) pruneSessions(ctx context.Context, st *runStats) {
