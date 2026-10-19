@@ -37,11 +37,23 @@ function ScreenPicker() {
   const stopNativeSmoothCapture = useVoiceStore((s) => s.stopNativeSmoothCapture);
   const setPickedShareSourceId = useVoiceStore((s) => s.setPickedShareSourceId);
   const reportSmoothFallback = useVoiceStore((s) => s.reportSmoothFallback);
+  const smoothCaptureSupported = useVoiceStore((s) => s.smoothCaptureSupported);
+  const loadSmoothCaptureSupport = useVoiceStore((s) => s.loadSmoothCaptureSupport);
 
   // The helper is Windows-only. Offering the choice everywhere meant a macOS or Linux user could
   // pick "Akıcı Görüntü", get "Net Görüntü" on every single share, and never be told why — the
   // same silent lie this whole arc has been closing, just on a platform nobody here tests on.
-  const smoothAvailable = window.electronAPI?.platform === "win32";
+  const smoothOffered = window.electronAPI?.platform === "win32";
+  // A Windows machine with no hardware encoder is the same lie: every share tried the helper,
+  // waited for it to fail, and fell back with a warning. It is shown disabled there, with why.
+  const smoothAvailable = smoothOffered && smoothCaptureSupported !== false;
+  const effectiveMode = smoothAvailable ? screenShareMode : "sharp";
+
+  // Mounted for the app's lifetime (it hosts the picker IPC), so this asks once per launch, long
+  // before the first share.
+  useEffect(() => {
+    void loadSmoothCaptureSupport();
+  }, [loadSmoothCaptureSupport]);
 
   useEffect(() => {
     const api = window.electronAPI;
@@ -102,6 +114,7 @@ function ScreenPicker() {
     },
     [
       startingId,
+      smoothAvailable,
       screenShareMode,
       startNativeSmoothCapture,
       stopNativeSmoothCapture,
@@ -211,19 +224,22 @@ function ScreenPicker() {
         <div className="sp-footer">
           {/* Hidden where the helper cannot run: a choice that silently resolves to the same thing
               either way is worse than no choice. */}
-          {smoothAvailable && (
+          {smoothOffered && (
             <div className="sp-mode">
               <span className="sp-audio-label">{t("screenModeLabel")}</span>
               <div className="sp-mode-opts">
                 <button
-                  className={`sp-mode-opt${screenShareMode === "smooth" ? " sp-mode-opt-active" : ""}`}
+                  className={`sp-mode-opt${effectiveMode === "smooth" ? " sp-mode-opt-active" : ""}`}
                   onClick={() => setScreenShareMode("smooth")}
+                  disabled={!smoothAvailable}
                 >
                   <span className="sp-mode-name">{t("screenModeSmooth")}</span>
-                  <span className="sp-mode-hint">{t("screenModeSmoothHint")}</span>
+                  <span className="sp-mode-hint">
+                    {smoothAvailable ? t("screenModeSmoothHint") : t("screenModeSmoothUnavailable")}
+                  </span>
                 </button>
                 <button
-                  className={`sp-mode-opt${screenShareMode === "sharp" ? " sp-mode-opt-active" : ""}`}
+                  className={`sp-mode-opt${effectiveMode === "sharp" ? " sp-mode-opt-active" : ""}`}
                   onClick={() => setScreenShareMode("sharp")}
                 >
                   <span className="sp-mode-name">{t("screenModeSharp")}</span>

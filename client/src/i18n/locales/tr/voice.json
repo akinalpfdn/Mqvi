@@ -10,6 +10,7 @@
   "screenModeLabel": "Görüntü",
   "screenModeSmooth": "Akıcı Görüntü",
   "screenModeSmoothHint": "oyun, film, video",
+  "screenModeSmoothUnavailable": "bu bilgisayarda donanım kodlayıcı yok",
   "screenModeSharp": "Net Görüntü",
   "screenModeSharpHint": "metin, kod, sunum",
   "smoothCaptureStopped": "Akıcı Görüntü beklenmedik şekilde durdu. Ekran paylaşımı sona erdi.",

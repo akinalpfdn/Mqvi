@@ -63,17 +63,23 @@ struct Args {
     #[arg(long)]
     config_stdin: bool,
 
+    /// Check whether this machine can hardware-encode, print `{"h264":bool,"h265":bool}` on one
+    /// line and exit. The app runs it once per launch to decide whether to offer "Akıcı Görüntü",
+    /// instead of letting every share try the helper and fall back.
+    #[arg(long)]
+    probe_encoders: bool,
+
     /// LiveKit server URL (from the screen-token response `url`).
-    #[arg(long, env = "LK_URL", required_unless_present = "config_stdin")]
+    #[arg(long, env = "LK_URL", required_unless_present_any = ["config_stdin", "probe_encoders"])]
     url: Option<String>,
 
     /// LiveKit access token for the "{userId}_ss" identity (screen-token `token`).
-    #[arg(long, env = "LK_TOKEN", required_unless_present = "config_stdin")]
+    #[arg(long, env = "LK_TOKEN", required_unless_present_any = ["config_stdin", "probe_encoders"])]
     token: Option<String>,
 
     /// Room E2EE passphrase (screen-token `e2eePassphrase`). Must equal what the
     /// app clients passed to ExternalE2EEKeyProvider.setKey for this room.
-    #[arg(long, env = "LK_E2EE_KEY", required_unless_present = "config_stdin")]
+    #[arg(long, env = "LK_E2EE_KEY", required_unless_present_any = ["config_stdin", "probe_encoders"])]
     e2ee_key: Option<String>,
 
     /// Frame width (kept even for I420 chroma subsampling).
@@ -192,6 +198,17 @@ impl Connection {
 }
 
 /// "x,y,width,height" → (x, y, width, height).
+/// Builds a real encoder at the settings a share uses, not just lists them: an encoder can be listed
+/// and still refuse the configuration (see `create_hw_encoder`), and that machine cannot share
+/// smoothly either.
+fn probe_encoders() -> String {
+    if HwEncoder::startup().is_err() {
+        return r#"{"h264":false,"h265":false}"#.to_string();
+    }
+    let works = |hevc: bool| HwEncoder::new(1920, 1080, 30, 6_000_000, hevc).is_ok();
+    format!(r#"{{"h264":{},"h265":{}}}"#, works(false), works(true))
+}
+
 fn parse_rect(s: &str) -> Result<(i32, i32, i32, i32)> {
     let n: Vec<i32> = s
         .split(',')
@@ -288,6 +305,10 @@ async fn run() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let args = Args::parse();
+    if args.probe_encoders {
+        println!("{}", probe_encoders());
+        return Ok(());
+    }
     // Read before anything slow: the app writes this line right after spawning us.
     let conn = Connection::resolve(&args)?;
     let mut width = args.width & !1; // force even

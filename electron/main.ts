@@ -1385,6 +1385,55 @@ function setupIPC(): void {
   });
 
   // ─── Native Game Capture ───
+  const gameCaptureExePath = () =>
+    process.env.NODE_ENV === "development" || !app.isPackaged
+      ? path.join(app.getAppPath(), "native", "mqvi-game-capture.exe")
+      : path.join(process.resourcesPath, "native", "mqvi-game-capture.exe");
+
+  // Whether this machine can hardware-encode, asked of the helper once per launch and kept in
+  // memory: it is a property of this machine (GPU, driver), not of the account, and it can change
+  // with a new GPU or driver — a stored answer could go stale, a launch-time one cannot.
+  // null = the probe could not answer; the renderer then keeps offering "Akıcı Görüntü" as before.
+  let smoothCaptureSupport: Promise<boolean | null> | null = null;
+  const probeSmoothCapture = (): Promise<boolean | null> =>
+    new Promise((resolve) => {
+      let child: ChildProcess;
+      try {
+        child = spawn(gameCaptureExePath(), ["--probe-encoders"], { stdio: ["ignore", "pipe", "ignore"] });
+      } catch {
+        resolve(null);
+        return;
+      }
+      let out = "";
+      const timer = setTimeout(() => {
+        child.kill();
+        resolve(null);
+      }, 10_000);
+      child.stdout?.on("data", (chunk: Buffer) => {
+        out += chunk.toString();
+      });
+      child.on("error", () => {
+        clearTimeout(timer);
+        resolve(null);
+      });
+      child.on("exit", () => {
+        clearTimeout(timer);
+        try {
+          const lines = out.trim().split(/\r?\n/);
+          const answer = JSON.parse(lines[lines.length - 1]) as { h264?: boolean; h265?: boolean };
+          resolve(Boolean(answer.h264 || answer.h265));
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+
+  ipcMain.handle("get-smooth-capture-support", () => {
+    if (process.platform !== "win32") return false;
+    smoothCaptureSupport ??= probeSmoothCapture();
+    return smoothCaptureSupport;
+  });
+
   // Spawns mqvi-game-capture.exe (WGC capture + hardware encode). It joins the LiveKit room as
   // the "{userId}_ss" screen-share identity using the screen-token, so other clients subscribe
   // to it exactly like any screen share. Connection + capture params come from the renderer.
@@ -1418,10 +1467,7 @@ function setupIPC(): void {
       }
       if (thisGen !== gameCaptureGeneration) return { started: false, error: "superseded" };
 
-      const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
-      const exePath = isDev
-        ? path.join(app.getAppPath(), "native", "mqvi-game-capture.exe")
-        : path.join(process.resourcesPath, "native", "mqvi-game-capture.exe");
+      const exePath = gameCaptureExePath();
 
       // The quality setting is a ceiling on the stream, not on the capture — the helper grabs the
       // source at its own size and scales down, so a 1440p monitor honours a 720p setting.

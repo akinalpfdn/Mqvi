@@ -100,6 +100,8 @@ interface ElectronAPI {
     maxHeight: number;
   }) => Promise<{ started: boolean; error?: string }>;
   stopGameCapture: () => Promise<void>;
+  /** Whether this machine can hardware-encode ("Akıcı Görüntü"); null if it could not be told. */
+  getSmoothCaptureSupport: () => Promise<boolean | null>;
   onGameCaptureStopped: (cb: (code: number) => void) => void;
   removeGameCaptureListeners: () => void;
 

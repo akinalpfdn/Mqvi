@@ -121,6 +121,13 @@ type VoiceCoreState = {
   isStreaming: boolean;
   /** "Akıcı Görüntü" engine is live: the native capture helper is publishing {userId}_ss */
   isNativeCapturing: boolean;
+  /**
+   * Whether this machine can hardware-encode — "Akıcı Görüntü" needs it. null until asked, or if
+   * the probe could not answer (then it is offered as before). Never persisted: it belongs to this
+   * machine, while the smooth/sharp preference is the account's and stays untouched.
+   */
+  smoothCaptureSupported: boolean | null;
+  loadSmoothCaptureSupport: () => Promise<void>;
   /** desktopCapturer id of the source being shared ("window:<HWND>:0" / "screen:<id>:0").
    *  Set by the picker; the audio capture needs it to scope itself to the share. */
   pickedShareSourceId: string | null;
@@ -208,6 +215,7 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
   isDeafened: initialMuteState.isDeafened,
   isStreaming: false,
   isNativeCapturing: false,
+  smoothCaptureSupported: null,
   pickedShareSourceId: null,
   isServerMuted: false,
   isServerDeafened: false,
@@ -471,6 +479,16 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
     // sharing concept, two engines — so nothing to broadcast here.
     set({ isNativeCapturing: true });
     return { ok: true };
+  },
+
+  loadSmoothCaptureSupport: async () => {
+    const api = window.electronAPI;
+    if (api?.platform !== "win32") {
+      set({ smoothCaptureSupported: false });
+      return;
+    }
+    const supported = await api.getSmoothCaptureSupport().catch(() => null);
+    set({ smoothCaptureSupported: supported });
   },
 
   reportSmoothFallback: (failure) => {

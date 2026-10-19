@@ -15,6 +15,7 @@ export function useGameDetection(isInVoice: boolean) {
 
   const screenShareMode = useVoiceStore((s) => s.screenShareMode);
   const startNativeSmoothCapture = useVoiceStore((s) => s.startNativeSmoothCapture);
+  const smoothCaptureSupported = useVoiceStore((s) => s.smoothCaptureSupported);
   const reportSmoothFallback = useVoiceStore((s) => s.reportSmoothFallback);
   const setPickedShareSourceId = useVoiceStore((s) => s.setPickedShareSourceId);
 
@@ -54,7 +55,8 @@ export function useGameDetection(isInVoice: boolean) {
       setIsStarting(true);
 
       try {
-        if (screenShareMode === "smooth") {
+        // Same gate as the picker: no hardware encoder, no helper attempt and no fallback warning.
+        if (screenShareMode === "smooth" && smoothCaptureSupported !== false) {
           const result = await startNativeSmoothCapture(game.sourceId);
           if (result.ok) {
             setPickedShareSourceId(game.sourceId);
@@ -77,7 +79,7 @@ export function useGameDetection(isInVoice: boolean) {
         setIsStarting(false);
       }
     },
-    [game, isStarting, screenShareMode, startNativeSmoothCapture, reportSmoothFallback, setPickedShareSourceId]
+    [game, isStarting, screenShareMode, smoothCaptureSupported, startNativeSmoothCapture, reportSmoothFallback, setPickedShareSourceId]
   );
 
   return { game, isStarting, shareGame };

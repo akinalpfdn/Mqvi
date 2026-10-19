@@ -10,6 +10,7 @@
   "screenModeLabel": "Video",
   "screenModeSmooth": "Smooth Video",
   "screenModeSmoothHint": "games, films, video",
+  "screenModeSmoothUnavailable": "no hardware encoder on this computer",
   "screenModeSharp": "Sharp Video",
   "screenModeSharpHint": "text, code, presentations",
   "smoothCaptureStopped": "Smooth Video stopped unexpectedly. Screen sharing has ended.",
