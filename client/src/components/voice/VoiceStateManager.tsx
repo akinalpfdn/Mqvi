@@ -61,9 +61,9 @@ function createProcessor(
 }
 
 /**
- * Reports a browser-engine share that ended without the stop button. The voice channel's own
- * server, not the one on screen: the user may be browsing another server while in voice. Helper
- * engines report their own — see voiceStore.endNativeCaptureByHelper.
+ * Reports a share started here — the browser's or the phone's — that ended without the stop button.
+ * The voice channel's own server, not the one on screen: the user may be browsing another server
+ * while in voice. Helper engines report their own — see voiceStore.endNativeCaptureByHelper.
  */
 function reportShareStoppedItself(
   reason: voiceApi.ScreenShareStopReason,
@@ -138,7 +138,7 @@ function VoiceStateManager() {
   systemAudioCaptureRef.current = systemAudioCapture;
 
   const customAudioPubRef = useRef<LocalTrackPublication | null>(null);
-  /** When the current browser-engine share went live; null while none is. */
+  /** When the current browser or phone share went live; null while none is. */
   const sharePublishedAtRef = useRef<number | null>(null);
   /** Which run of the screen-share audio effect owns the capture process — see that effect. */
   const audioRunRef = useRef(0);
@@ -173,6 +173,7 @@ function VoiceStateManager() {
           }
 
           await startNativeScreenShare(response.data.url, response.data.token);
+          if (!cancelled) sharePublishedAtRef.current = Date.now();
         } else {
           const ssq = useVoiceStore.getState().screenShareQuality;
           const ssRes = ssq === "720p"
@@ -362,9 +363,12 @@ function VoiceStateManager() {
     let removeListener: (() => void) | null = null;
 
     onNativeScreenShareStopped(() => {
-      // Sync store state — native screen share was stopped externally
+      // Sync store state — native screen share was stopped externally (Control Center on iOS, the
+      // system notification on Android). Stopping it from the app clears isStreaming first, so a
+      // share still marked live here ended on its own — reported like the browser's.
       const { isStreaming: currentlyStreaming } = useVoiceStore.getState();
       if (currentlyStreaming) {
+        reportShareStoppedItself("track_ended", sharePublishedAtRef.current, undefined, "mobile");
         useVoiceStore.getState().setStreaming(false);
       }
     }).then((cleanup) => {

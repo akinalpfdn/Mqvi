@@ -434,9 +434,8 @@ func TestScreenShareFallback_IsRateLimitedWithTheTokenEndpoint(t *testing.T) {
 	}
 }
 
-// Both fields a member controls are bounded before anything reaches app_logs, and no
-// MaxBytesReader caps a JSON body on this route — the reason whitelist alone would have left
-// channel_id as an unbounded write into the operator's log.
+// Both fields a member controls are bounded before anything reaches app_logs — the reason
+// whitelist alone would have left channel_id as an unbounded write into the operator's log.
 func TestScreenShareFallback_RejectsAnOversizedChannelID(t *testing.T) {
 	h, svc := fallbackHandler()
 	long := strings.Repeat("c", models.ScreenShareChannelIDMax+1)
@@ -753,7 +752,7 @@ func stopRequest(t *testing.T, body string) (*httptest.ResponseRecorder, *stopRe
 	t.Helper()
 	svc := &stopRecordingService{}
 	h := &VoiceHandler{voiceService: svc, urlSigner: passthroughSigner{},
-		screenShareRL: ratelimit.NewMessageRateLimiter(20, time.Minute, time.Minute)}
+		screenShareStopRL: ratelimit.NewMessageRateLimiter(20, time.Minute, time.Minute)}
 	req := httptest.NewRequest(http.MethodPost, "/api/servers/s1/voice/screen-share-stopped", strings.NewReader(body))
 	req.SetPathValue("serverId", "s1")
 	req = req.WithContext(context.WithValue(req.Context(), ctxkeys.User, &models.User{ID: "u1", Username: "u"}))
@@ -804,6 +803,41 @@ func TestScreenShareStop_ShouldReadAMissingEngineAsBrowser(t *testing.T) {
 
 func TestScreenShareStop_ShouldRejectAnEngineOutsideTheClosedSet(t *testing.T) {
 	rec, svc := stopRequest(t, `{"channel_id":"ch1","engine":"<i>x</i>","reason":"track_ended","alive_ms":1}`)
+
+	if rec.Code != http.StatusBadRequest || svc.calls != 0 {
+		t.Fatalf("status %d, calls %d", rec.Code, svc.calls)
+	}
+}
+
+// A share that keeps dying costs a token and a stop report per attempt. The reports must not come
+// out of the token bucket, or ten broken attempts lock the user out of the eleventh.
+func TestScreenShareStop_ShouldNotSpendTheScreenShareTokenBudget(t *testing.T) {
+	svc := &stopRecordingService{}
+	tokens := ratelimit.NewMessageRateLimiter(2, time.Minute, time.Minute)
+	h := &VoiceHandler{voiceService: svc, urlSigner: passthroughSigner{}, screenShareRL: tokens,
+		screenShareStopRL: ratelimit.NewMessageRateLimiter(20, time.Minute, time.Minute)}
+
+	for i := 0; i < 5; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/servers/s1/voice/screen-share-stopped",
+			strings.NewReader(`{"channel_id":"ch1","reason":"helper_exited","alive_ms":900}`))
+		req = req.WithContext(context.WithValue(req.Context(), ctxkeys.User, &models.User{ID: "u1", Username: "u"}))
+		h.ScreenShareStop(httptest.NewRecorder(), req)
+	}
+
+	if svc.calls != 5 {
+		t.Fatalf("recorded %d stop reports, want 5", svc.calls)
+	}
+	if !tokens.Allow("u1") {
+		t.Fatal("stop reports spent the screen-share token budget")
+	}
+}
+
+// The decoder reads the whole body before any field is bounded; an oversized one is refused
+// before it is held in memory.
+func TestScreenShareStop_ShouldRefuseAnOversizedBody(t *testing.T) {
+	body := `{"channel_id":"ch1","reason":"track_ended","alive_ms":1,"detail":"` +
+		strings.Repeat("A", models.VoiceReportBodyMax) + `"}`
+	rec, svc := stopRequest(t, body)
 
 	if rec.Code != http.StatusBadRequest || svc.calls != 0 {
 		t.Fatalf("status %d, calls %d", rec.Code, svc.calls)

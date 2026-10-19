@@ -27,23 +27,26 @@ type voiceHandlerService interface {
 }
 
 type VoiceHandler struct {
-	voiceService     voiceHandlerService
-	urlSigner        services.FileURLSigner
-	screenShareRL    *ratelimit.MessageRateLimiter
-	noiseReductionRL *ratelimit.MessageRateLimiter
+	voiceService      voiceHandlerService
+	urlSigner         services.FileURLSigner
+	screenShareRL     *ratelimit.MessageRateLimiter
+	screenShareStopRL *ratelimit.MessageRateLimiter
+	noiseReductionRL  *ratelimit.MessageRateLimiter
 }
 
 func NewVoiceHandler(
 	voiceService services.VoiceService,
 	urlSigner services.FileURLSigner,
 	screenShareRL *ratelimit.MessageRateLimiter,
+	screenShareStopRL *ratelimit.MessageRateLimiter,
 	noiseReductionRL *ratelimit.MessageRateLimiter,
 ) *VoiceHandler {
 	return &VoiceHandler{
-		voiceService:     voiceService,
-		urlSigner:        urlSigner,
-		screenShareRL:    screenShareRL,
-		noiseReductionRL: noiseReductionRL,
+		voiceService:      voiceService,
+		urlSigner:         urlSigner,
+		screenShareRL:     screenShareRL,
+		screenShareStopRL: screenShareStopRL,
+		noiseReductionRL:  noiseReductionRL,
 	}
 }
 
@@ -146,22 +149,25 @@ func truncateRunes(s string, n int) string {
 
 // ScreenShareStop handles POST /api/servers/{serverId}/voice/screen-share-stopped
 //
-// The client reporting that a share, on any engine, ended without the stop button. Same guards
-// and the same bucket as the fallback report: one attempt, at most one row.
+// The client reporting that a share, on any engine, ended without the stop button. Same guards as
+// the fallback report, but its own bucket: a share that keeps dying costs a token and a stop report
+// per attempt, and spending the token bucket on the reports would lock exactly those users out of
+// sharing — the ones the token bucket is generous for.
 func (h *VoiceHandler) ScreenShareStop(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
 	if !ok {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
-	if h.screenShareRL != nil && !h.screenShareRL.Allow(user.ID) {
-		retryAfter := h.screenShareRL.CooldownSeconds(user.ID)
+	if h.screenShareStopRL != nil && !h.screenShareStopRL.Allow(user.ID) {
+		retryAfter := h.screenShareStopRL.CooldownSeconds(user.ID)
 		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
-		pkg.ErrorWithMessage(w, http.StatusTooManyRequests, "too many screen share requests")
+		pkg.ErrorWithMessage(w, http.StatusTooManyRequests, "too many screen share reports")
 		return
 	}
 
 	var req models.ScreenShareStopRequest
+	r.Body = http.MaxBytesReader(w, r.Body, models.VoiceReportBodyMax)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -217,13 +223,14 @@ func (h *VoiceHandler) ScreenShareFallback(w http.ResponseWriter, r *http.Reques
 	}
 
 	var req models.ScreenShareFallbackRequest
+	r.Body = http.MaxBytesReader(w, r.Body, models.VoiceReportBodyMax)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	// Both member-controlled fields are bounded before anything reaches app_logs, and no
-	// MaxBytesReader caps a JSON body on this route.
+	// Both member-controlled fields are bounded before anything reaches app_logs; the body cap
+	// above only stops the decoder reading an unbounded body into memory.
 	//
 	// Closed set for the reason: an unvalidated one would let any member write arbitrary content
 	// into the operator's log and make the category unscannable by cause.
@@ -281,6 +288,7 @@ func (h *VoiceHandler) NoiseReductionFailure(w http.ResponseWriter, r *http.Requ
 	}
 
 	var req models.NoiseReductionFailureRequest
+	r.Body = http.MaxBytesReader(w, r.Body, models.VoiceReportBodyMax)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
 		return

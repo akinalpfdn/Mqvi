@@ -66,8 +66,9 @@ var ScreenShareFallbackEngines = map[string]bool{
 	"sharp_hdr": true, // "Sharp Video" on an HDR display: software VP9 after tone-mapping
 }
 
-// ScreenShareStopRequest is the client saying a share ended without the user pressing stop. Like the fallback above, everything that ends it happens on the user's machine, so without
-// this report nothing reaches the server at all.
+// ScreenShareStopRequest is the client saying a share ended without the user pressing stop. Like the
+// fallback above, everything that ends it happens on the user's machine, so without this report
+// nothing reaches the server at all.
 type ScreenShareStopRequest struct {
 	ChannelID string `json:"channel_id"`
 	// Engine is which engine carried the share, from ScreenShareStopEngines. Empty means browser:
@@ -106,6 +107,11 @@ const ScreenShareShortLivedMs = 10_000
 // ScreenShareFallbackDetailMax is how much of Detail survives: long enough for a helper error,
 // short enough that a member cannot use the field as storage.
 const ScreenShareFallbackDetailMax = 200
+
+// VoiceReportBodyMax caps the body of the client reports (screen-share fallback and stop, noise
+// reduction failure). Their fields are bounded after decoding, but the decoder reads the whole body
+// first; an honest report is a few hundred bytes, so this leaves ample room and nothing more.
+const VoiceReportBodyMax = 4 << 10
 
 // ScreenShareChannelIDMax bounds the other field a member controls. Channel ids are 16 hex chars
 // (`lower(hex(randomblob(8)))`); this is generous room around that, and the point is only that the

@@ -93,6 +93,9 @@ type RateLimiters struct {
 	// Screen-share token minting. Every call costs either a 4-hour JWT or an app_logs row, and
 	// nothing else bounded it.
 	ScreenShare *ratelimit.MessageRateLimiter
+	// Screen-share stop reports. Not the token bucket: a share that keeps dying would spend it on
+	// reports and lock its user out of the next attempt.
+	ScreenShareStop *ratelimit.MessageRateLimiter
 	// Its own bucket: this report follows no minted credential and a processor swap is cheap to
 	// trigger, so it must not be able to spend the screen-share budget.
 	NoiseReduction *ratelimit.MessageRateLimiter
@@ -319,6 +322,9 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	// and an attach only happens on a mode change or a track publish. Ten a minute is already far
 	// more than any honest client produces.
 	noiseReductionLimiter := ratelimit.NewMessageRateLimiter(10, 1*time.Minute, 30*time.Second)
+	// One report per share that ends without the stop button. A user retrying a broken share every
+	// few seconds stays well inside this; a loop does not.
+	screenShareStopLimiter := ratelimit.NewMessageRateLimiter(20, 1*time.Minute, 30*time.Second)
 	// Both clients coalesce mark-read to at most ~1/s per conversation, so even a split view with
 	// several chats open and the window being focused repeatedly stays far under this. A loop does
 	// not. Separate buckets so neither path can spend the other's tokens.
@@ -381,21 +387,22 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	}
 
 	limiters := &RateLimiters{
-		Login:          loginLimiter,
-		Message:        messageLimiter,
-		Register:       registerLimiter,
-		ForgotPwd:      forgotPwdLimiter,
-		ResetPwd:       resetPwdLimiter,
-		Feedback:       feedbackLimiter,
-		Report:         reportLimiter,
-		ICE:            iceLimiter,
-		Hangup:         hangupLimiter,
-		Discovery:      discoveryLimiter,
-		ScreenShare:    screenShareLimiter,
-		NoiseReduction: noiseReductionLimiter,
-		DMRead:         dmReadLimiter,
-		ChannelRead:    channelReadLimiter,
-		SessionRevoke:  ratelimit.NewLoginRateLimiter(10, time.Minute),
+		Login:           loginLimiter,
+		Message:         messageLimiter,
+		Register:        registerLimiter,
+		ForgotPwd:       forgotPwdLimiter,
+		ResetPwd:        resetPwdLimiter,
+		Feedback:        feedbackLimiter,
+		Report:          reportLimiter,
+		ICE:             iceLimiter,
+		Hangup:          hangupLimiter,
+		Discovery:       discoveryLimiter,
+		ScreenShare:     screenShareLimiter,
+		ScreenShareStop: screenShareStopLimiter,
+		NoiseReduction:  noiseReductionLimiter,
+		DMRead:          dmReadLimiter,
+		ChannelRead:     channelReadLimiter,
+		SessionRevoke:   ratelimit.NewLoginRateLimiter(10, time.Minute),
 		// A real failure reports once per login attempt; a handful an hour is plenty.
 		CredentialStore: ratelimit.NewMessageRateLimiter(5, time.Hour, time.Hour),
 	}
