@@ -87,14 +87,14 @@ describe("reportNativeFallback", () => {
   const failure = { ok: false, reason: "helper_failed", serverId: "s1", channelId: "c1" } as const;
 
   it("should tell the user the HDR correction did not start, not that smooth did not", () => {
-    useVoiceStore.getState().reportNativeFallback({ ...failure, engine: "sharp_hdr" });
+    useVoiceStore.getState().reportNativeFallback({ ...failure, engine: "sharp_hdr" as const });
 
     expect(useToastStore.getState().toasts.map((t) => t.message)).toEqual(["voice:hdrSharpFellBack"]);
     expect(voiceApi.reportScreenShareFallback).toHaveBeenCalledWith("s1", "c1", "sharp_hdr", "helper_failed", undefined);
   });
 
   it("should keep the smooth wording for smooth", () => {
-    useVoiceStore.getState().reportNativeFallback({ ...failure, engine: "smooth" });
+    useVoiceStore.getState().reportNativeFallback({ ...failure, engine: "smooth" as const });
 
     expect(useToastStore.getState().toasts.map((t) => t.message)).toEqual(["voice:smoothFellBackToSharp"]);
   });

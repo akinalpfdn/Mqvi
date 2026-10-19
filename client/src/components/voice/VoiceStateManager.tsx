@@ -19,6 +19,7 @@ import type {
   RemoteParticipant,
 } from "livekit-client";
 import { useVoiceStore } from "../../stores/voiceStore";
+import { shouldReceiveMic as receiveMic } from "../../utils/micSubscription";
 import type { NoiseReductionMode } from "../../stores/slices/voiceSettingsSlice";
 import { usePushToTalk } from "../../hooks/usePushToTalk";
 import { RNNoiseProcessor } from "../../audio/RNNoiseProcessor";
@@ -72,6 +73,11 @@ function reportShareStoppedItself(
   if (!serverId || !currentVoiceChannelId) return;
   const aliveMs = startedAt === null ? 0 : Date.now() - startedAt;
   void voiceApi.reportScreenShareStop(serverId, currentVoiceChannelId, reason, aliveMs, detail);
+}
+
+/** See utils/micSubscription — a silenced mic is never received, or it plays for ~1s on join. */
+function shouldReceiveMic(identity: string): boolean {
+  return receiveMic(useVoiceStore.getState(), identity);
 }
 
 function VoiceStateManager() {
@@ -380,24 +386,22 @@ function VoiceStateManager() {
     function handleConnected() {
       // PTT: mic starts disabled. Voice activity: respect store isMuted + server mute.
       const { isMuted: currentMuted, inputMode: currentMode, isServerMuted: srvMuted,
-              isDeafened: deaf, isServerDeafened: srvDeaf,
               watchingScreenShares: wsShares } = useVoiceStore.getState();
       const shouldEnable = currentMode === "push_to_talk" ? false : (!currentMuted && !srvMuted);
-      const fullyDeaf = deaf || srvDeaf;
 
       localParticipant.setMicrophoneEnabled(shouldEnable).catch((err: unknown) => {
         console.error("[VoiceStateManager] Failed to set initial mic state:", err);
       });
 
       // With autoSubscribe=false, nothing is subscribed by default. Subscribe
-      // existing participants' mic (if not deafened) and any screen shares the
+      // existing participants' mic (unless deafened or muted for us) and any screen shares the
       // user has opted into. Screen share stays unsubscribed by default.
       room.remoteParticipants.forEach((p) => {
         const watching = wsShares[resolveUserId(p.identity)] ?? false;
         p.trackPublications.forEach((pub) => {
           const rpub = pub as RemoteTrackPublication;
           if (pub.source === Track.Source.Microphone) {
-            rpub.setSubscribed(!fullyDeaf);
+            rpub.setSubscribed(shouldReceiveMic(p.identity));
           } else if (
             pub.source === Track.Source.ScreenShare ||
             pub.source === Track.Source.ScreenShareAudio
@@ -436,11 +440,11 @@ function VoiceStateManager() {
           participant.setVolume(fullyDeaf ? 0 : (ssVol / 100) * masterFactor, Track.Source.ScreenShareAudio);
 
           // Restore subscription state.
-          // Mic: follow deafen. Screen share: follow user opt-in.
+          // Mic: follow deafen and local mute. Screen share: follow user opt-in.
           const watching = wsShares[resolveUserId(participant.identity)] ?? false;
           participant.trackPublications.forEach((pub) => {
             if (pub.source === Track.Source.Microphone) {
-              (pub as RemoteTrackPublication).setSubscribed(!fullyDeaf);
+              (pub as RemoteTrackPublication).setSubscribed(shouldReceiveMic(participant.identity));
             } else if (
               pub.source === Track.Source.ScreenShare ||
               pub.source === Track.Source.ScreenShareAudio
@@ -940,9 +944,8 @@ function VoiceStateManager() {
   // Screen share tracks are manually controlled: unsubscribe on publish,
   // subscribe when user clicks in sidebar.
   //
-  // Microphone tracks are also controlled: when deafened we refuse the
-  // subscription entirely — setting volume=0 has a ~1s window where the
-  // audio element plays at its native volume before webAudioMix attaches.
+  // Microphone tracks are also controlled: when deafened, or a participant is at volume 0 (local
+  // mute), we refuse the subscription entirely — see shouldReceiveMic.
 
   // Effect A: Explicitly subscribe newly published tracks.
   // With autoSubscribe=false, nothing subscribes unless we say so.
@@ -959,8 +962,7 @@ function VoiceStateManager() {
         const watching = useVoiceStore.getState().watchingScreenShares[resolveUserId(participant.identity)] ?? false;
         publication.setSubscribed(watching);
       } else if (publication.source === Track.Source.Microphone) {
-        const { isDeafened: deaf, isServerDeafened: srvDeaf } = useVoiceStore.getState();
-        publication.setSubscribed(!(deaf || srvDeaf));
+        publication.setSubscribed(shouldReceiveMic(participant.identity));
       }
     }
 
@@ -970,18 +972,29 @@ function VoiceStateManager() {
     };
   }, [room]);
 
-  // Effect C: Toggle microphone subscriptions when deafen state changes.
+  // Effect C: Toggle microphone subscriptions when deafen or local mute changes.
   // Also applies on (re)mount — handles the "join already deafened" case
   // where existing participants' mic tracks would otherwise auto-subscribe.
+  //
+  // Keyed on who is silenced, not on the volumes themselves: every setSubscribed is a signal message,
+  // and dragging a volume slider must not send one per step.
+  const silencedMics = useVoiceStore((s) =>
+    Object.keys(s.userVolumes)
+      .filter((id) => s.userVolumes[id] === 0)
+      .sort()
+      .join(",")
+  );
+  const isMasterSilent = masterVolume === 0;
   useEffect(() => {
     room.remoteParticipants.forEach((participant) => {
+      const receive = shouldReceiveMic(participant.identity);
       participant.trackPublications.forEach((pub) => {
         if (pub.source === Track.Source.Microphone) {
-          (pub as RemoteTrackPublication).setSubscribed(!effectiveDeafened);
+          (pub as RemoteTrackPublication).setSubscribed(receive);
         }
       });
     });
-  }, [effectiveDeafened, room]);
+  }, [effectiveDeafened, silencedMics, isMasterSilent, room]);
 
   // Sync isStreaming when screen share track is lost (reconnect, SFU drop).
   // Without this, store stays isStreaming=true but track is gone — user has
