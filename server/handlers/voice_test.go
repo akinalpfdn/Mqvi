@@ -30,7 +30,8 @@ func (s *stubVoiceService) GenerateToken(_ context.Context, _, _, _, _ string) (
 func (s *stubVoiceService) GenerateScreenShareToken(_ context.Context, _, _, _, _ string) (*models.VoiceTokenResponse, error) {
 	return nil, nil
 }
-func (s *stubVoiceService) RecordScreenShareFallback(_, _, _, _ string) {}
+func (s *stubVoiceService) RecordScreenShareFallback(_, _, _, _, _ string) {}
+func (s *stubVoiceService) RecordScreenShareStop(_, _, _, _, _ string, _ int64) {}
 func (s *stubVoiceService) RecordNoiseReductionFailure(_, _, _, _, _ string) {}
 func (s *stubVoiceService) GetAllVoiceStates() []models.VoiceState      { return s.all }
 
@@ -288,10 +289,10 @@ type recordingVoiceService struct {
 	calls []fallbackCall
 }
 
-type fallbackCall struct{ userID, channelID, reason, detail string }
+type fallbackCall struct{ userID, channelID, engine, reason, detail string }
 
-func (s *recordingVoiceService) RecordScreenShareFallback(userID, channelID, reason, detail string) {
-	s.calls = append(s.calls, fallbackCall{userID, channelID, reason, detail})
+func (s *recordingVoiceService) RecordScreenShareFallback(userID, channelID, engine, reason, detail string) {
+	s.calls = append(s.calls, fallbackCall{userID, channelID, engine, reason, detail})
 }
 
 func fallbackRequest(h *VoiceHandler, userID, body string) *httptest.ResponseRecorder {
@@ -330,6 +331,45 @@ func TestScreenShareFallback_RecordsAKnownReason(t *testing.T) {
 	// The detail is the whole point of the row — it is what says *why* the helper refused.
 	if got.detail != "no hardware encoder MFT available" {
 		t.Errorf("detail = %q, want the helper's message", got.detail)
+	}
+}
+
+// Two helper engines can fall back now; the row has to say which, or an HDR sharp failure reads as
+// a smooth one and sends the operator looking at hardware encoders.
+func TestScreenShareFallback_RecordsTheEngineThatFellBack(t *testing.T) {
+	h, svc := fallbackHandler()
+
+	rec := fallbackRequest(h, "u1", `{"channel_id":"ch1","engine":"sharp_hdr","reason":"helper_failed"}`)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("got %d, want 204", rec.Code)
+	}
+	if got := svc.calls[0].engine; got != "sharp_hdr" {
+		t.Errorf("engine = %q, want sharp_hdr", got)
+	}
+}
+
+// Clients from before the field only had smooth, and still send reports without it.
+func TestScreenShareFallback_ReadsAMissingEngineAsSmooth(t *testing.T) {
+	h, svc := fallbackHandler()
+
+	fallbackRequest(h, "u1", `{"channel_id":"ch1","reason":"helper_failed"}`)
+
+	if got := svc.calls[0].engine; got != "smooth" {
+		t.Errorf("engine = %q, want smooth", got)
+	}
+}
+
+func TestScreenShareFallback_RejectsAnEngineItDoesNotKnow(t *testing.T) {
+	h, svc := fallbackHandler()
+
+	rec := fallbackRequest(h, "u1", `{"channel_id":"ch1","engine":"<b>x</b>","reason":"helper_failed"}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("got %d, want 400", rec.Code)
+	}
+	if len(svc.calls) != 0 {
+		t.Fatalf("an unknown engine reached the log: %+v", svc.calls)
 	}
 }
 
@@ -394,9 +434,8 @@ func TestScreenShareFallback_IsRateLimitedWithTheTokenEndpoint(t *testing.T) {
 	}
 }
 
-// Both fields a member controls are bounded before anything reaches app_logs, and no
-// MaxBytesReader caps a JSON body on this route — the reason whitelist alone would have left
-// channel_id as an unbounded write into the operator's log.
+// Both fields a member controls are bounded before anything reaches app_logs — the reason
+// whitelist alone would have left channel_id as an unbounded write into the operator's log.
 func TestScreenShareFallback_RejectsAnOversizedChannelID(t *testing.T) {
 	h, svc := fallbackHandler()
 	long := strings.Repeat("c", models.ScreenShareChannelIDMax+1)
@@ -689,5 +728,134 @@ func TestToken_IgnoresAnyOtherCountryHeader(t *testing.T) {
 
 	if svc.gotRegion != models.RegionUnknown {
 		t.Errorf("region = %q — a header other than %s was trusted", svc.gotRegion, georegion.CountryHeader)
+	}
+}
+
+// ─── A share that ended without the stop button ───
+
+// A share that starts and stops on its own leaves no trace anywhere else: every cause lives on the
+// user's machine. The duration is what tells the reported bug (sub-second) from a closed window.
+
+type stopRecordingService struct {
+	stubVoiceService
+	engine, reason, detail string
+	aliveMs                int64
+	calls                  int
+}
+
+func (s *stopRecordingService) RecordScreenShareStop(_, _, engine, reason, detail string, aliveMs int64) {
+	s.calls++
+	s.engine, s.reason, s.detail, s.aliveMs = engine, reason, detail, aliveMs
+}
+
+func stopRequest(t *testing.T, body string) (*httptest.ResponseRecorder, *stopRecordingService) {
+	t.Helper()
+	svc := &stopRecordingService{}
+	h := &VoiceHandler{voiceService: svc, urlSigner: passthroughSigner{},
+		screenShareStopRL: ratelimit.NewMessageRateLimiter(20, time.Minute, time.Minute)}
+	req := httptest.NewRequest(http.MethodPost, "/api/servers/s1/voice/screen-share-stopped", strings.NewReader(body))
+	req.SetPathValue("serverId", "s1")
+	req = req.WithContext(context.WithValue(req.Context(), ctxkeys.User, &models.User{ID: "u1", Username: "u"}))
+	rec := httptest.NewRecorder()
+	h.ScreenShareStop(rec, req)
+	return rec, svc
+}
+
+func TestScreenShareStop_ShouldRecordHowTheShareEndedAndAfterHowLong(t *testing.T) {
+	rec, svc := stopRequest(t, `{"channel_id":"ch1","reason":"track_ended","alive_ms":740}`)
+
+	if rec.Code != http.StatusNoContent || svc.calls != 1 {
+		t.Fatalf("status %d, calls %d", rec.Code, svc.calls)
+	}
+	if svc.reason != "track_ended" || svc.aliveMs != 740 {
+		t.Fatalf("recorded %q after %dms", svc.reason, svc.aliveMs)
+	}
+}
+
+// The helper engines report stops too now; the row has to say which engine, or a helper crash
+// reads as a browser share ending.
+func TestScreenShareStop_ShouldRecordTheEngine(t *testing.T) {
+	_, svc := stopRequest(t, `{"channel_id":"ch1","engine":"sharp_hdr","reason":"helper_exited","alive_ms":5000}`)
+
+	if svc.engine != "sharp_hdr" || svc.reason != "helper_exited" {
+		t.Fatalf("recorded %q / %q", svc.engine, svc.reason)
+	}
+}
+
+// A phone's share fails on the phone; filing it under the browser engine sends the operator to the
+// wrong code entirely.
+func TestScreenShareStop_ShouldAcceptTheMobileEngine(t *testing.T) {
+	rec, svc := stopRequest(t, `{"channel_id":"ch1","engine":"mobile","reason":"start_failed","alive_ms":0}`)
+
+	if rec.Code != http.StatusNoContent || svc.engine != "mobile" {
+		t.Fatalf("status %d, engine %q", rec.Code, svc.engine)
+	}
+}
+
+// Clients from before the field only reported the browser engine.
+func TestScreenShareStop_ShouldReadAMissingEngineAsBrowser(t *testing.T) {
+	_, svc := stopRequest(t, `{"channel_id":"ch1","reason":"track_ended","alive_ms":1}`)
+
+	if svc.engine != "browser" {
+		t.Fatalf("engine = %q, want browser", svc.engine)
+	}
+}
+
+func TestScreenShareStop_ShouldRejectAnEngineOutsideTheClosedSet(t *testing.T) {
+	rec, svc := stopRequest(t, `{"channel_id":"ch1","engine":"<i>x</i>","reason":"track_ended","alive_ms":1}`)
+
+	if rec.Code != http.StatusBadRequest || svc.calls != 0 {
+		t.Fatalf("status %d, calls %d", rec.Code, svc.calls)
+	}
+}
+
+// A share that keeps dying costs a token and a stop report per attempt. The reports must not come
+// out of the token bucket, or ten broken attempts lock the user out of the eleventh.
+func TestScreenShareStop_ShouldNotSpendTheScreenShareTokenBudget(t *testing.T) {
+	svc := &stopRecordingService{}
+	tokens := ratelimit.NewMessageRateLimiter(2, time.Minute, time.Minute)
+	h := &VoiceHandler{voiceService: svc, urlSigner: passthroughSigner{}, screenShareRL: tokens,
+		screenShareStopRL: ratelimit.NewMessageRateLimiter(20, time.Minute, time.Minute)}
+
+	for i := 0; i < 5; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/servers/s1/voice/screen-share-stopped",
+			strings.NewReader(`{"channel_id":"ch1","reason":"helper_exited","alive_ms":900}`))
+		req = req.WithContext(context.WithValue(req.Context(), ctxkeys.User, &models.User{ID: "u1", Username: "u"}))
+		h.ScreenShareStop(httptest.NewRecorder(), req)
+	}
+
+	if svc.calls != 5 {
+		t.Fatalf("recorded %d stop reports, want 5", svc.calls)
+	}
+	if !tokens.Allow("u1") {
+		t.Fatal("stop reports spent the screen-share token budget")
+	}
+}
+
+// The decoder reads the whole body before any field is bounded; an oversized one is refused
+// before it is held in memory.
+func TestScreenShareStop_ShouldRefuseAnOversizedBody(t *testing.T) {
+	body := `{"channel_id":"ch1","reason":"track_ended","alive_ms":1,"detail":"` +
+		strings.Repeat("A", models.VoiceReportBodyMax) + `"}`
+	rec, svc := stopRequest(t, body)
+
+	if rec.Code != http.StatusBadRequest || svc.calls != 0 {
+		t.Fatalf("status %d, calls %d", rec.Code, svc.calls)
+	}
+}
+
+func TestScreenShareStop_ShouldRejectAReasonOutsideTheClosedSet(t *testing.T) {
+	rec, svc := stopRequest(t, `{"channel_id":"ch1","reason":"anything I like","alive_ms":1}`)
+
+	if rec.Code != http.StatusBadRequest || svc.calls != 0 {
+		t.Fatalf("status %d, calls %d", rec.Code, svc.calls)
+	}
+}
+
+func TestScreenShareStop_ShouldNotRecordANegativeDuration(t *testing.T) {
+	_, svc := stopRequest(t, `{"channel_id":"ch1","reason":"start_failed","alive_ms":-5,"detail":"NotAllowedError: Permission denied"}`)
+
+	if svc.aliveMs != 0 || svc.detail != "NotAllowedError: Permission denied" {
+		t.Fatalf("recorded %dms, detail %q", svc.aliveMs, svc.detail)
 	}
 }

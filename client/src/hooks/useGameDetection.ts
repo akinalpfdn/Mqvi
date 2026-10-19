@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useVoiceStore } from "../stores/voiceStore";
+import { resolvePublishEngine } from "../utils/publishEngine";
 import type { DetectedGame } from "../types/electron";
 
 export function useGameDetection(isInVoice: boolean) {
@@ -14,8 +15,9 @@ export function useGameDetection(isInVoice: boolean) {
   const [isStarting, setIsStarting] = useState(false);
 
   const screenShareMode = useVoiceStore((s) => s.screenShareMode);
-  const startNativeSmoothCapture = useVoiceStore((s) => s.startNativeSmoothCapture);
-  const reportSmoothFallback = useVoiceStore((s) => s.reportSmoothFallback);
+  const startNativeCapture = useVoiceStore((s) => s.startNativeCapture);
+  const smoothCaptureSupported = useVoiceStore((s) => s.smoothCaptureSupported);
+  const reportNativeFallback = useVoiceStore((s) => s.reportNativeFallback);
   const setPickedShareSourceId = useVoiceStore((s) => s.setPickedShareSourceId);
 
   // The probe exists to feed this row, so it lives exactly as long as the row can be on screen.
@@ -54,19 +56,28 @@ export function useGameDetection(isInVoice: boolean) {
       setIsStarting(true);
 
       try {
-        if (screenShareMode === "smooth") {
-          const result = await startNativeSmoothCapture(game.sourceId);
+        // Same routing as the picker — including sharp on an HDR display, which a game is the
+        // likeliest thing to be showing.
+        const api = window.electronAPI;
+        const engine = await resolvePublishEngine({
+          mode: screenShareMode,
+          smoothSupported: smoothCaptureSupported,
+          hasHelper: api?.platform === "win32",
+          askHdr: () => api?.getHdrActive() ?? Promise.resolve(null),
+        });
+        if (engine !== "browser") {
+          const result = await startNativeCapture(game.sourceId, engine);
           if (result.ok) {
             setPickedShareSourceId(game.sourceId);
             return;
           }
-          // The helper couldn't come up. Say so and record it, then fall through to sharp with the
-          // same window rather than leaving the user with a button that did nothing. No cancel
-          // path here, unlike the picker — the row is one click, so every failure is a real one.
-          reportSmoothFallback(result);
+          // The helper couldn't come up. Say so and record it, then fall through to the browser
+          // with the same window rather than leaving the user with a button that did nothing. No
+          // cancel path here, unlike the picker — the row is one click, so every failure is real.
+          reportNativeFallback(result);
         }
 
-        await window.electronAPI?.setPrePickedSource?.(game.sourceId);
+        await api?.setPrePickedSource?.(game.sourceId);
         onFallbackShare();
         setPickedShareSourceId(game.sourceId);
       } catch (err) {
@@ -77,7 +88,15 @@ export function useGameDetection(isInVoice: boolean) {
         setIsStarting(false);
       }
     },
-    [game, isStarting, screenShareMode, startNativeSmoothCapture, reportSmoothFallback, setPickedShareSourceId]
+    [
+      game,
+      isStarting,
+      screenShareMode,
+      smoothCaptureSupported,
+      startNativeCapture,
+      reportNativeFallback,
+      setPickedShareSourceId,
+    ]
   );
 
   return { game, isStarting, shareGame };

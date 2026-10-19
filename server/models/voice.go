@@ -34,11 +34,14 @@ type VoiceTokenResponse struct {
 	E2EEPassphrase string `json:"e2ee_passphrase,omitempty"`
 }
 
-// ScreenShareFallbackRequest is the client saying "Akıcı Görüntü could not start, I used Net
-// Görüntü instead" — the one failure the operator cannot see from the server, because every step
-// that fails happens on the user's machine.
+// ScreenShareFallbackRequest is the client saying "the native helper could not start, I used the
+// browser engine instead" — the one failure the operator cannot see from the server, because every
+// step that fails happens on the user's machine.
 type ScreenShareFallbackRequest struct {
 	ChannelID string `json:"channel_id"`
+	// Engine is which helper engine was attempted, from ScreenShareFallbackEngines. Empty means
+	// smooth: clients that predate the field only ever had that one.
+	Engine string `json:"engine,omitempty"`
 	// Reason is a code from ScreenShareFallbackReasons, not free text: it lands in app_logs, so an
 	// unvalidated string would let any member write whatever they like into the operator's log.
 	Reason string `json:"reason"`
@@ -57,9 +60,58 @@ var ScreenShareFallbackReasons = map[string]bool{
 	"helper_failed": true, // the native helper never reported that it was publishing
 }
 
+// ScreenShareFallbackEngines is the closed set of helper engines a fallback can come from.
+var ScreenShareFallbackEngines = map[string]bool{
+	"smooth":    true, // "Smooth Video": hardware H264/H265
+	"sharp_hdr": true, // "Sharp Video" on an HDR display: software VP9 after tone-mapping
+}
+
+// ScreenShareStopRequest is the client saying a share ended without the user pressing stop. Like the
+// fallback above, everything that ends it happens on the user's machine, so without this report
+// nothing reaches the server at all.
+type ScreenShareStopRequest struct {
+	ChannelID string `json:"channel_id"`
+	// Engine is which engine carried the share, from ScreenShareStopEngines. Empty means browser:
+	// clients that predate the field only reported the browser engine.
+	Engine string `json:"engine,omitempty"`
+	// Reason is a code from ScreenShareStopReasons; the same closed-set rule as the fallback.
+	Reason string `json:"reason"`
+	// AliveMs is how long the share ran before it ended — a share that dies within a second of
+	// starting is the reported bug, one that ends after an hour is a closed window.
+	AliveMs int64 `json:"alive_ms"`
+	// Detail is the underlying error for start_failed, truncated by the handler.
+	Detail string `json:"detail,omitempty"`
+}
+
+// ScreenShareStopReasons is the closed set of ways a share can end without the stop button.
+var ScreenShareStopReasons = map[string]bool{
+	"start_failed":  true, // publishing the share threw (capture refused, picker failed, SDK error)
+	"track_ended":   true, // the captured source ended: window closed, OS "stop sharing", game exited
+	"unpublished":   true, // LiveKit unpublished the track: reconnect, SFU drop
+	"helper_exited": true, // the native helper died mid-share: encoder failure, crash, room dropped
+}
+
+// ScreenShareStopEngines is the closed set of engines a stop report can name.
+var ScreenShareStopEngines = map[string]bool{
+	"browser":   true, // getDisplayMedia — "Sharp Video" on an SDR display
+	"smooth":    true, // the helper's hardware engine — "Smooth Video"
+	"sharp_hdr": true, // the helper's tone-mapping VP9 engine — "Sharp Video" on an HDR display
+	"mobile":    true, // the phone's native capture (ReplayKit / MediaProjection)
+}
+
+// ScreenShareShortLivedMs splits a share that ended with its source into the reported bug (it ends
+// within seconds of starting) and someone closing what they were sharing. Only the first is a
+// failure; the second is recorded at Info so the Warn rows stay the ones worth reading.
+const ScreenShareShortLivedMs = 10_000
+
 // ScreenShareFallbackDetailMax is how much of Detail survives: long enough for a helper error,
 // short enough that a member cannot use the field as storage.
 const ScreenShareFallbackDetailMax = 200
+
+// VoiceReportBodyMax caps the body of the client reports (screen-share fallback and stop, noise
+// reduction failure). Their fields are bounded after decoding, but the decoder reads the whole body
+// first; an honest report is a few hundred bytes, so this leaves ample room and nothing more.
+const VoiceReportBodyMax = 4 << 10
 
 // ScreenShareChannelIDMax bounds the other field a member controls. Channel ids are 16 hex chars
 // (`lower(hex(randomblob(8)))`); this is generous room around that, and the point is only that the

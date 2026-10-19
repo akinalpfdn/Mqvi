@@ -68,7 +68,9 @@ type VoiceService interface {
 	GenerateScreenShareToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error)
 	// RecordScreenShareFallback logs a client-side drop from the native capture path to the
 	// browser one. Fire-and-forget: the share already succeeded, so nothing waits on this.
-	RecordScreenShareFallback(userID, channelID, reason, detail string)
+	RecordScreenShareFallback(userID, channelID, engine, reason, detail string)
+	// RecordScreenShareStop logs a share that ended without the user pressing stop.
+	RecordScreenShareStop(userID, channelID, engine, reason, detail string, aliveMs int64)
 	// RecordNoiseReductionFailure logs a mic denoiser that would not attach on a client. Also
 	// fire-and-forget: the call is unaffected, the user is just unfiltered.
 	RecordNoiseReductionFailure(userID, channelID, engine, reason, detail string)

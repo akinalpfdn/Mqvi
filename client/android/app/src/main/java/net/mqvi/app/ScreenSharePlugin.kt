@@ -29,6 +29,8 @@ import kotlinx.coroutines.cancel
  *
  * JS calls start({ url, token }) -> native permission dialog -> LiveKit publish.
  * JS calls stop() -> disconnect room -> release MediaProjection.
+ * The system ending the capture (the user's "stop" in the notification or status bar, or the
+ * projection being revoked) -> cleanup -> "screenShareStopped" event, as on iOS.
  */
 @CapacitorPlugin(name = "ScreenShare")
 class ScreenSharePlugin : Plugin() {
@@ -37,6 +39,8 @@ class ScreenSharePlugin : Plugin() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var pendingUrl: String? = null
     private var pendingToken: String? = null
+    /** Set while stop() tears the share down, so the projection ending then is not reported as the user's. */
+    @Volatile private var stoppingByRequest = false
 
     @PluginMethod
     fun start(call: PluginCall) {
@@ -61,7 +65,9 @@ class ScreenSharePlugin : Plugin() {
     @ActivityCallback
     private fun handleScreenCaptureResult(call: PluginCall, result: ActivityResult) {
         if (result.resultCode != Activity.RESULT_OK || result.data == null) {
-            call.reject("Screen capture permission denied")
+            // Coded, so the app can tell the user saying no from a share that failed to start —
+            // the first is not worth reporting (client/src/utils/shareStartFailure.ts).
+            call.reject("Screen capture permission denied", "PERMISSION_DENIED")
             pendingUrl = null
             pendingToken = null
             return
@@ -80,8 +86,10 @@ class ScreenSharePlugin : Plugin() {
 
                 newRoom.connect(url, token)
 
-                // LiveKit Android SDK handles MediaProjection internally via ScreenCaptureParams
-                val params = ScreenCaptureParams(mediaProjectionData)
+                // LiveKit Android SDK handles MediaProjection internally via ScreenCaptureParams.
+                // onStop is how the app learns the capture ended without it: nothing else tells JS,
+                // and the share would stay "live" with nothing on the wire.
+                val params = ScreenCaptureParams(mediaProjectionData, onStop = { handleProjectionStopped() })
                 newRoom.localParticipant.setScreenShareEnabled(true, params)
 
                 val ret = JSObject()
@@ -97,7 +105,12 @@ class ScreenSharePlugin : Plugin() {
     @PluginMethod
     fun stop(call: PluginCall) {
         scope.launch {
-            cleanup()
+            stoppingByRequest = true
+            try {
+                cleanup()
+            } finally {
+                stoppingByRequest = false
+            }
             val ret = JSObject()
             ret.put("stopped", true)
             call.resolve(ret)
@@ -109,6 +122,15 @@ class ScreenSharePlugin : Plugin() {
         val ret = JSObject()
         ret.put("active", room != null)
         call.resolve(ret)
+    }
+
+    /** The capture ended without stop(): tear the room down and tell JS, as iOS does. */
+    private fun handleProjectionStopped() {
+        if (stoppingByRequest || room == null) return
+        scope.launch {
+            cleanup()
+            notifyListeners("screenShareStopped", JSObject())
+        }
     }
 
     private suspend fun cleanup() {

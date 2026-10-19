@@ -314,6 +314,33 @@ pub fn describe_hardware_encoders() -> String {
     unsafe { format!("h264: {}; h265: {}", names_for(MFVideoFormat_H264), names_for(MFVideoFormat_HEVC)) }
 }
 
+/// How many hardware encoder MFTs this machine lists for H264 (or H265 with `hevc`). Zero is a
+/// definite "this machine cannot", unlike an encoder that is listed but would not start — that one
+/// may be busy (NVENC's session limit with OBS open) rather than missing. Needs MF started.
+pub fn hardware_encoder_count(hevc: bool) -> Result<usize> {
+    let subtype = if hevc { MFVideoFormat_HEVC } else { MFVideoFormat_H264 };
+    let out_type = MFT_REGISTER_TYPE_INFO { guidMajorType: MFMediaType_Video, guidSubtype: subtype };
+    let mut activators: *mut Option<IMFActivate> = std::ptr::null_mut();
+    let mut count = 0u32;
+    // SAFETY: the activator array MFTEnumEx returns is owned and released by `Activators`.
+    unsafe {
+        MFTEnumEx(
+            MFT_CATEGORY_VIDEO_ENCODER,
+            MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER,
+            None,
+            Some(&out_type),
+            &mut activators,
+            &mut count,
+        )
+        .context("MFTEnumEx")?;
+        if activators.is_null() {
+            return Ok(0);
+        }
+        let _owned = Activators { ptr: activators, count: count as usize };
+    }
+    Ok(count as usize)
+}
+
 /// Friendly names of the hardware encoder MFTs producing `subtype`, or why there are none.
 unsafe fn names_for(subtype: GUID) -> String {
     let out_type = MFT_REGISTER_TYPE_INFO { guidMajorType: MFMediaType_Video, guidSubtype: subtype };

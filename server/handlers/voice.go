@@ -20,29 +20,33 @@ import (
 type voiceHandlerService interface {
 	GenerateToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error)
 	GenerateScreenShareToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error)
-	RecordScreenShareFallback(userID, channelID, reason, detail string)
+	RecordScreenShareFallback(userID, channelID, engine, reason, detail string)
+	RecordScreenShareStop(userID, channelID, engine, reason, detail string, aliveMs int64)
 	RecordNoiseReductionFailure(userID, channelID, engine, reason, detail string)
 	GetAllVoiceStates() []models.VoiceState
 }
 
 type VoiceHandler struct {
-	voiceService     voiceHandlerService
-	urlSigner        services.FileURLSigner
-	screenShareRL    *ratelimit.MessageRateLimiter
-	noiseReductionRL *ratelimit.MessageRateLimiter
+	voiceService      voiceHandlerService
+	urlSigner         services.FileURLSigner
+	screenShareRL     *ratelimit.MessageRateLimiter
+	screenShareStopRL *ratelimit.MessageRateLimiter
+	noiseReductionRL  *ratelimit.MessageRateLimiter
 }
 
 func NewVoiceHandler(
 	voiceService services.VoiceService,
 	urlSigner services.FileURLSigner,
 	screenShareRL *ratelimit.MessageRateLimiter,
+	screenShareStopRL *ratelimit.MessageRateLimiter,
 	noiseReductionRL *ratelimit.MessageRateLimiter,
 ) *VoiceHandler {
 	return &VoiceHandler{
-		voiceService:     voiceService,
-		urlSigner:        urlSigner,
-		screenShareRL:    screenShareRL,
-		noiseReductionRL: noiseReductionRL,
+		voiceService:      voiceService,
+		urlSigner:         urlSigner,
+		screenShareRL:     screenShareRL,
+		screenShareStopRL: screenShareStopRL,
+		noiseReductionRL:  noiseReductionRL,
 	}
 }
 
@@ -143,9 +147,61 @@ func truncateRunes(s string, n int) string {
 	return string(r[:n])
 }
 
+// ScreenShareStop handles POST /api/servers/{serverId}/voice/screen-share-stopped
+//
+// The client reporting that a share, on any engine, ended without the stop button. Same guards as
+// the fallback report, but its own bucket: a share that keeps dying costs a token and a stop report
+// per attempt, and spending the token bucket on the reports would lock exactly those users out of
+// sharing — the ones the token bucket is generous for.
+func (h *VoiceHandler) ScreenShareStop(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+	if h.screenShareStopRL != nil && !h.screenShareStopRL.Allow(user.ID) {
+		retryAfter := h.screenShareStopRL.CooldownSeconds(user.ID)
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+		pkg.ErrorWithMessage(w, http.StatusTooManyRequests, "too many screen share reports")
+		return
+	}
+
+	var req models.ScreenShareStopRequest
+	r.Body = http.MaxBytesReader(w, r.Body, models.VoiceReportBodyMax)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if !models.ScreenShareStopReasons[req.Reason] {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "unknown reason")
+		return
+	}
+	engine := req.Engine
+	if engine == "" {
+		engine = "browser"
+	}
+	if !models.ScreenShareStopEngines[engine] {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "unknown engine")
+		return
+	}
+	if len(req.ChannelID) > models.ScreenShareChannelIDMax {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "channel_id too long")
+		return
+	}
+	aliveMs := req.AliveMs
+	if aliveMs < 0 {
+		aliveMs = 0
+	}
+
+	h.voiceService.RecordScreenShareStop(user.ID, req.ChannelID, engine, req.Reason,
+		truncateRunes(req.Detail, models.ScreenShareFallbackDetailMax), aliveMs)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // ScreenShareFallback handles POST /api/servers/{serverId}/voice/screen-share-fallback
 //
-// The client reporting that "Akıcı Görüntü" could not start and it used "Net Görüntü" instead.
+// The client reporting that the native helper could not start — "Smooth Video", or "Sharp Video"
+// on an HDR display — and it used the browser's "Sharp Video" instead.
 // Every step that can fail there runs on the user's machine — the helper is missing, the GPU has
 // no encoder, the capture target vanished — so without this the operator cannot see it at all,
 // and the user cannot be asked to fetch a log.
@@ -167,18 +223,27 @@ func (h *VoiceHandler) ScreenShareFallback(w http.ResponseWriter, r *http.Reques
 	}
 
 	var req models.ScreenShareFallbackRequest
+	r.Body = http.MaxBytesReader(w, r.Body, models.VoiceReportBodyMax)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	// Both member-controlled fields are bounded before anything reaches app_logs, and no
-	// MaxBytesReader caps a JSON body on this route.
+	// Both member-controlled fields are bounded before anything reaches app_logs; the body cap
+	// above only stops the decoder reading an unbounded body into memory.
 	//
 	// Closed set for the reason: an unvalidated one would let any member write arbitrary content
 	// into the operator's log and make the category unscannable by cause.
 	if !models.ScreenShareFallbackReasons[req.Reason] {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "unknown reason")
+		return
+	}
+	engine := req.Engine
+	if engine == "" {
+		engine = "smooth"
+	}
+	if !models.ScreenShareFallbackEngines[engine] {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "unknown engine")
 		return
 	}
 	// The channel id has a known shape, so an oversized one is not our client — refuse it rather
@@ -194,7 +259,7 @@ func (h *VoiceHandler) ScreenShareFallback(w http.ResponseWriter, r *http.Reques
 	// into a replacement character.
 	detail := truncateRunes(req.Detail, models.ScreenShareFallbackDetailMax)
 
-	h.voiceService.RecordScreenShareFallback(user.ID, req.ChannelID, req.Reason, detail)
+	h.voiceService.RecordScreenShareFallback(user.ID, req.ChannelID, engine, req.Reason, detail)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -223,6 +288,7 @@ func (h *VoiceHandler) NoiseReductionFailure(w http.ResponseWriter, r *http.Requ
 	}
 
 	var req models.NoiseReductionFailureRequest
+	r.Body = http.MaxBytesReader(w, r.Body, models.VoiceReportBodyMax)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
 		return

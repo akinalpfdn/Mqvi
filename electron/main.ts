@@ -39,6 +39,8 @@ import {
 import { createCredentialStore } from "./credentialStore";
 import { createRedactor } from "./redact";
 import { createOutputTracker } from "./helperOutput";
+import { hdrActiveFrom, runProbe, smoothSupportFrom, type ProbeAnswer } from "./helperProbe";
+import { engineArgs, type CaptureEngine } from "./captureArgs";
 
 /** Main application window reference */
 let mainWindow: BrowserWindow | null = null;
@@ -904,7 +906,7 @@ function setupPermissions(): void {
   session.defaultSession.setDisplayMediaRequestHandler(
     async (_request, callback) => {
       // Chromium allows exactly one answer, and it reports an empty one — our way of cancelling,
-      // which "Akıcı Görüntü" does on every share — by throwing back at us. That throw *is* the
+      // which every helper-engine share does — by throwing back at us. That throw *is* the
       // rejection the renderer is waiting for. Treating it as a failure and answering again (which
       // is what the catch below used to do) earns a "callback was called more than once" and an
       // unhandled rejection on a share that is working fine.
@@ -973,7 +975,7 @@ function setupPermissions(): void {
             answer({});
           }
         } else {
-          // User cancelled, or "Akıcı Görüntü" took the share
+          // User cancelled, or a helper engine took the share
           answer({});
         }
       } catch (err) {
@@ -1385,7 +1387,64 @@ function setupIPC(): void {
   });
 
   // ─── Native Game Capture ───
-  // Spawns mqvi-game-capture.exe (WGC capture + hardware encode). It joins the LiveKit room as
+  const gameCaptureExePath = () =>
+    process.env.NODE_ENV === "development" || !app.isPackaged
+      ? path.join(app.getAppPath(), "native", "mqvi-game-capture.exe")
+      : path.join(process.resourcesPath, "native", "mqvi-game-capture.exe");
+
+  // Runs the helper with a `--probe-*` flag and resolves its answer, or null if it gave none.
+  const runHelperProbe = (args: string | string[], timeoutMs: number): Promise<ProbeAnswer | null> =>
+    runProbe(
+      () => spawn(gameCaptureExePath(), typeof args === "string" ? [args] : args, { stdio: ["ignore", "pipe", "ignore"] }),
+      timeoutMs
+    );
+
+  // Whether this machine can hardware-encode, kept in memory once known: it is a property of this
+  // machine (GPU, driver), not of the account, and it can change with a new GPU or driver — a stored
+  // answer could go stale, a launch-time one cannot. Only a definite answer is kept. null (the probe
+  // failed, or an encoder is listed but busy) keeps "Smooth Video" offered and is asked again next
+  // time, so a passing hiccup at launch cannot switch it off for the whole session.
+  let smoothCaptureSupport: boolean | null = null;
+  let smoothCaptureProbe: Promise<boolean | null> | null = null;
+
+  ipcMain.handle("get-smooth-capture-support", () => {
+    if (process.platform !== "win32") return false;
+    if (smoothCaptureSupport !== null) return smoothCaptureSupport;
+    // Generous: it builds real encoders, off any path a user waits on.
+    smoothCaptureProbe ??= runHelperProbe("--probe-encoders", 10_000)
+      .then(smoothSupportFrom)
+      .then((answer) => {
+        smoothCaptureSupport = answer;
+        smoothCaptureProbe = null;
+        return answer;
+      });
+    return smoothCaptureProbe;
+  });
+
+  // Whether a monitor is in HDR, asked fresh for every picker: HDR is toggled at will, so unlike
+  // the encoder this is never cached. Windows-only, like the helper that answers it.
+  //
+  // With a screen source it asks about that monitor; otherwise about any monitor — a window can be
+  // dragged onto the HDR one mid-share, and only the helper follows that.
+  //
+  // Short, because a sharp share waits on this answer: a few DXGI calls take milliseconds, so a
+  // probe still silent after 3s is stuck (an antivirus scan, say), and the share goes ahead in the
+  // browser rather than hanging the picker.
+  ipcMain.handle("get-hdr-active", async (_e, sourceId?: unknown) => {
+    if (process.platform !== "win32") return false;
+    let target: string[] = [];
+    if (typeof sourceId === "string" && sourceId.startsWith("screen:")) {
+      try {
+        target = await resolveCaptureTarget(sourceId);
+      } catch {
+        return null;
+      }
+    }
+    return hdrActiveFrom(await runHelperProbe(["--probe-hdr", ...target], 3_000));
+  });
+
+  // Spawns mqvi-game-capture.exe (WGC capture + hardware encode, or software VP9 for a sharp share
+  // on an HDR display — see captureArgs). It joins the LiveKit room as
   // the "{userId}_ss" screen-share identity using the screen-token, so other clients subscribe
   // to it exactly like any screen share. Connection + capture params come from the renderer.
   ipcMain.handle(
@@ -1398,9 +1457,13 @@ function setupIPC(): void {
         e2eePassphrase: string;
         sourceId?: string;
         maxHeight?: number;
+        engine?: CaptureEngine;
+        maxBitrate?: number;
       }
     ): Promise<{ started: boolean; error?: string }> => {
       if (process.platform !== "win32") return { started: false, error: "windows only" };
+      const engine = engineArgs(opts.engine, opts.maxBitrate);
+      if (!engine) return { started: false, error: "invalid engine or bitrate" };
 
       if (gameCaptureProcess) {
         const previous = gameCaptureProcess;
@@ -1418,15 +1481,12 @@ function setupIPC(): void {
       }
       if (thisGen !== gameCaptureGeneration) return { started: false, error: "superseded" };
 
-      const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
-      const exePath = isDev
-        ? path.join(app.getAppPath(), "native", "mqvi-game-capture.exe")
-        : path.join(process.resourcesPath, "native", "mqvi-game-capture.exe");
+      const exePath = gameCaptureExePath();
 
       // The quality setting is a ceiling on the stream, not on the capture — the helper grabs the
       // source at its own size and scales down, so a 1440p monitor honours a 720p setting.
       const quality = opts.maxHeight ? ["--max-height", String(opts.maxHeight)] : [];
-      const args = [...target, ...quality, "--config-stdin"];
+      const args = [...target, ...quality, ...engine, "--config-stdin"];
 
       console.log(`[main] Starting game capture: ${exePath} ${args.join(" ")}`);
 
@@ -1455,7 +1515,7 @@ function setupIPC(): void {
 
       // Spawning proves a process exists, not that anything is on the wire — the helper still has
       // to find the source, connect and publish. Report started only once it says so, so a failure
-      // falls back to "Net Görüntü" instead of leaving a share that never appears.
+      // falls back to the browser instead of leaving a share that never appears.
       return await new Promise((resolve) => {
         let settled = false;
         let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1498,22 +1558,37 @@ function setupIPC(): void {
           });
         };
 
+        // Tells the renderer the share ended, with what the helper last said: once the share is live
+        // this is the only place a mid-stream failure's cause is still known. Sent once, and only
+        // for the live helper — a superseded one (or one replaced during the drain below) must not
+        // end the share that took its place.
+        let announced = false;
+        const announceStopped = (code: number | null) => {
+          if (announced || thisGen !== gameCaptureGeneration) return;
+          announced = true;
+          mainWindow?.webContents.send("game-capture-stopped", code, output.said());
+        };
+
         child.on("exit", (code) => {
           console.log(`[main] Game capture exited code=${code}`);
-          // A superseded helper must not clear the live one's handle (it would become unkillable)
-          // nor tell the renderer that sharing stopped.
+          // A superseded helper must not clear the live one's handle (it would become unkillable).
           if (thisGen === gameCaptureGeneration) {
             gameCaptureProcess = null;
-            mainWindow?.webContents.send("game-capture-stopped", code);
           }
-          // Deliberately not reporting yet. The helper's last act is to print why it is dying, and
-          // `exit` can fire while that line is still in the pipe — which is exactly how the first
-          // production report came back as a bare exit code. `close` is the event that means the
-          // pipes are drained; this only bounds the wait in case one never closes.
-          drainTimer = setTimeout(() => reportExit(code), GAME_CAPTURE_DRAIN_MS);
+          // Deliberately not reporting or announcing yet. The helper's last act is to print why it
+          // is dying, and `exit` can fire while that line is still in the pipe — which is exactly
+          // how the first production report came back as a bare exit code. `close` is the event
+          // that means the pipes are drained; this only bounds the wait in case one never closes.
+          drainTimer = setTimeout(() => {
+            announceStopped(code);
+            reportExit(code);
+          }, GAME_CAPTURE_DRAIN_MS);
         });
 
-        child.on("close", (code) => reportExit(code));
+        child.on("close", (code) => {
+          announceStopped(code);
+          reportExit(code);
+        });
 
         child.on("error", (err) => {
           console.error("[main] Game capture spawn error:", err);

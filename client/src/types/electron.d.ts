@@ -98,9 +98,21 @@ interface ElectronAPI {
     sourceId: string;
     /** Cap on the stream's height, from the screen-share quality setting. */
     maxHeight: number;
+    /** "sharp" streams software VP9 from the helper — used on an HDR display. Default smooth. */
+    engine?: "smooth" | "sharp";
+    /** Sharp's bitrate ceiling, the browser engine's own. */
+    maxBitrate?: number;
   }) => Promise<{ started: boolean; error?: string }>;
   stopGameCapture: () => Promise<void>;
-  onGameCaptureStopped: (cb: (code: number) => void) => void;
+  /** Whether this machine can hardware-encode ("Smooth Video"); null if it could not be told. */
+  getSmoothCaptureSupport: () => Promise<boolean | null>;
+  /**
+   * Whether a monitor is in HDR right now — a screen source's own monitor if one is given, any
+   * monitor otherwise; null if it could not be told.
+   */
+  getHdrActive: (sourceId?: string) => Promise<boolean | null>;
+  /** The helper exited on its own: its exit code (-1 = spawn error, null = killed) and last words. */
+  onGameCaptureStopped: (cb: (code: number | null, said: string) => void) => void;
   removeGameCaptureListeners: () => void;
 
   // ─── Game detection (the "Go Live" row) ───

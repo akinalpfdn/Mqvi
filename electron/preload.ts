@@ -84,11 +84,19 @@ contextBridge.exposeInMainWorld("electronAPI", {
     e2eePassphrase: string;
     sourceId: string;
     maxHeight: number;
+    engine?: "smooth" | "sharp";
+    maxBitrate?: number;
   }): Promise<{ started: boolean; error?: string }> =>
     ipcRenderer.invoke("start-game-capture", opts),
 
   /** Stop native game capture */
   stopGameCapture: (): Promise<void> => ipcRenderer.invoke("stop-game-capture"),
+
+  /** Whether this machine can hardware-encode ("Smooth Video"); null if it could not be told. */
+  getSmoothCaptureSupport: (): Promise<boolean | null> => ipcRenderer.invoke("get-smooth-capture-support"),
+
+  /** Whether any monitor is in HDR right now; null if it could not be told. */
+  getHdrActive: (sourceId?: string): Promise<boolean | null> => ipcRenderer.invoke("get-hdr-active", sourceId),
 
   // ─── Game detection (the "Go Live" row) ───
   // Windows-only. Elsewhere start is a no-op and nothing is ever pushed, so the row never appears
@@ -132,9 +140,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.removeAllListeners("game-detected");
   },
 
-  /** The game-capture helper exited (exit code; -1 = spawn error) */
-  onGameCaptureStopped: (cb: (code: number) => void): void => {
-    ipcRenderer.on("game-capture-stopped", (_e, code: number) => cb(code));
+  /** The game-capture helper exited (exit code; -1 = spawn error; null = killed) and what it last said */
+  onGameCaptureStopped: (cb: (code: number | null, said: string) => void): void => {
+    ipcRenderer.on("game-capture-stopped", (_e, code: number | null, said?: string) => cb(code, said ?? ""));
   },
 
   removeGameCaptureListeners: (): void => {

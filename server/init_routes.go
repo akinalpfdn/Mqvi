@@ -412,6 +412,7 @@ func initRoutes(
 	mux.Handle("POST /api/servers/{serverId}/voice/token", authServer(h.Voice.Token))
 	mux.Handle("POST /api/servers/{serverId}/voice/screen-token", authServer(h.Voice.ScreenShareToken))
 	mux.Handle("POST /api/servers/{serverId}/voice/screen-share-fallback", authServer(h.Voice.ScreenShareFallback))
+	mux.Handle("POST /api/servers/{serverId}/voice/screen-share-stopped", authServer(h.Voice.ScreenShareStop))
 	mux.Handle("POST /api/servers/{serverId}/voice/noise-reduction-failure", authServer(h.Voice.NoiseReductionFailure))
 	mux.Handle("GET /api/servers/{serverId}/voice/states", authServer(h.Voice.VoiceStates))
 

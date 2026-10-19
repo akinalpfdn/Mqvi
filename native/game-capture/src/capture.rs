@@ -7,6 +7,11 @@
 //! future optimisation rather than a prerequisite.
 //!
 //! WGC is change-driven: `next_frame()` returns None when nothing has changed since the last frame.
+//!
+//! On a monitor in HDR the capture is FP16 and goes through `tonemap` on the GPU first; callers
+//! still get BGRA either way.
+
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use windows::core::{factory, Interface};
@@ -24,10 +29,13 @@ use windows::Win32::Graphics::Direct3D11::{
     D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAP_READ,
     D3D11_MAPPED_SUBRESOURCE, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING,
 };
-use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC};
+use windows::Win32::Graphics::Dxgi::Common::{
+    DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC,
+};
 use windows::Win32::Graphics::Dxgi::IDXGIDevice;
 use windows::Win32::Graphics::Gdi::{
-    MonitorFromPoint, MONITOR_DEFAULTTONULL, MONITOR_DEFAULTTOPRIMARY,
+    MonitorFromPoint, MonitorFromWindow, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTONULL,
+    MONITOR_DEFAULTTOPRIMARY,
 };
 use windows::Win32::System::WinRT::Direct3D11::{
     CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess,
@@ -37,6 +45,14 @@ use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowTextLengthW, GetWindowTextW, IsWindow, IsWindowVisible,
 };
+
+use crate::display_light::{self, DisplayLight};
+use crate::tonemap::{HdrToSdr, ToneParams, HDR_FORMAT, SDR_FORMAT};
+
+/// How often the source's monitor is asked about HDR again. The user can toggle HDR or move the
+/// slider mid-share, and a window can be dragged to another monitor; a second's lag is unnoticeable
+/// and the query is several syscalls, so not per frame.
+const LIGHT_RECHECK: Duration = Duration::from_secs(1);
 
 /// What we're capturing, kept so we can ask Windows whether it still exists.
 ///
@@ -61,7 +77,37 @@ impl Target {
             Target::Monitor(at) => !MonitorFromPoint(at, MONITOR_DEFAULTTONULL).is_invalid(),
         }
     }
+
+    /// The monitor whose HDR state governs this source. A window straddling two monitors gets the
+    /// one holding most of it — the same one Windows picks for it.
+    unsafe fn monitor(self) -> HMONITOR {
+        match self {
+            Target::Window(handle) => MonitorFromWindow(HWND(handle as _), MONITOR_DEFAULTTONEAREST),
+            Target::Monitor(at) => MonitorFromPoint(at, MONITOR_DEFAULTTONEAREST),
+        }
+    }
 }
+
+/// Present while the source's monitor is in HDR: the frames are FP16 and are tone-mapped down.
+struct Hdr {
+    tonemap: HdrToSdr,
+    light: DisplayLight,
+}
+
+/// The source a capture was following no longer exists: the window closed, the game exited, the
+/// display was unplugged. Typed rather than a message so the process can end with its own exit code —
+/// to the app this is the user's doing, not a failure, exactly like a browser share whose source
+/// closes.
+#[derive(Debug)]
+pub struct SourceGone;
+
+impl std::fmt::Display for SourceGone {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the captured window or display is gone")
+    }
+}
+
+impl std::error::Error for SourceGone {}
 
 /// One captured frame: BGRA with a possibly-padded row `stride`. Borrowed from the capture's own
 /// buffer, which the next `next_frame()` overwrites — copy it if you need it to outlive that.
@@ -86,6 +132,14 @@ pub struct ScreenCapture {
     target: Target,
     /// Readback buffer, reused every frame — a fresh one costs ~8 MB of churn per 1080p frame.
     buf: Vec<u8>,
+    hdr: Option<Hdr>,
+    light_checked: Instant,
+    /// Set while the monitor cannot be asked about HDR, so a lasting failure is logged once.
+    light_failing: bool,
+    /// Set when the display is in HDR but the tone-mapper could not be built. Building it again
+    /// every second would recompile the shader on the capture thread — a hitch a second — to fail
+    /// the same way; it is retried only after the display leaves HDR and comes back.
+    tonemap_failed: bool,
 }
 
 impl ScreenCapture {
@@ -160,9 +214,21 @@ impl ScreenCapture {
         let size = item.Size()?;
         let (width, height) = (size.Width as u32, size.Height as u32);
 
+        let (hdr, light_failing, tonemap_failed) = match display_light::query(target.monitor()) {
+            Ok(light) => {
+                let hdr = hdr_mode(&device, light);
+                let failed = light.hdr && hdr.is_none();
+                (hdr, false, failed)
+            }
+            Err(e) => {
+                log::warn!("could not read the display's HDR state, capturing 8-bit: {e:#}");
+                (None, true, false)
+            }
+        };
+
         let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
             &d3d,
-            DirectXPixelFormat::B8G8R8A8UIntNormalized,
+            pool_format(hdr.is_some()),
             2,
             size,
         )?;
@@ -178,7 +244,7 @@ impl ScreenCapture {
             log::warn!("could not hide the capture border: {e}");
         }
 
-        let staging = staging_texture(&device, width, height)?;
+        let staging = staging_texture(&device, width, height, readback_format(hdr.is_some()))?;
 
         session.StartCapture()?;
 
@@ -193,6 +259,10 @@ impl ScreenCapture {
             height,
             target,
             buf: Vec::new(),
+            hdr,
+            light_checked: Instant::now(),
+            light_failing,
+            tonemap_failed,
         })
     }
 
@@ -210,7 +280,14 @@ impl ScreenCapture {
     pub fn next_frame(&mut self) -> Result<Option<BgraFrame<'_>>> {
         unsafe {
             if !self.target.still_exists() {
-                bail!("the captured window or display is gone");
+                return Err(SourceGone.into());
+            }
+            if self.light_checked.elapsed() >= LIGHT_RECHECK {
+                self.light_checked = Instant::now();
+                if self.follow_light()? {
+                    // Frames already in the pool are in the old format.
+                    return Ok(None);
+                }
             }
             let Ok(frame) = self.pool.TryGetNextFrame() else {
                 return Ok(None);
@@ -236,7 +313,30 @@ impl ScreenCapture {
                 return Ok(None);
             };
 
-            self.context.CopyResource(&self.staging, &src);
+            // A frame captured just before an HDR switch still carries the old format; copying it
+            // into the new staging texture would fail or read garbage.
+            let mut desc = D3D11_TEXTURE2D_DESC::default();
+            src.GetDesc(&mut desc);
+            if desc.Format != frame_format(self.hdr.is_some()) {
+                let _ = frame.Close();
+                return Ok(None);
+            }
+
+            match &mut self.hdr {
+                Some(hdr) => {
+                    let params = ToneParams::new(hdr.light);
+                    let out = hdr.tonemap.convert(
+                        &self.device,
+                        &self.context,
+                        &src,
+                        self.width,
+                        self.height,
+                        params,
+                    )?;
+                    self.context.CopyResource(&self.staging, out);
+                }
+                None => self.context.CopyResource(&self.staging, &src),
+            }
 
             let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
             if self.context.Map(&self.staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped)).is_err() {
@@ -259,22 +359,128 @@ impl ScreenCapture {
     }
 
     /// Rebuild the pool and staging texture for the source's new size.
-    ///
-    /// The WinRT device is rebuilt here rather than kept as a field: it is the one interface in
-    /// this struct that isn't agile, and the struct is moved to the encode thread. Resizes are rare
-    /// enough that recreating it costs nothing that matters.
     unsafe fn resize(&mut self, size: SizeInt32) -> Result<()> {
         let (width, height) = (size.Width.max(1) as u32, size.Height.max(1) as u32);
         log::info!("source resized: {}x{} → {width}x{height}", self.width, self.height);
 
+        self.rebuild(width, height)
+    }
+
+    /// Re-asks the monitor about HDR and switches modes if that changed. Returns whether it did.
+    unsafe fn follow_light(&mut self) -> Result<bool> {
+        let light = match display_light::query(self.target.monitor()) {
+            Ok(light) => {
+                self.light_failing = false;
+                light
+            }
+            Err(e) => {
+                // Keep the current mode: a monitor that was readable a second ago is still the same
+                // monitor, and flapping between formats would cost a keyframe each time.
+                if !self.light_failing {
+                    log::warn!("could not re-read the display's HDR state: {e:#}");
+                    self.light_failing = true;
+                }
+                return Ok(false);
+            }
+        };
+
+        match (&mut self.hdr, light.hdr) {
+            (Some(hdr), true) => {
+                if hdr.light != light {
+                    log::info!(
+                        "display light changed: SDR white {:.0} nits, peak {:.0} nits",
+                        light.sdr_white_nits, light.peak_nits
+                    );
+                    hdr.light = light;
+                }
+                Ok(false)
+            }
+            (None, false) => {
+                self.tonemap_failed = false;
+                Ok(false)
+            }
+            (None, true) if self.tonemap_failed => Ok(false),
+            (Some(_), false) => {
+                log::info!("display left HDR — capturing 8-bit");
+                self.hdr = None;
+                self.rebuild(self.width, self.height)?;
+                Ok(true)
+            }
+            (None, true) => {
+                let Some(hdr) = hdr_mode(&self.device, light) else {
+                    self.tonemap_failed = true;
+                    return Ok(false);
+                };
+                self.hdr = Some(hdr);
+                self.rebuild(self.width, self.height)?;
+                Ok(true)
+            }
+        }
+    }
+
+    /// Recreates the pool and staging texture for the current size and mode.
+    ///
+    /// The WinRT device is rebuilt here rather than kept as a field: it is the one interface in
+    /// this struct that isn't agile, and the struct is moved to the encode thread. Size and mode
+    /// changes are rare enough that recreating it costs nothing that matters.
+    unsafe fn rebuild(&mut self, width: u32, height: u32) -> Result<()> {
+        let hdr = self.hdr.is_some();
         let d3d = winrt_device(&self.device)?;
         self.pool
-            .Recreate(&d3d, DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, size)
+            .Recreate(&d3d, pool_format(hdr), 2, SizeInt32 { Width: width as i32, Height: height as i32 })
             .context("recreating the frame pool")?;
-        self.staging = staging_texture(&self.device, width, height)?;
+        self.staging = staging_texture(&self.device, width, height, readback_format(hdr))?;
         self.width = width;
         self.height = height;
         Ok(())
+    }
+}
+
+/// The HDR mode for a monitor in this `light`, or None to capture 8-bit. A tone-mapper that cannot
+/// be built (no compute shader support, compiler missing) leaves the share working — just as bright
+/// as before this existed — rather than failing it.
+fn hdr_mode(device: &ID3D11Device, light: DisplayLight) -> Option<Hdr> {
+    if !light.hdr {
+        return None;
+    }
+    match HdrToSdr::new(device) {
+        Ok(tonemap) => {
+            log::info!(
+                "display is in HDR (SDR white {:.0} nits, peak {:.0} nits) — capturing FP16 and tone-mapping",
+                light.sdr_white_nits, light.peak_nits
+            );
+            Some(Hdr { tonemap, light })
+        }
+        Err(e) => {
+            log::warn!("display is in HDR but the tone-mapper could not be built, capturing 8-bit: {e:#}");
+            None
+        }
+    }
+}
+
+fn pool_format(hdr: bool) -> DirectXPixelFormat {
+    if hdr {
+        DirectXPixelFormat::R16G16B16A16Float
+    } else {
+        DirectXPixelFormat::B8G8R8A8UIntNormalized
+    }
+}
+
+/// The DXGI format of the textures the pool hands out — `pool_format` in DXGI terms.
+fn frame_format(hdr: bool) -> DXGI_FORMAT {
+    if hdr {
+        HDR_FORMAT
+    } else {
+        DXGI_FORMAT_B8G8R8A8_UNORM
+    }
+}
+
+/// What lands in the staging texture. Both are byte-ordered B,G,R,A — see `tonemap::SDR_FORMAT`.
+fn readback_format(hdr: bool) -> DXGI_FORMAT {
+    if hdr {
+        SDR_FORMAT
+    } else {
+        DXGI_FORMAT_B8G8R8A8_UNORM
     }
 }
 
@@ -289,13 +495,18 @@ impl Drop for ScreenCapture {
 }
 
 /// CPU-readable texture we copy each frame into for readback. Rebuilt whenever the source resizes.
-unsafe fn staging_texture(device: &ID3D11Device, width: u32, height: u32) -> Result<ID3D11Texture2D> {
+unsafe fn staging_texture(
+    device: &ID3D11Device,
+    width: u32,
+    height: u32,
+    format: DXGI_FORMAT,
+) -> Result<ID3D11Texture2D> {
     let desc = D3D11_TEXTURE2D_DESC {
         Width: width,
         Height: height,
         MipLevels: 1,
         ArraySize: 1,
-        Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+        Format: format,
         SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
         Usage: D3D11_USAGE_STAGING,
         BindFlags: 0,

@@ -4,6 +4,7 @@
 
 import { apiClient } from "./client";
 import type { VoiceTokenResponse, VoiceState } from "../types";
+import type { NativeEngine, PublishEngine } from "../utils/publishEngine";
 
 /**
  * Gets a LiveKit JWT token for joining a voice channel.
@@ -29,15 +30,15 @@ export async function getScreenShareToken(serverId: string, channelId: string) {
 }
 
 /**
- * Why "Akıcı Görüntü" could not start. A closed set — the server rejects anything else.
+ * Why the native helper could not start. A closed set — the server rejects anything else.
  *
- * No "unsupported": the picker only offers smooth where it can run, so a platform that cannot do
- * it never reports a fallback because it never attempted one.
+ * No "unsupported": the helper is only tried where it can run, so a platform that cannot do it
+ * never reports a fallback because it never attempted one.
  */
 export type ScreenShareFallbackReason = "no_token" | "helper_failed";
 
 /**
- * Tells the server that smooth capture failed and the browser path was used instead.
+ * Tells the server that a helper engine failed and the browser path was used instead.
  *
  * Everything that can fail there fails on this machine, so the server has no other way to know it
  * happened — and the people it happens to cannot be asked to fetch a log. Fire-and-forget: the
@@ -46,12 +47,38 @@ export type ScreenShareFallbackReason = "no_token" | "helper_failed";
 export async function reportScreenShareFallback(
   serverId: string,
   channelId: string,
+  engine: NativeEngine,
   reason: ScreenShareFallbackReason,
   detail?: string
 ) {
   return apiClient<void>(`/servers/${serverId}/voice/screen-share-fallback`, {
     method: "POST",
-    body: { channel_id: channelId, reason, detail },
+    body: { channel_id: channelId, engine, reason, detail },
+  });
+}
+
+/** Every engine a share can run on: the desktop's three, and the phone's native capture. */
+export type StopReportEngine = PublishEngine | "mobile";
+
+/** How a share ended without the stop button, on any engine. Mirrors the server's closed set. */
+export type ScreenShareStopReason = "start_failed" | "track_ended" | "unpublished" | "helper_exited";
+
+/**
+ * Tells the server a share ended without the stop button, on which engine, and after how long.
+ * Like the fallback report, every cause lives on this machine, so this is the only way it is ever
+ * seen. The server decides which of these are failures. Fire-and-forget.
+ */
+export async function reportScreenShareStop(
+  serverId: string,
+  channelId: string,
+  engine: StopReportEngine,
+  reason: ScreenShareStopReason,
+  aliveMs: number,
+  detail?: string
+) {
+  return apiClient<void>(`/servers/${serverId}/voice/screen-share-stopped`, {
+    method: "POST",
+    body: { channel_id: channelId, engine, reason, alive_ms: Math.max(0, Math.round(aliveMs)), detail },
   });
 }
 
