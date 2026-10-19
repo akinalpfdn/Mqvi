@@ -108,7 +108,8 @@ interface ElectronAPI {
   getSmoothCaptureSupport: () => Promise<boolean | null>;
   /** Whether any monitor is in HDR right now; null if it could not be told. */
   getHdrActive: () => Promise<boolean | null>;
-  onGameCaptureStopped: (cb: (code: number) => void) => void;
+  /** The helper exited on its own: its exit code (-1 = spawn error, null = killed) and last words. */
+  onGameCaptureStopped: (cb: (code: number | null, said: string) => void) => void;
   removeGameCaptureListeners: () => void;
 
   // ─── Game detection (the "Go Live" row) ───

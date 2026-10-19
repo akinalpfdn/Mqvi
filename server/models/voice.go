@@ -66,11 +66,13 @@ var ScreenShareFallbackEngines = map[string]bool{
 	"sharp_hdr": true, // "Sharp Video" on an HDR display: software VP9 after tone-mapping
 }
 
-// ScreenShareStopRequest is the client saying a "Sharp Video" share ended without the user stopping
-// it. Like the fallback above, everything that ends it happens on the user's machine, so without
+// ScreenShareStopRequest is the client saying a share ended without the user pressing stop. Like the fallback above, everything that ends it happens on the user's machine, so without
 // this report nothing reaches the server at all.
 type ScreenShareStopRequest struct {
 	ChannelID string `json:"channel_id"`
+	// Engine is which engine carried the share, from ScreenShareStopEngines. Empty means browser:
+	// clients that predate the field only reported the browser engine.
+	Engine string `json:"engine,omitempty"`
 	// Reason is a code from ScreenShareStopReasons; the same closed-set rule as the fallback.
 	Reason string `json:"reason"`
 	// AliveMs is how long the share ran before it ended — a share that dies within a second of
@@ -80,12 +82,25 @@ type ScreenShareStopRequest struct {
 	Detail string `json:"detail,omitempty"`
 }
 
-// ScreenShareStopReasons is the closed set of ways a share can end without the user.
+// ScreenShareStopReasons is the closed set of ways a share can end without the stop button.
 var ScreenShareStopReasons = map[string]bool{
-	"start_failed": true, // publishing the share threw (capture refused, picker failed, SDK error)
-	"track_ended":  true, // the captured track ended: source closed, OS "stop sharing", capture died
-	"unpublished":  true, // LiveKit unpublished the track: reconnect, SFU drop
+	"start_failed":  true, // publishing the share threw (capture refused, picker failed, SDK error)
+	"track_ended":   true, // the captured source ended: window closed, OS "stop sharing", game exited
+	"unpublished":   true, // LiveKit unpublished the track: reconnect, SFU drop
+	"helper_exited": true, // the native helper died mid-share: encoder failure, crash, room dropped
 }
+
+// ScreenShareStopEngines is the closed set of engines a stop report can name.
+var ScreenShareStopEngines = map[string]bool{
+	"browser":   true, // getDisplayMedia — "Sharp Video" on an SDR display
+	"smooth":    true, // the helper's hardware engine — "Smooth Video"
+	"sharp_hdr": true, // the helper's tone-mapping VP9 engine — "Sharp Video" on an HDR display
+}
+
+// ScreenShareShortLivedMs splits a share that ended with its source into the reported bug (it ends
+// within seconds of starting) and someone closing what they were sharing. Only the first is a
+// failure; the second is recorded at Info so the Warn rows stay the ones worth reading.
+const ScreenShareShortLivedMs = 10_000
 
 // ScreenShareFallbackDetailMax is how much of Detail survives: long enough for a helper error,
 // short enough that a member cannot use the field as storage.

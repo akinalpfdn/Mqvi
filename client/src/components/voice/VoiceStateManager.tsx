@@ -20,6 +20,7 @@ import type {
 } from "livekit-client";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { shouldReceiveMic as receiveMic } from "../../utils/micSubscription";
+import { isStartFailureWorthReporting } from "../../utils/shareStartFailure";
 import type { NoiseReductionMode } from "../../stores/slices/voiceSettingsSlice";
 import { usePushToTalk } from "../../hooks/usePushToTalk";
 import { RNNoiseProcessor } from "../../audio/RNNoiseProcessor";
@@ -60,8 +61,9 @@ function createProcessor(
 }
 
 /**
- * Reports a "Sharp Video" share that ended without the user stopping it. The voice channel's own
- * server, not the one on screen: the user may be browsing another server while in voice.
+ * Reports a browser-engine share that ended without the stop button. The voice channel's own
+ * server, not the one on screen: the user may be browsing another server while in voice. Helper
+ * engines report their own — see voiceStore.endNativeCaptureByHelper.
  */
 function reportShareStoppedItself(
   reason: voiceApi.ScreenShareStopReason,
@@ -72,7 +74,7 @@ function reportShareStoppedItself(
   const serverId = currentVoiceServerId ?? useServerStore.getState().activeServerId;
   if (!serverId || !currentVoiceChannelId) return;
   const aliveMs = startedAt === null ? 0 : Date.now() - startedAt;
-  void voiceApi.reportScreenShareStop(serverId, currentVoiceChannelId, reason, aliveMs, detail);
+  void voiceApi.reportScreenShareStop(serverId, currentVoiceChannelId, "browser", reason, aliveMs, detail);
 }
 
 /** See utils/micSubscription — a silenced mic is never received, or it plays for ~1s on join. */
@@ -135,7 +137,7 @@ function VoiceStateManager() {
   systemAudioCaptureRef.current = systemAudioCapture;
 
   const customAudioPubRef = useRef<LocalTrackPublication | null>(null);
-  /** When the current "Sharp Video" share went live; null while none is. */
+  /** When the current browser-engine share went live; null while none is. */
   const sharePublishedAtRef = useRef<number | null>(null);
   /** Which run of the screen-share audio effect owns the capture process — see that effect. */
   const audioRunRef = useRef(0);
@@ -156,8 +158,10 @@ function VoiceStateManager() {
 
       if (isStreaming) {
         if (useNativeScreenShare) {
-          // Capacitor (iOS/Android): native screen share plugin
-          const serverId = useServerStore.getState().activeServerId;
+          // Capacitor (iOS/Android): native screen share plugin. The voice channel's server, not the
+          // one on screen — a token asked of the server being browsed is refused.
+          const serverId =
+            useVoiceStore.getState().currentVoiceServerId ?? useServerStore.getState().activeServerId;
           const channelId = useVoiceStore.getState().currentVoiceChannelId;
           if (!serverId || !channelId) return;
 
@@ -197,6 +201,7 @@ function VoiceStateManager() {
           }, { once: true });
         }
       } else {
+        sharePublishedAtRef.current = null;
         if (useNativeScreenShare) {
           // Capacitor: stop native screen share
           await stopNativeScreenShare();
@@ -208,13 +213,16 @@ function VoiceStateManager() {
 
     toggleScreenShare().catch((err: unknown) => {
       if (cancelled) return;
-      // "Smooth Video" hands the share to the native helper and deliberately cancels
-      // getDisplayMedia — that rejection is expected, not a failure.
+      // A helper engine takes the share by deliberately cancelling getDisplayMedia — that
+      // rejection is expected, not a failure.
       if (!useVoiceStore.getState().isNativeCapturing) {
         console.error("[VoiceStateManager] Failed to toggle screen share:", err);
-        // A cancelled picker clears the picked source before this rejection arrives, so a source
-        // still set means the user chose something and it failed to start.
-        if (isStreaming && useVoiceStore.getState().pickedShareSourceId !== null) {
+        const worthReporting = isStartFailureWorthReporting({
+          isElectronApp: isElectron(),
+          pickedShareSourceId: useVoiceStore.getState().pickedShareSourceId,
+          err,
+        });
+        if (isStreaming && worthReporting) {
           const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
           reportShareStoppedItself("start_failed", null, detail);
         }
@@ -327,14 +335,12 @@ function VoiceStateManager() {
   useEffect(() => {
     if (!isElectron() || !window.electronAPI) return;
 
-    window.electronAPI.onGameCaptureStopped(() => {
-      if (!useVoiceStore.getState().isNativeCapturing) return; // we stopped it ourselves
-      useVoiceStore.getState().stopNativeCapture();
-      useToastStore.getState().addToast("error", tVoice("smoothCaptureStopped"));
+    window.electronAPI.onGameCaptureStopped((code, said) => {
+      useVoiceStore.getState().endNativeCaptureByHelper(code, said);
     });
 
     return () => window.electronAPI?.removeGameCaptureListeners();
-  }, [tVoice]);
+  }, []);
 
   const streamingSentRef = useRef(isSharePublished);
   useEffect(() => {

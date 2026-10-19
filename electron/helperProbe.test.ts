@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { hdrActiveFrom, parseProbeAnswer, smoothSupportFrom } from "./helperProbe";
+import { EventEmitter } from "events";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { hdrActiveFrom, parseProbeAnswer, runProbe, smoothSupportFrom, type ProbeChild } from "./helperProbe";
 
 // The helper's answer decides what the share picker offers and warns about. A misread answer either
 // hides "Smooth Video" from a machine that can run it or warns about HDR that is not there, so
@@ -58,5 +59,72 @@ describe("hdrActiveFrom", () => {
 
   it("should be null when the answer is about something else", () => {
     expect(hdrActiveFrom({ h264: true })).toBeNull();
+  });
+});
+
+/** A child process that does what it is told, in the order a test chooses. */
+function fakeChild() {
+  const events = new EventEmitter();
+  const stdout = new EventEmitter();
+  const kill = vi.fn();
+  const child = {
+    stdout: { on: (e: "data", cb: (chunk: Buffer) => void) => stdout.on(e, cb) },
+    on: (e: string, cb: (...args: unknown[]) => void) => events.on(e, cb),
+    kill,
+  } as unknown as ProbeChild;
+  return {
+    child,
+    kill,
+    say: (text: string) => stdout.emit("data", Buffer.from(text)),
+    emit: (event: "exit" | "close" | "error", arg?: unknown) => events.emit(event, arg),
+  };
+}
+
+describe("runProbe", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // The race this exists for: the helper prints its answer and exits at once, and `exit` can be
+  // delivered before the last stdout chunk. Reading there turned a real answer into null.
+  it("should read an answer that arrives after the process has exited", async () => {
+    const f = fakeChild();
+    const answer = runProbe(() => f.child, 3_000);
+    f.emit("exit", 0);
+    f.say('{"hdr":true}\n');
+    f.emit("close");
+    expect(await answer).toEqual({ hdr: true });
+  });
+
+  it("should put together an answer split across chunks", async () => {
+    const f = fakeChild();
+    const answer = runProbe(() => f.child, 3_000);
+    f.say('{"h264":tr');
+    f.say('ue,"h265":false}\n');
+    f.emit("close");
+    expect(await answer).toEqual({ h264: true, h265: false });
+  });
+
+  it("should give up, and stop the process, when it does not answer in time", async () => {
+    vi.useFakeTimers();
+    const f = fakeChild();
+    const answer = runProbe(() => f.child, 3_000);
+    vi.advanceTimersByTime(3_000);
+    expect(await answer).toBeNull();
+    expect(f.kill).toHaveBeenCalled();
+  });
+
+  it("should be null when the process could not start", async () => {
+    const f = fakeChild();
+    const answer = runProbe(() => f.child, 3_000);
+    f.emit("error", new Error("ENOENT"));
+    expect(await answer).toBeNull();
+  });
+
+  it("should be null when spawning throws", async () => {
+    const answer = runProbe(() => {
+      throw new Error("EACCES");
+    }, 3_000);
+    expect(await answer).toBeNull();
   });
 });

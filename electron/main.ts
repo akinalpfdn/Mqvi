@@ -39,7 +39,7 @@ import {
 import { createCredentialStore } from "./credentialStore";
 import { createRedactor } from "./redact";
 import { createOutputTracker } from "./helperOutput";
-import { hdrActiveFrom, parseProbeAnswer, smoothSupportFrom, type ProbeAnswer } from "./helperProbe";
+import { hdrActiveFrom, runProbe, smoothSupportFrom, type ProbeAnswer } from "./helperProbe";
 import { engineArgs, type CaptureEngine } from "./captureArgs";
 
 /** Main application window reference */
@@ -1393,32 +1393,8 @@ function setupIPC(): void {
       : path.join(process.resourcesPath, "native", "mqvi-game-capture.exe");
 
   // Runs the helper with a `--probe-*` flag and resolves its answer, or null if it gave none.
-  const runHelperProbe = (flag: string): Promise<ProbeAnswer | null> =>
-    new Promise((resolve) => {
-      let child: ChildProcess;
-      try {
-        child = spawn(gameCaptureExePath(), [flag], { stdio: ["ignore", "pipe", "ignore"] });
-      } catch {
-        resolve(null);
-        return;
-      }
-      let out = "";
-      const timer = setTimeout(() => {
-        child.kill();
-        resolve(null);
-      }, 10_000);
-      child.stdout?.on("data", (chunk: Buffer) => {
-        out += chunk.toString();
-      });
-      child.on("error", () => {
-        clearTimeout(timer);
-        resolve(null);
-      });
-      child.on("exit", () => {
-        clearTimeout(timer);
-        resolve(parseProbeAnswer(out));
-      });
-    });
+  const runHelperProbe = (flag: string, timeoutMs: number): Promise<ProbeAnswer | null> =>
+    runProbe(() => spawn(gameCaptureExePath(), [flag], { stdio: ["ignore", "pipe", "ignore"] }), timeoutMs);
 
   // Whether this machine can hardware-encode, asked of the helper once per launch and kept in
   // memory: it is a property of this machine (GPU, driver), not of the account, and it can change
@@ -1428,15 +1404,20 @@ function setupIPC(): void {
 
   ipcMain.handle("get-smooth-capture-support", () => {
     if (process.platform !== "win32") return false;
-    smoothCaptureSupport ??= runHelperProbe("--probe-encoders").then(smoothSupportFrom);
+    // Generous: it builds real encoders, and it runs once, at launch, off any path a user waits on.
+    smoothCaptureSupport ??= runHelperProbe("--probe-encoders", 10_000).then(smoothSupportFrom);
     return smoothCaptureSupport;
   });
 
   // Whether a monitor is in HDR, asked fresh for every picker: HDR is toggled at will, so unlike
   // the encoder this is never cached. Windows-only, like the helper that answers it.
+  //
+  // Short, because a sharp share waits on this answer: a few DXGI calls take milliseconds, so a
+  // probe still silent after 3s is stuck (an antivirus scan, say), and the share goes ahead in the
+  // browser rather than hanging the picker.
   ipcMain.handle("get-hdr-active", async () => {
     if (process.platform !== "win32") return false;
-    return hdrActiveFrom(await runHelperProbe("--probe-hdr"));
+    return hdrActiveFrom(await runHelperProbe("--probe-hdr", 3_000));
   });
 
   // Spawns mqvi-game-capture.exe (WGC capture + hardware encode, or software VP9 for a sharp share
@@ -1560,7 +1541,9 @@ function setupIPC(): void {
           // nor tell the renderer that sharing stopped.
           if (thisGen === gameCaptureGeneration) {
             gameCaptureProcess = null;
-            mainWindow?.webContents.send("game-capture-stopped", code);
+            // With what it last said: once the share is live this is the only place a mid-stream
+            // failure's cause is still known.
+            mainWindow?.webContents.send("game-capture-stopped", code, output.said());
           }
           // Deliberately not reporting yet. The helper's last act is to print why it is dying, and
           // `exit` can fire while that line is still in the pipe — which is exactly how the first

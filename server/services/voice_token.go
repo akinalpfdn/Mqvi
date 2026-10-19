@@ -160,21 +160,31 @@ func (s *voiceService) logScreenShareRefusal(level models.LogLevel, userID, chan
 	s.appLogger.Log(level, models.LogCategoryScreenShare, &userID, nil, "screen share token refused: "+reason, metadata)
 }
 
-// RecordScreenShareStop notes a "Sharp Video" share that ended on its own. Same `screen_share`
+// RecordScreenShareStop notes a share that ended without the stop button. Same `screen_share`
 // category: from the operator's side it is still "someone tried to share and did not get it".
 // The duration is in the message, not only the metadata: a sub-second share is the bug, and the
 // log list is scanned by eye.
-func (s *voiceService) RecordScreenShareStop(userID, channelID, reason, detail string, aliveMs int64) {
+//
+// One case is not a failure: a share that ran a while and then ended with its source is someone
+// closing the window or game they were sharing. That is recorded at Info, so Warn holds only what
+// is worth reading — see models.ScreenShareShortLivedMs.
+func (s *voiceService) RecordScreenShareStop(userID, channelID, engine, reason, detail string, aliveMs int64) {
 	if s.appLogger == nil {
 		return
 	}
 	metadata := map[string]string{
 		"reason":     reason,
+		"engine":     engine,
 		"channel_id": channelID,
 		"alive_ms":   strconv.FormatInt(aliveMs, 10),
 	}
 	if detail != "" {
 		metadata["detail"] = detail
+	}
+	if reason == "track_ended" && aliveMs >= models.ScreenShareShortLivedMs {
+		s.appLogger.Log(models.LogLevelInfo, models.LogCategoryScreenShare, &userID, nil,
+			fmt.Sprintf("screen share ended with its source after %dms", aliveMs), metadata)
+		return
 	}
 	s.appLogger.Log(models.LogLevelWarn, models.LogCategoryScreenShare, &userID, nil,
 		fmt.Sprintf("screen share stopped by itself: %s after %dms", reason, aliveMs), metadata)

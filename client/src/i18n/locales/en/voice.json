@@ -14,6 +14,7 @@
   "screenModeSharp": "Sharp Video",
   "screenModeSharpHint": "text, code, presentations",
   "smoothCaptureStopped": "Smooth Video stopped unexpectedly. Screen sharing has ended.",
+  "sharpCaptureStopped": "Sharp Video stopped unexpectedly. Screen sharing has ended.",
   "smoothFellBackToSharp": "Smooth Video could not start — sharing with Sharp Video instead.",
   "hdrSharpFellBack": "HDR correction could not start — sharing with Sharp Video as is; HDR content may look overexposed.",
   "screenPickerStarting": "Starting…",

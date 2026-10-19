@@ -31,7 +31,7 @@ func (s *stubVoiceService) GenerateScreenShareToken(_ context.Context, _, _, _, 
 	return nil, nil
 }
 func (s *stubVoiceService) RecordScreenShareFallback(_, _, _, _, _ string) {}
-func (s *stubVoiceService) RecordScreenShareStop(_, _, _, _ string, _ int64) {}
+func (s *stubVoiceService) RecordScreenShareStop(_, _, _, _, _ string, _ int64) {}
 func (s *stubVoiceService) RecordNoiseReductionFailure(_, _, _, _, _ string) {}
 func (s *stubVoiceService) GetAllVoiceStates() []models.VoiceState      { return s.all }
 
@@ -739,14 +739,14 @@ func TestToken_IgnoresAnyOtherCountryHeader(t *testing.T) {
 
 type stopRecordingService struct {
 	stubVoiceService
-	reason, detail string
-	aliveMs        int64
-	calls          int
+	engine, reason, detail string
+	aliveMs                int64
+	calls                  int
 }
 
-func (s *stopRecordingService) RecordScreenShareStop(_, _, reason, detail string, aliveMs int64) {
+func (s *stopRecordingService) RecordScreenShareStop(_, _, engine, reason, detail string, aliveMs int64) {
 	s.calls++
-	s.reason, s.detail, s.aliveMs = reason, detail, aliveMs
+	s.engine, s.reason, s.detail, s.aliveMs = engine, reason, detail, aliveMs
 }
 
 func stopRequest(t *testing.T, body string) (*httptest.ResponseRecorder, *stopRecordingService) {
@@ -770,6 +770,33 @@ func TestScreenShareStop_ShouldRecordHowTheShareEndedAndAfterHowLong(t *testing.
 	}
 	if svc.reason != "track_ended" || svc.aliveMs != 740 {
 		t.Fatalf("recorded %q after %dms", svc.reason, svc.aliveMs)
+	}
+}
+
+// The helper engines report stops too now; the row has to say which engine, or a helper crash
+// reads as a browser share ending.
+func TestScreenShareStop_ShouldRecordTheEngine(t *testing.T) {
+	_, svc := stopRequest(t, `{"channel_id":"ch1","engine":"sharp_hdr","reason":"helper_exited","alive_ms":5000}`)
+
+	if svc.engine != "sharp_hdr" || svc.reason != "helper_exited" {
+		t.Fatalf("recorded %q / %q", svc.engine, svc.reason)
+	}
+}
+
+// Clients from before the field only reported the browser engine.
+func TestScreenShareStop_ShouldReadAMissingEngineAsBrowser(t *testing.T) {
+	_, svc := stopRequest(t, `{"channel_id":"ch1","reason":"track_ended","alive_ms":1}`)
+
+	if svc.engine != "browser" {
+		t.Fatalf("engine = %q, want browser", svc.engine)
+	}
+}
+
+func TestScreenShareStop_ShouldRejectAnEngineOutsideTheClosedSet(t *testing.T) {
+	rec, svc := stopRequest(t, `{"channel_id":"ch1","engine":"<i>x</i>","reason":"track_ended","alive_ms":1}`)
+
+	if rec.Code != http.StatusBadRequest || svc.calls != 0 {
+		t.Fatalf("status %d, calls %d", rec.Code, svc.calls)
 	}
 }
 

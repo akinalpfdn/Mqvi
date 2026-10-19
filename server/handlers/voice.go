@@ -21,7 +21,7 @@ type voiceHandlerService interface {
 	GenerateToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error)
 	GenerateScreenShareToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error)
 	RecordScreenShareFallback(userID, channelID, engine, reason, detail string)
-	RecordScreenShareStop(userID, channelID, reason, detail string, aliveMs int64)
+	RecordScreenShareStop(userID, channelID, engine, reason, detail string, aliveMs int64)
 	RecordNoiseReductionFailure(userID, channelID, engine, reason, detail string)
 	GetAllVoiceStates() []models.VoiceState
 }
@@ -170,6 +170,14 @@ func (h *VoiceHandler) ScreenShareStop(w http.ResponseWriter, r *http.Request) {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "unknown reason")
 		return
 	}
+	engine := req.Engine
+	if engine == "" {
+		engine = "browser"
+	}
+	if !models.ScreenShareStopEngines[engine] {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "unknown engine")
+		return
+	}
 	if len(req.ChannelID) > models.ScreenShareChannelIDMax {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "channel_id too long")
 		return
@@ -179,7 +187,7 @@ func (h *VoiceHandler) ScreenShareStop(w http.ResponseWriter, r *http.Request) {
 		aliveMs = 0
 	}
 
-	h.voiceService.RecordScreenShareStop(user.ID, req.ChannelID, req.Reason,
+	h.voiceService.RecordScreenShareStop(user.ID, req.ChannelID, engine, req.Reason,
 		truncateRunes(req.Detail, models.ScreenShareFallbackDetailMax), aliveMs)
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -51,7 +51,7 @@ import {
   createVoiceScreenShareSlice,
   type VoiceScreenShareSlice,
 } from "./slices/voiceScreenShareSlice";
-import { sharpShareEncoding, type NativeEngine } from "../utils/shareEngine";
+import { HELPER_EXIT_SOURCE_GONE, sharpShareEncoding, type NativeEngine } from "../utils/shareEngine";
 
 export type { InputMode, ScreenShareQuality };
 
@@ -123,6 +123,8 @@ type VoiceCoreState = {
   isStreaming: boolean;
   /** A helper engine is live ("Smooth Video", or "Sharp Video" on HDR): it publishes {userId}_ss */
   isNativeCapturing: boolean;
+  /** Which helper engine is live and since when; null exactly when isNativeCapturing is false. */
+  nativeCapture: { engine: NativeEngine; startedAt: number } | null;
   /**
    * Whether this machine can hardware-encode — "Smooth Video" needs it. null until asked, or if
    * the probe could not answer (then it is offered as before). Never persisted: it belongs to this
@@ -186,6 +188,11 @@ type VoiceCoreActions = {
    */
   reportNativeFallback: (failure: NativeCaptureFailure) => void;
   stopNativeCapture: () => void;
+  /**
+   * The helper exited on its own mid-share. Its source closing is the user's doing and ends the
+   * share quietly, as the browser engine does; anything else is a failure, shown and reported.
+   */
+  endNativeCaptureByHelper: (exitCode: number | null, said: string) => void;
   setPickedShareSourceId: (sourceId: string | null) => void;
   setRtt: (rtt: number) => void;
   setActiveSpeakers: (speakerIds: string[]) => void;
@@ -217,6 +224,7 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
   isDeafened: initialMuteState.isDeafened,
   isStreaming: false,
   isNativeCapturing: false,
+  nativeCapture: null,
   smoothCaptureSupported: null,
   pickedShareSourceId: null,
   isServerMuted: false,
@@ -386,6 +394,7 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
       // isMuted/isDeafened intentionally NOT reset — they persist across sessions
       isStreaming: false,
       isNativeCapturing: false,
+      nativeCapture: null,
   pickedShareSourceId: null,
       isServerMuted: false,
       isServerDeafened: false,
@@ -452,11 +461,11 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
     // server, and a token asked of that one is refused — the share would fall back for no reason.
     const serverId = get().currentVoiceServerId ?? useServerStore.getState().activeServerId;
     const channelId = get().currentVoiceChannelId;
-    // Not reportable: nothing was attempted, and the picker does not offer smooth here anyway.
+    // Not reportable: nothing was attempted, and no share is routed to the helper without these.
     if (!serverId || !channelId || !window.electronAPI) return { ok: false };
     // Before the token round-trip, not after: the helper is Windows-only, so anywhere else this
     // would mint a screen-share token and hand the room passphrase to a path that only rejects it.
-    // Also not reportable: the picker does not offer smooth here, so nothing was attempted.
+    // Also not reportable: shares are only routed to the helper on Windows, so nothing was attempted.
     if (window.electronAPI.platform !== "win32") return { ok: false };
 
     // Screen-token = the {userId}_ss identity + the room's E2EE passphrase; the native helper
@@ -485,7 +494,7 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
     }
     // Presence is derived from (isStreaming || isNativeCapturing) in VoiceStateManager — one
     // sharing concept, two engines — so nothing to broadcast here.
-    set({ isNativeCapturing: true });
+    set({ isNativeCapturing: true, nativeCapture: { engine, startedAt: Date.now() } });
     return { ok: true };
   },
 
@@ -518,7 +527,36 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
 
   stopNativeCapture: () => {
     void window.electronAPI?.stopGameCapture();
-    set({ isNativeCapturing: false });
+    set({ isNativeCapturing: false, nativeCapture: null });
+  },
+
+  endNativeCaptureByHelper: (exitCode, said) => {
+    const { isNativeCapturing, nativeCapture, currentVoiceServerId, currentVoiceChannelId } = get();
+    if (!isNativeCapturing) return; // we stopped it ourselves
+    get().stopNativeCapture();
+
+    const engine = nativeCapture?.engine ?? "smooth";
+    const aliveMs = nativeCapture ? Date.now() - nativeCapture.startedAt : 0;
+    const sourceGone = exitCode === HELPER_EXIT_SOURCE_GONE;
+    if (!sourceGone) {
+      useToastStore
+        .getState()
+        .addToast(
+          "error",
+          i18n.t(engine === "sharp_hdr" ? "voice:sharpCaptureStopped" : "voice:smoothCaptureStopped")
+        );
+    }
+
+    const serverId = currentVoiceServerId ?? useServerStore.getState().activeServerId;
+    if (!serverId || !currentVoiceChannelId) return;
+    void voiceApi.reportScreenShareStop(
+      serverId,
+      currentVoiceChannelId,
+      engine,
+      sourceGone ? "track_ended" : "helper_exited",
+      aliveMs,
+      sourceGone ? undefined : said || `exit ${exitCode}`
+    );
   },
 
   setPickedShareSourceId: (sourceId) => {

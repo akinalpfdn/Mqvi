@@ -52,8 +52,8 @@ pub fn query(hmon: HMONITOR) -> Result<DisplayLight> {
     }
 }
 
-/// Whether any attached monitor is in HDR — what the app asks before a share, to warn that the
-/// browser engine will stream HDR content clipped.
+/// Whether any attached monitor is in HDR — what the app asks before a sharp share, which it then
+/// routes to the helper's tone-mapping engine instead of the browser's clipping one.
 pub fn any_hdr() -> Result<bool> {
     unsafe {
         Ok(outputs()?

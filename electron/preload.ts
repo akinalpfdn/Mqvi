@@ -140,9 +140,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.removeAllListeners("game-detected");
   },
 
-  /** The game-capture helper exited (exit code; -1 = spawn error) */
-  onGameCaptureStopped: (cb: (code: number) => void): void => {
-    ipcRenderer.on("game-capture-stopped", (_e, code: number) => cb(code));
+  /** The game-capture helper exited (exit code; -1 = spawn error; null = killed) and what it last said */
+  onGameCaptureStopped: (cb: (code: number | null, said: string) => void): void => {
+    ipcRenderer.on("game-capture-stopped", (_e, code: number | null, said?: string) => cb(code, said ?? ""));
   },
 
   removeGameCaptureListeners: (): void => {

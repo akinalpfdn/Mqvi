@@ -14,6 +14,7 @@
   "screenModeSharp": "Net Görüntü",
   "screenModeSharpHint": "metin, kod, sunum",
   "smoothCaptureStopped": "Akıcı Görüntü beklenmedik şekilde durdu. Ekran paylaşımı sona erdi.",
+  "sharpCaptureStopped": "Net Görüntü beklenmedik şekilde durdu. Ekran paylaşımı sona erdi.",
   "smoothFellBackToSharp": "Akıcı Görüntü başlatılamadı — Net Görüntü ile paylaşılıyor.",
   "hdrSharpFellBack": "HDR düzeltmesi başlatılamadı — Net Görüntü olduğu gibi paylaşılıyor; HDR içerik aşırı parlak görünebilir.",
   "screenPickerStarting": "Başlatılıyor…",

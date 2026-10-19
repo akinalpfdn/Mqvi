@@ -94,6 +94,21 @@ struct Hdr {
     light: DisplayLight,
 }
 
+/// The source a capture was following no longer exists: the window closed, the game exited, the
+/// display was unplugged. Typed rather than a message so the process can end with its own exit code —
+/// to the app this is the user's doing, not a failure, exactly like a browser share whose source
+/// closes.
+#[derive(Debug)]
+pub struct SourceGone;
+
+impl std::fmt::Display for SourceGone {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the captured window or display is gone")
+    }
+}
+
+impl std::error::Error for SourceGone {}
+
 /// One captured frame: BGRA with a possibly-padded row `stride`. Borrowed from the capture's own
 /// buffer, which the next `next_frame()` overwrites — copy it if you need it to outlive that.
 pub struct BgraFrame<'a> {
@@ -121,6 +136,10 @@ pub struct ScreenCapture {
     light_checked: Instant,
     /// Set while the monitor cannot be asked about HDR, so a lasting failure is logged once.
     light_failing: bool,
+    /// Set when the display is in HDR but the tone-mapper could not be built. Building it again
+    /// every second would recompile the shader on the capture thread — a hitch a second — to fail
+    /// the same way; it is retried only after the display leaves HDR and comes back.
+    tonemap_failed: bool,
 }
 
 impl ScreenCapture {
@@ -195,11 +214,15 @@ impl ScreenCapture {
         let size = item.Size()?;
         let (width, height) = (size.Width as u32, size.Height as u32);
 
-        let (hdr, light_failing) = match display_light::query(target.monitor()) {
-            Ok(light) => (hdr_mode(&device, light), false),
+        let (hdr, light_failing, tonemap_failed) = match display_light::query(target.monitor()) {
+            Ok(light) => {
+                let hdr = hdr_mode(&device, light);
+                let failed = light.hdr && hdr.is_none();
+                (hdr, false, failed)
+            }
             Err(e) => {
                 log::warn!("could not read the display's HDR state, capturing 8-bit: {e:#}");
-                (None, true)
+                (None, true, false)
             }
         };
 
@@ -239,6 +262,7 @@ impl ScreenCapture {
             hdr,
             light_checked: Instant::now(),
             light_failing,
+            tonemap_failed,
         })
     }
 
@@ -256,7 +280,7 @@ impl ScreenCapture {
     pub fn next_frame(&mut self) -> Result<Option<BgraFrame<'_>>> {
         unsafe {
             if !self.target.still_exists() {
-                bail!("the captured window or display is gone");
+                return Err(SourceGone.into());
             }
             if self.light_checked.elapsed() >= LIGHT_RECHECK {
                 self.light_checked = Instant::now();
@@ -371,7 +395,11 @@ impl ScreenCapture {
                 }
                 Ok(false)
             }
-            (None, false) => Ok(false),
+            (None, false) => {
+                self.tonemap_failed = false;
+                Ok(false)
+            }
+            (None, true) if self.tonemap_failed => Ok(false),
             (Some(_), false) => {
                 log::info!("display left HDR — capturing 8-bit");
                 self.hdr = None;
@@ -380,6 +408,7 @@ impl ScreenCapture {
             }
             (None, true) => {
                 let Some(hdr) = hdr_mode(&self.device, light) else {
+                    self.tonemap_failed = true;
                     return Ok(false);
                 };
                 self.hdr = Some(hdr);

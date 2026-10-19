@@ -31,7 +31,7 @@ use livekit::webrtc::video_frame::{
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
 use livekit::{Room, RoomEvent, RoomOptions};
-use mqvi_game_capture::capture::ScreenCapture;
+use mqvi_game_capture::capture::{ScreenCapture, SourceGone};
 use mqvi_game_capture::display_light;
 use mqvi_game_capture::mf_encoder::{describe_hardware_encoders, HwEncoder};
 use mqvi_game_capture::nv12;
@@ -47,6 +47,16 @@ use windows::Win32::System::Threading::{
     AvRevertMmThreadCharacteristics, AvSetMmThreadCharacteristicsW, AvSetMmThreadPriority,
     AVRT_PRIORITY_HIGH,
 };
+
+/// Exit code for a share whose source went away (window closed, game exited, display unplugged). The
+/// app treats it as the user ending the share — no error shown — and anything else as a failure.
+/// The app keeps the same number (`HELPER_EXIT_SOURCE_GONE`).
+const SOURCE_GONE_EXIT: i32 = 3;
+
+/// Whether `err` is, anywhere in its chain, the capture source going away.
+fn is_source_gone(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| cause.is::<SourceGone>())
+}
 
 /// Consecutive encode failures that mean the encoder is gone for good, not glitching (1s at 30fps).
 const MAX_CONSECUTIVE_ENCODE_ERRORS: u32 = 30;
@@ -72,8 +82,8 @@ struct Args {
     #[arg(long)]
     probe_encoders: bool,
 
-    /// Print `{"hdr":bool}` — whether any monitor is in HDR — and exit. The app asks before each
-    /// share to warn that "Sharp Video" streams HDR content clipped.
+    /// Print `{"hdr":bool}` — whether any monitor is in HDR — and exit. The app asks before a sharp
+    /// share: on an HDR display it hands the share to `--engine sharp`, which tone-maps.
     #[arg(long)]
     probe_hdr: bool,
 
@@ -334,7 +344,14 @@ fn main() -> Result<()> {
             result
         })
         .context("failed to spawn worker thread")?;
-    handle.join().map_err(|_| anyhow::anyhow!("worker thread panicked"))?
+    let result = handle.join().map_err(|_| anyhow::anyhow!("worker thread panicked"))?;
+    if let Err(e) = &result {
+        if is_source_gone(e) {
+            log::info!("{e}");
+            std::process::exit(SOURCE_GONE_EXIT);
+        }
+    }
+    result
 }
 
 async fn run() -> Result<()> {
@@ -529,7 +546,8 @@ async fn run() -> Result<()> {
     // this machine) or die later (a GPU driver reset — routine for our workload, a fullscreen
     // game), and neither shows up as a process exit.
     let (ready_tx, ready_rx) = oneshot::channel::<String>();
-    let (died_tx, mut died_rx) = oneshot::channel::<String>();
+    // The cause as text, and whether it was the source going away rather than a fault.
+    let (died_tx, mut died_rx) = oneshot::channel::<(String, bool)>();
     let cfg = VideoConfig { width, height, fps, hevc, max };
     let mf_thread = if use_mf || sharp {
         let (src, stop) = (rtc_source.clone(), stop.clone());
@@ -543,7 +561,7 @@ async fn run() -> Result<()> {
                 // same text, so an identical opening lets the reporter fold the two into one line
                 // instead of spending its length budget saying it twice.
                 log::error!("{e:#}");
-                let _ = died_tx.send(format!("{e:#}"));
+                let _ = died_tx.send((format!("{e:#}"), is_source_gone(&e)));
             }
         }))
     } else {
@@ -591,8 +609,12 @@ async fn run() -> Result<()> {
                     // The same trap as the startup path: `reason` IS the cause, so putting a
                     // generic sentence in the error throws away the only line that names the fault.
                     // Exiting is the only way the app learns: it watches for our process to end.
-                    let cause = reason.unwrap_or_else(|_| "no reason given".into());
-                    startup_error = Some(anyhow!("{cause} (encoder stopped mid-stream)"));
+                    let (cause, gone) = reason.unwrap_or_else(|_| ("no reason given".into(), false));
+                    startup_error = Some(if gone {
+                        anyhow::Error::new(SourceGone)
+                    } else {
+                        anyhow!("{cause} (encoder stopped mid-stream)")
+                    });
                     break;
                 }
                 event = events.recv() => {
@@ -636,7 +658,7 @@ async fn run() -> Result<()> {
         // Only the hardware path has encoders to describe; sharp's encoder is libwebrtc's own.
         let encoders = if sharp { sharp_pump::ENCODER_NAME.to_string() } else { describe_hardware_encoders() };
         startup_error = Some(match died_rx.try_recv() {
-            Ok(cause) => anyhow!("{cause} (no frames produced; {encoders})"),
+            Ok((cause, _)) => anyhow!("{cause} (no frames produced; {encoders})"),
             // The pump only returns Ok once `stop` is set, and that happens above — so reaching
             // this means it ended without going through its own error handler.
             Err(_) => anyhow!("no frames produced and no reason reported; {encoders}"),
@@ -1042,6 +1064,17 @@ async fn frame_pump(source: NativeVideoSource, width: u32, height: u32, fps: u32
 #[cfg(test)]
 mod tests {
     use super::canvas_for;
+
+    /// The app shows no error for this exit and an error for every other — so the source going away
+    /// must be recognised however much context was wrapped around it on the way out.
+    #[test]
+    fn should_recognise_a_vanished_source_through_added_context() {
+        use super::{is_source_gone, SourceGone};
+        use anyhow::Context;
+        let wrapped: anyhow::Result<()> = Err(anyhow::Error::new(SourceGone)).context("capturing");
+        assert!(is_source_gone(&wrapped.unwrap_err()));
+        assert!(!is_source_gone(&anyhow::anyhow!("the encoder died")));
+    }
 
     const CAP_720: (u32, u32) = (1280, 720);
     const CAP_1080: (u32, u32) = (1920, 1080);

@@ -241,3 +241,31 @@ func TestScreenShareFallback_NamesTheEngineThatFellBack(t *testing.T) {
 		t.Errorf("engine metadata = %q, want sharp_hdr", got[1].metadata["engine"])
 	}
 }
+
+// The reported bug is a share that ends within seconds of starting. A share that ran for minutes
+// and ended with its window is someone closing it — logged, but not as a failure, or it buries the
+// rows anyone is looking for.
+func TestScreenShareStop_LevelsByWhetherItLookedLikeTheBug(t *testing.T) {
+	svc, logger := voiceServiceWithLogger()
+
+	svc.RecordScreenShareStop("u1", "ch1", "browser", "track_ended", "", 800)
+	svc.RecordScreenShareStop("u1", "ch1", "browser", "track_ended", "", 5*60*1000)
+	svc.RecordScreenShareStop("u1", "ch1", "smooth", "helper_exited", "exit 1", 5*60*1000)
+
+	got := logger.screenShare()
+	if len(got) != 3 {
+		t.Fatalf("got %d screen_share logs, want 3: %+v", len(got), got)
+	}
+	if got[0].level != models.LogLevelWarn {
+		t.Errorf("a share gone in 800ms is the bug and must be Warn, got %v", got[0].level)
+	}
+	if got[1].level != models.LogLevelInfo {
+		t.Errorf("a five-minute share that ended with its window is not a failure, got %v", got[1].level)
+	}
+	if got[2].level != models.LogLevelWarn {
+		t.Errorf("a helper that died is a failure however long it ran, got %v", got[2].level)
+	}
+	if got[2].metadata["engine"] != "smooth" {
+		t.Errorf("engine metadata = %q, want smooth", got[2].metadata["engine"])
+	}
+}

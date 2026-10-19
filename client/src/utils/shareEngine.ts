@@ -13,6 +13,13 @@ import type { ScreenShareMode, ScreenShareQuality } from "../stores/slices/voice
 export type NativeEngine = "smooth" | "sharp_hdr";
 export type ShareEngine = NativeEngine | "browser";
 
+/**
+ * The helper's exit code when the source it was capturing went away — the window closed, the game
+ * exited. The user's doing, like a browser share whose source closes, so it is not shown as an
+ * error. Kept in step with `SOURCE_GONE_EXIT` in native/game-capture/src/main.rs.
+ */
+export const HELPER_EXIT_SOURCE_GONE = 3;
+
 /** "Sharp Video"'s encoding. The browser publishes with it; the helper's sharp engine copies it. */
 export function sharpShareEncoding(quality: ScreenShareQuality): { maxBitrate: number; maxFramerate: number } {
   return { maxBitrate: quality === "720p" ? 1_500_000 : 3_000_000, maxFramerate: 30 };

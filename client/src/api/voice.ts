@@ -4,7 +4,7 @@
 
 import { apiClient } from "./client";
 import type { VoiceTokenResponse, VoiceState } from "../types";
-import type { NativeEngine } from "../utils/shareEngine";
+import type { NativeEngine, ShareEngine } from "../utils/shareEngine";
 
 /**
  * Gets a LiveKit JWT token for joining a voice channel.
@@ -58,23 +58,24 @@ export async function reportScreenShareFallback(
 }
 
 /** How a "Sharp Video" share ended without the user stopping it. Mirrors the server's closed set. */
-export type ScreenShareStopReason = "start_failed" | "track_ended" | "unpublished";
+export type ScreenShareStopReason = "start_failed" | "track_ended" | "unpublished" | "helper_exited";
 
 /**
- * Tells the server a "Sharp Video" share ended by itself, and after how long. Like the fallback
- * report, every cause lives on this machine, so this is the only way it is ever seen.
- * Fire-and-forget.
+ * Tells the server a share ended without the stop button, on which engine, and after how long.
+ * Like the fallback report, every cause lives on this machine, so this is the only way it is ever
+ * seen. The server decides which of these are failures. Fire-and-forget.
  */
 export async function reportScreenShareStop(
   serverId: string,
   channelId: string,
+  engine: ShareEngine,
   reason: ScreenShareStopReason,
   aliveMs: number,
   detail?: string
 ) {
   return apiClient<void>(`/servers/${serverId}/voice/screen-share-stopped`, {
     method: "POST",
-    body: { channel_id: channelId, reason, alive_ms: Math.max(0, Math.round(aliveMs)), detail },
+    body: { channel_id: channelId, engine, reason, alive_ms: Math.max(0, Math.round(aliveMs)), detail },
   });
 }
 
