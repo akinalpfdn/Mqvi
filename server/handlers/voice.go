@@ -21,6 +21,7 @@ type voiceHandlerService interface {
 	GenerateToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error)
 	GenerateScreenShareToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error)
 	RecordScreenShareFallback(userID, channelID, reason, detail string)
+	RecordScreenShareStop(userID, channelID, reason, detail string, aliveMs int64)
 	RecordNoiseReductionFailure(userID, channelID, engine, reason, detail string)
 	GetAllVoiceStates() []models.VoiceState
 }
@@ -141,6 +142,46 @@ func truncateRunes(s string, n int) string {
 		return s
 	}
 	return string(r[:n])
+}
+
+// ScreenShareStop handles POST /api/servers/{serverId}/voice/screen-share-stopped
+//
+// The client reporting that a "Net Görüntü" share ended without the user stopping it. Same guards
+// and the same bucket as the fallback report: one attempt, at most one row.
+func (h *VoiceHandler) ScreenShareStop(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+	if h.screenShareRL != nil && !h.screenShareRL.Allow(user.ID) {
+		retryAfter := h.screenShareRL.CooldownSeconds(user.ID)
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+		pkg.ErrorWithMessage(w, http.StatusTooManyRequests, "too many screen share requests")
+		return
+	}
+
+	var req models.ScreenShareStopRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if !models.ScreenShareStopReasons[req.Reason] {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "unknown reason")
+		return
+	}
+	if len(req.ChannelID) > models.ScreenShareChannelIDMax {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "channel_id too long")
+		return
+	}
+	aliveMs := req.AliveMs
+	if aliveMs < 0 {
+		aliveMs = 0
+	}
+
+	h.voiceService.RecordScreenShareStop(user.ID, req.ChannelID, req.Reason,
+		truncateRunes(req.Detail, models.ScreenShareFallbackDetailMax), aliveMs)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ScreenShareFallback handles POST /api/servers/{serverId}/voice/screen-share-fallback

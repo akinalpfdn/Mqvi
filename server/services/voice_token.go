@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/akinalp/mqvi/models"
@@ -157,6 +158,26 @@ func (s *voiceService) logScreenShareRefusal(level models.LogLevel, userID, chan
 		metadata[k] = v
 	}
 	s.appLogger.Log(level, models.LogCategoryScreenShare, &userID, nil, "screen share token refused: "+reason, metadata)
+}
+
+// RecordScreenShareStop notes a "Net Görüntü" share that ended on its own. Same `screen_share`
+// category: from the operator's side it is still "someone tried to share and did not get it".
+// The duration is in the message, not only the metadata: a sub-second share is the bug, and the
+// log list is scanned by eye.
+func (s *voiceService) RecordScreenShareStop(userID, channelID, reason, detail string, aliveMs int64) {
+	if s.appLogger == nil {
+		return
+	}
+	metadata := map[string]string{
+		"reason":     reason,
+		"channel_id": channelID,
+		"alive_ms":   strconv.FormatInt(aliveMs, 10),
+	}
+	if detail != "" {
+		metadata["detail"] = detail
+	}
+	s.appLogger.Log(models.LogLevelWarn, models.LogCategoryScreenShare, &userID, nil,
+		fmt.Sprintf("screen share stopped by itself: %s after %dms", reason, aliveMs), metadata)
 }
 
 // RecordScreenShareFallback notes that a client asked for the native capture path and ended up on

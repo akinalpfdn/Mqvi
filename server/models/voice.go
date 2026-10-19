@@ -57,6 +57,27 @@ var ScreenShareFallbackReasons = map[string]bool{
 	"helper_failed": true, // the native helper never reported that it was publishing
 }
 
+// ScreenShareStopRequest is the client saying a "Net Görüntü" share ended without the user stopping
+// it. Like the fallback above, everything that ends it happens on the user's machine, so without
+// this report nothing reaches the server at all.
+type ScreenShareStopRequest struct {
+	ChannelID string `json:"channel_id"`
+	// Reason is a code from ScreenShareStopReasons; the same closed-set rule as the fallback.
+	Reason string `json:"reason"`
+	// AliveMs is how long the share ran before it ended — a share that dies within a second of
+	// starting is the reported bug, one that ends after an hour is a closed window.
+	AliveMs int64 `json:"alive_ms"`
+	// Detail is the underlying error for start_failed, truncated by the handler.
+	Detail string `json:"detail,omitempty"`
+}
+
+// ScreenShareStopReasons is the closed set of ways a share can end without the user.
+var ScreenShareStopReasons = map[string]bool{
+	"start_failed": true, // publishing the share threw (capture refused, picker failed, SDK error)
+	"track_ended":  true, // the captured track ended: source closed, OS "stop sharing", capture died
+	"unpublished":  true, // LiveKit unpublished the track: reconnect, SFU drop
+}
+
 // ScreenShareFallbackDetailMax is how much of Detail survives: long enough for a helper error,
 // short enough that a member cannot use the field as storage.
 const ScreenShareFallbackDetailMax = 200

@@ -31,6 +31,7 @@ func (s *stubVoiceService) GenerateScreenShareToken(_ context.Context, _, _, _, 
 	return nil, nil
 }
 func (s *stubVoiceService) RecordScreenShareFallback(_, _, _, _ string) {}
+func (s *stubVoiceService) RecordScreenShareStop(_, _, _, _ string, _ int64) {}
 func (s *stubVoiceService) RecordNoiseReductionFailure(_, _, _, _, _ string) {}
 func (s *stubVoiceService) GetAllVoiceStates() []models.VoiceState      { return s.all }
 
@@ -689,5 +690,62 @@ func TestToken_IgnoresAnyOtherCountryHeader(t *testing.T) {
 
 	if svc.gotRegion != models.RegionUnknown {
 		t.Errorf("region = %q — a header other than %s was trusted", svc.gotRegion, georegion.CountryHeader)
+	}
+}
+
+// ─── "Net Görüntü" share that ended by itself ───
+
+// A share that starts and stops on its own leaves no trace anywhere else: every cause lives on the
+// user's machine. The duration is what tells the reported bug (sub-second) from a closed window.
+
+type stopRecordingService struct {
+	stubVoiceService
+	reason, detail string
+	aliveMs        int64
+	calls          int
+}
+
+func (s *stopRecordingService) RecordScreenShareStop(_, _, reason, detail string, aliveMs int64) {
+	s.calls++
+	s.reason, s.detail, s.aliveMs = reason, detail, aliveMs
+}
+
+func stopRequest(t *testing.T, body string) (*httptest.ResponseRecorder, *stopRecordingService) {
+	t.Helper()
+	svc := &stopRecordingService{}
+	h := &VoiceHandler{voiceService: svc, urlSigner: passthroughSigner{},
+		screenShareRL: ratelimit.NewMessageRateLimiter(20, time.Minute, time.Minute)}
+	req := httptest.NewRequest(http.MethodPost, "/api/servers/s1/voice/screen-share-stopped", strings.NewReader(body))
+	req.SetPathValue("serverId", "s1")
+	req = req.WithContext(context.WithValue(req.Context(), ctxkeys.User, &models.User{ID: "u1", Username: "u"}))
+	rec := httptest.NewRecorder()
+	h.ScreenShareStop(rec, req)
+	return rec, svc
+}
+
+func TestScreenShareStop_ShouldRecordHowTheShareEndedAndAfterHowLong(t *testing.T) {
+	rec, svc := stopRequest(t, `{"channel_id":"ch1","reason":"track_ended","alive_ms":740}`)
+
+	if rec.Code != http.StatusNoContent || svc.calls != 1 {
+		t.Fatalf("status %d, calls %d", rec.Code, svc.calls)
+	}
+	if svc.reason != "track_ended" || svc.aliveMs != 740 {
+		t.Fatalf("recorded %q after %dms", svc.reason, svc.aliveMs)
+	}
+}
+
+func TestScreenShareStop_ShouldRejectAReasonOutsideTheClosedSet(t *testing.T) {
+	rec, svc := stopRequest(t, `{"channel_id":"ch1","reason":"anything I like","alive_ms":1}`)
+
+	if rec.Code != http.StatusBadRequest || svc.calls != 0 {
+		t.Fatalf("status %d, calls %d", rec.Code, svc.calls)
+	}
+}
+
+func TestScreenShareStop_ShouldNotRecordANegativeDuration(t *testing.T) {
+	_, svc := stopRequest(t, `{"channel_id":"ch1","reason":"start_failed","alive_ms":-5,"detail":"NotAllowedError: Permission denied"}`)
+
+	if svc.aliveMs != 0 || svc.detail != "NotAllowedError: Permission denied" {
+		t.Fatalf("recorded %dms, detail %q", svc.aliveMs, svc.detail)
 	}
 }

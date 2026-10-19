@@ -58,6 +58,22 @@ function createProcessor(
   }
 }
 
+/**
+ * Reports a "Net Görüntü" share that ended without the user stopping it. The voice channel's own
+ * server, not the one on screen: the user may be browsing another server while in voice.
+ */
+function reportShareStoppedItself(
+  reason: voiceApi.ScreenShareStopReason,
+  startedAt: number | null,
+  detail?: string
+) {
+  const { currentVoiceServerId, currentVoiceChannelId } = useVoiceStore.getState();
+  const serverId = currentVoiceServerId ?? useServerStore.getState().activeServerId;
+  if (!serverId || !currentVoiceChannelId) return;
+  const aliveMs = startedAt === null ? 0 : Date.now() - startedAt;
+  void voiceApi.reportScreenShareStop(serverId, currentVoiceChannelId, reason, aliveMs, detail);
+}
+
 function VoiceStateManager() {
   const { t: tVoice } = useTranslation("voice");
   const room = useRoomContext();
@@ -113,6 +129,8 @@ function VoiceStateManager() {
   systemAudioCaptureRef.current = systemAudioCapture;
 
   const customAudioPubRef = useRef<LocalTrackPublication | null>(null);
+  /** When the current "Net Görüntü" share went live; null while none is. */
+  const sharePublishedAtRef = useRef<number | null>(null);
   /** Which run of the screen-share audio effect owns the capture process — see that effect. */
   const audioRunRef = useRef(0);
 
@@ -161,11 +179,13 @@ function VoiceStateManager() {
         // External stop (OS "stop sharing" overlay or captured window/game closing):
         // LiveKit doesn't auto-unpublish on track end, so flip the store ourselves.
         if (!useNativeScreenShare && !cancelled) {
+          sharePublishedAtRef.current = Date.now();
           const mst = localParticipant
             .getTrackPublication(Track.Source.ScreenShare)
             ?.track?.mediaStreamTrack;
           mst?.addEventListener("ended", () => {
             if (useVoiceStore.getState().isStreaming) {
+              reportShareStoppedItself("track_ended", sharePublishedAtRef.current);
               useVoiceStore.getState().setStreaming(false);
             }
           }, { once: true });
@@ -186,6 +206,12 @@ function VoiceStateManager() {
       // getDisplayMedia — that rejection is expected, not a failure.
       if (!useVoiceStore.getState().isNativeCapturing) {
         console.error("[VoiceStateManager] Failed to toggle screen share:", err);
+        // A cancelled picker clears the picked source before this rejection arrives, so a source
+        // still set means the user chose something and it failed to start.
+        if (isStreaming && useVoiceStore.getState().pickedShareSourceId !== null) {
+          const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+          reportShareStoppedItself("start_failed", null, detail);
+        }
       }
       // Either way the JS engine isn't streaming. Presence stays up via isNativeCapturing.
       if (isStreaming) {
@@ -965,6 +991,7 @@ function VoiceStateManager() {
       if (pub.source !== Track.Source.ScreenShare) return;
       const { isStreaming: streaming } = useVoiceStore.getState();
       if (streaming) {
+        reportShareStoppedItself("unpublished", sharePublishedAtRef.current);
         useVoiceStore.getState().setStreaming(false);
       }
     }
