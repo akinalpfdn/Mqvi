@@ -96,7 +96,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getSmoothCaptureSupport: (): Promise<boolean | null> => ipcRenderer.invoke("get-smooth-capture-support"),
 
   /** Whether any monitor is in HDR right now; null if it could not be told. */
-  getHdrActive: (): Promise<boolean | null> => ipcRenderer.invoke("get-hdr-active"),
+  getHdrActive: (sourceId?: string): Promise<boolean | null> => ipcRenderer.invoke("get-hdr-active", sourceId),
 
   // ─── Game detection (the "Go Live" row) ───
   // Windows-only. Elsewhere start is a no-op and nothing is ever pushed, so the row never appears

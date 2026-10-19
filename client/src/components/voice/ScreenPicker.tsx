@@ -9,13 +9,13 @@
  * - "Smooth Video" (smooth): the native WGC + hardware-encode helper. Selecting a source cancels
  *   getDisplayMedia and hands the share to the helper (falls back to sharp if it can't start).
  * - "Sharp Video" (sharp): getDisplayMedia — or, on an HDR display, the helper's tone-mapped
- *   software VP9, because the browser clips HDR content. See utils/shareEngine.
+ *   software VP9, because the browser clips HDR content. See utils/publishEngine.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useVoiceStore, type NativeCaptureResult } from "../../stores/voiceStore";
-import { resolveShareEngine } from "../../utils/shareEngine";
+import { resolvePublishEngine } from "../../utils/publishEngine";
 
 interface PickerSource {
   id: string;
@@ -34,7 +34,7 @@ function ScreenPicker() {
   /** Set from the first moment of a pick: `startingId` lands a render later, too late for a double click. */
   const pickingRef = useRef(false);
   /**
-   * Whether a monitor is in HDR, asked when the picker opens — by the time a source is clicked the
+   * Whether any monitor is in HDR, asked when the picker opens — by the time a source is clicked the
    * answer is usually in. HDR is a Windows toggle, flipped at will, so it is asked every opening.
    */
   const hdrRef = useRef<Promise<boolean | null>>(Promise.resolve(null));
@@ -58,8 +58,8 @@ function ScreenPicker() {
   const smoothAvailable = smoothOffered && smoothCaptureSupported !== false;
   const effectiveMode = smoothAvailable ? screenShareMode : "sharp";
 
-  // Mounted for the app's lifetime (it hosts the picker IPC), so this asks once per launch, long
-  // before the first share.
+  // Mounted for the app's lifetime (it hosts the picker IPC), so this asks at launch, long before
+  // the first share. An answer that could not be had is asked again on the next opening, below.
   useEffect(() => {
     void loadSmoothCaptureSupport();
   }, [loadSmoothCaptureSupport]);
@@ -71,6 +71,11 @@ function ScreenPicker() {
     api.onShowScreenPicker((incoming) => {
       setSources(incoming);
       hdrRef.current = api.getHdrActive().catch(() => null);
+      // A launch-time probe that could not tell (an encoder listed but busy) settles nothing; ask
+      // again rather than carry the doubt for the rest of the session.
+      if (useVoiceStore.getState().smoothCaptureSupported === null) {
+        void useVoiceStore.getState().loadSmoothCaptureSupport();
+      }
     });
 
     return () => api.removeScreenPickerListener();
@@ -93,11 +98,18 @@ function ScreenPicker() {
       try {
         // The mode alone is not enough: the setting persists and defaults to "smooth", so a machine
         // that cannot run the helper would otherwise attempt it on every share.
-        const engine = await resolveShareEngine({
+        const engine = await resolvePublishEngine({
           mode: screenShareMode,
           smoothSupported: smoothCaptureSupported,
           hasHelper: smoothOffered,
-          askHdr: () => hdrRef.current,
+          askHdr: async () => {
+            // A screen is one fixed monitor: ask about that one, so an SDR screen next to an HDR
+            // one stays in the browser. A window can be dragged onto the HDR monitor mid-share,
+            // which only the helper follows, so for a window "any monitor in HDR" is the question.
+            const any = await hdrRef.current;
+            if (any !== true || !source.id.startsWith("screen:")) return any;
+            return (await window.electronAPI?.getHdrActive(source.id).catch(() => any)) ?? any;
+          },
         });
         if (cancelledRef.current) return; // handleCancel already answered main
         if (engine === "browser") {

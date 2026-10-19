@@ -27,7 +27,7 @@ import { useVoiceStore } from "../../stores/voiceStore";
 import { useToastStore } from "../../stores/toastStore";
 import { useTranslation } from "react-i18next";
 import { useNativeVoice, nativeVoiceConnect, onNativeVoiceActiveSpeakers, onNativeVoiceDisconnected } from "../../utils/nativePlugins";
-import { sharpShareEncoding } from "../../utils/shareEngine";
+import { sharpShareEncoding } from "../../utils/publishEngine";
 import VoiceStateManager from "./VoiceStateManager";
 import NativeVoiceStateSync from "./NativeVoiceStateSync";
 

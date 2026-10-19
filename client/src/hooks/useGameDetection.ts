@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useVoiceStore } from "../stores/voiceStore";
-import { resolveShareEngine } from "../utils/shareEngine";
+import { resolvePublishEngine } from "../utils/publishEngine";
 import type { DetectedGame } from "../types/electron";
 
 export function useGameDetection(isInVoice: boolean) {
@@ -59,7 +59,7 @@ export function useGameDetection(isInVoice: boolean) {
         // Same routing as the picker — including sharp on an HDR display, which a game is the
         // likeliest thing to be showing.
         const api = window.electronAPI;
-        const engine = await resolveShareEngine({
+        const engine = await resolvePublishEngine({
           mode: screenShareMode,
           smoothSupported: smoothCaptureSupported,
           hasHelper: api?.platform === "win32",

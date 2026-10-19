@@ -33,7 +33,7 @@ use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
 use livekit::{Room, RoomEvent, RoomOptions};
 use mqvi_game_capture::capture::{ScreenCapture, SourceGone};
 use mqvi_game_capture::display_light;
-use mqvi_game_capture::mf_encoder::{describe_hardware_encoders, HwEncoder};
+use mqvi_game_capture::mf_encoder::{describe_hardware_encoders, hardware_encoder_count, HwEncoder};
 use mqvi_game_capture::nv12;
 use tokio::sync::oneshot;
 #[cfg(windows)]
@@ -47,6 +47,11 @@ use windows::Win32::System::Threading::{
     AvRevertMmThreadCharacteristics, AvSetMmThreadCharacteristicsW, AvSetMmThreadPriority,
     AVRT_PRIORITY_HIGH,
 };
+
+/// Track names the app reads to label a share for its viewers: "Smooth Video" for the hardware
+/// engine, "Sharp Video" for the HDR one. Kept in step with client/src/utils/constants.ts.
+const TRACK_NAME_SMOOTH: &str = "native-game-capture";
+const TRACK_NAME_SHARP: &str = "native-hdr-sharp-capture";
 
 /// Exit code for a share whose source went away (window closed, game exited, display unplugged). The
 /// app treats it as the user ending the share — no error shown — and anything else as a failure.
@@ -232,21 +237,36 @@ impl Connection {
     }
 }
 
-/// Builds a real encoder at the settings a share uses, not just lists them: an encoder can be listed
-/// and still refuse the configuration (see `create_hw_encoder`), and that machine cannot share
-/// smoothly either.
+/// Per codec: `true` if a real encoder comes up at the settings a share uses, `false` if the machine
+/// lists none at all, `null` if one is listed but would not start. Only `false` is a fact about the
+/// machine; a listed encoder that refuses may just be busy (NVENC's session limit while OBS or
+/// ShadowPlay holds one), and the app must not switch "Smooth Video" off for the session over it.
 fn probe_encoders() -> String {
     if HwEncoder::startup().is_err() {
         return r#"{"h264":false,"h265":false}"#.to_string();
     }
-    let works = |hevc: bool| HwEncoder::new(1920, 1080, 30, 6_000_000, hevc).is_ok();
-    format!(r#"{{"h264":{},"h265":{}}}"#, works(false), works(true))
+    let probe = |hevc: bool| -> &'static str {
+        if HwEncoder::new(1920, 1080, 30, 6_000_000, hevc).is_ok() {
+            return "true";
+        }
+        match hardware_encoder_count(hevc) {
+            Ok(0) => "false",
+            _ => "null",
+        }
+    };
+    format!(r#"{{"h264":{},"h265":{}}}"#, probe(false), probe(true))
 }
 
-/// `{"hdr":null}` when the displays cannot be asked: the app then shows no warning rather than a
-/// wrong one.
-fn probe_hdr() -> String {
-    match display_light::any_hdr() {
+/// Whether the monitor at `rect` is in HDR — or, without one, whether any monitor is. A screen share
+/// asks about its own monitor; a window asks about all of them, since it can be dragged to the HDR
+/// one mid-share and only the helper follows that. `{"hdr":null}` when the displays cannot be asked:
+/// the app then keeps the share in the browser, as before.
+fn probe_hdr(rect: Option<&str>) -> String {
+    let answer = match rect {
+        Some(r) => parse_rect(r).and_then(|(x, y, w, h)| display_light::hdr_at_rect(x, y, w, h)),
+        None => display_light::any_hdr(),
+    };
+    match answer {
         Ok(hdr) => format!(r#"{{"hdr":{hdr}}}"#),
         Err(e) => {
             log::warn!("could not read the displays' HDR state: {e:#}");
@@ -364,7 +384,7 @@ async fn run() -> Result<()> {
         return Ok(());
     }
     if args.probe_hdr {
-        println!("{}", probe_hdr());
+        println!("{}", probe_hdr(args.monitor_rect.as_deref()));
         return Ok(());
     }
     // Read before anything slow: the app writes this line right after spawning us.
@@ -489,10 +509,8 @@ async fn run() -> Result<()> {
     } else {
         NativeVideoSource::new(res, !sharp)
     };
-    let track = LocalVideoTrack::create_video_track(
-        "native-game-capture",
-        RtcVideoSource::Native(rtc_source.clone()),
-    );
+    let track_name = if sharp { TRACK_NAME_SHARP } else { TRACK_NAME_SMOOTH };
+    let track = LocalVideoTrack::create_video_track(track_name, RtcVideoSource::Native(rtc_source.clone()));
 
     let backends: Vec<_> = VideoEncoderBackend::list_available().into_iter().collect();
     log::info!("available encoder backends: {backends:?}");
@@ -534,7 +552,7 @@ async fn run() -> Result<()> {
         .await
         .context("publish_track failed")?;
     log::info!(
-        "published track 'native-game-capture' ({width}x{height}@{fps}, codec={:?}, hw_encode={}, source={:?}, E2EE/GCM)",
+        "published track '{track_name}' ({width}x{height}@{fps}, codec={:?}, hw_encode={}, source={:?}, E2EE/GCM)",
         codec, use_mf, args.source
     );
 

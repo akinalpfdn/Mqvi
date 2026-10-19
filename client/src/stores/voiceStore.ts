@@ -51,7 +51,7 @@ import {
   createVoiceScreenShareSlice,
   type VoiceScreenShareSlice,
 } from "./slices/voiceScreenShareSlice";
-import { HELPER_EXIT_SOURCE_GONE, sharpShareEncoding, type NativeEngine } from "../utils/shareEngine";
+import { HELPER_EXIT_SOURCE_GONE, sharpShareEncoding, type NativeEngine } from "../utils/publishEngine";
 
 export type { InputMode, ScreenShareQuality };
 
@@ -379,7 +379,7 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
       }
     }
 
-    // Stop the "Smooth Video" helper if it's running (it outlives the JS otherwise).
+    // Stop the helper if a share is running in it (it outlives the JS otherwise).
     if (get().isNativeCapturing) {
       void window.electronAPI?.stopGameCapture();
     }

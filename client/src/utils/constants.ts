@@ -160,21 +160,27 @@ export function resolveUserId(identity: string): string {
   return identity;
 }
 
-/** The track name the native Windows capture helper publishes under — see native/game-capture. */
+/**
+ * Track names the native Windows capture helper publishes under — see native/game-capture
+ * (TRACK_NAME_SMOOTH / TRACK_NAME_SHARP in main.rs). Its hardware engine is "Smooth Video"; its
+ * tone-mapping VP9 engine carries "Sharp Video" on an HDR display.
+ */
 export const NATIVE_CAPTURE_TRACK_NAME = "native-game-capture";
+export const NATIVE_SHARP_TRACK_NAME = "native-hdr-sharp-capture";
 
-/** Which engine drew a screen share. */
+/** Which mode a viewer is told a screen share is in. */
 export type ShareEngine = "smooth" | "mobile" | "sharp";
 
 /**
- * Names the engine behind a share, from what the publication already carries.
+ * Names the mode behind a share, from what the publication already carries.
  *
  * The identity alone cannot do it: the "_ss" sub-participant is how *every* native share arrives,
- * the phone's included. Only the track name separates our Windows helper from a ReplayKit or
- * MediaProjection stream, and calling those "Smooth Video" would be a lie.
+ * the phone's and both helper engines' included. Only the track name separates them, and calling a
+ * phone's ReplayKit stream — or an HDR "Sharp Video" share — "Smooth Video" would be a lie.
  */
 export function shareEngine(trackName: string, identity: string): ShareEngine {
   if (trackName === NATIVE_CAPTURE_TRACK_NAME) return "smooth";
+  if (trackName === NATIVE_SHARP_TRACK_NAME) return "sharp";
   if (isScreenShareIdentity(identity)) return "mobile";
   return "sharp";
 }

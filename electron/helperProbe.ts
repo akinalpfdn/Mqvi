@@ -62,10 +62,16 @@ export function parseProbeAnswer(stdout: string): ProbeAnswer | null {
   }
 }
 
-/** `--probe-encoders`: whether either codec has a working hardware encoder. */
+/**
+ * `--probe-encoders`: true if either codec has a working hardware encoder, false only if the machine
+ * lists none for either, null otherwise — an encoder that is listed but would not start may just be
+ * busy, and that must not switch "Smooth Video" off.
+ */
 export function smoothSupportFrom(answer: ProbeAnswer | null): boolean | null {
   if (!answer) return null;
-  return answer.h264 === true || answer.h265 === true;
+  if (answer.h264 === true || answer.h265 === true) return true;
+  if (answer.h264 === false && answer.h265 === false) return false;
+  return null;
 }
 
 /** `--probe-hdr`: whether any monitor is in HDR. */

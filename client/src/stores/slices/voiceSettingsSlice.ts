@@ -15,7 +15,8 @@ export type ScreenShareQuality = "720p" | "1080p";
 /**
  * Which engine renders a screen share:
  * - "smooth" (Smooth Video) — native WGC + hardware encode helper; for games, films, video.
- * - "sharp"  (Sharp Video)  — getDisplayMedia; for text, code, presentations.
+ * - "sharp"  (Sharp Video)  — VP9 for text, code, presentations: getDisplayMedia, or the helper's
+ *   tone-mapping engine on an HDR display (see utils/publishEngine).
  * One share flow, two engines — chosen in the screen-share modal.
  */
 export type ScreenShareMode = "smooth" | "sharp";

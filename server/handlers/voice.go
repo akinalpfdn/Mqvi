@@ -146,7 +146,7 @@ func truncateRunes(s string, n int) string {
 
 // ScreenShareStop handles POST /api/servers/{serverId}/voice/screen-share-stopped
 //
-// The client reporting that a "Sharp Video" share ended without the user stopping it. Same guards
+// The client reporting that a share, on any engine, ended without the stop button. Same guards
 // and the same bucket as the fallback report: one attempt, at most one row.
 func (h *VoiceHandler) ScreenShareStop(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(ctxkeys.User).(*models.User)

@@ -46,8 +46,8 @@ function UserBar({
   const isMuted = useActiveMicMuted();
   const isDeafened = useActiveDeafened();
   const isStreaming = useVoiceStore((s) => s.isStreaming);
-  // "Smooth Video" runs the native helper instead of getDisplayMedia — one sharing concept,
-  // two engines, so the button reflects either.
+  // A share runs either in the browser (getDisplayMedia) or in the native helper ("Smooth Video",
+  // and "Sharp Video" on an HDR display) — one sharing concept, so the button reflects either.
   const isNativeCapturing = useVoiceStore((s) => s.isNativeCapturing);
   const stopNativeCapture = useVoiceStore((s) => s.stopNativeCapture);
   const isSharing = isStreaming || isNativeCapturing;

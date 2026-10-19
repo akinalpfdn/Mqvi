@@ -14,7 +14,8 @@ use windows::Win32::Graphics::Dxgi::Common::DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE
 use windows::Win32::Graphics::Dxgi::{
     CreateDXGIFactory1, IDXGIFactory1, IDXGIOutput6, DXGI_OUTPUT_DESC1,
 };
-use windows::Win32::Graphics::Gdi::HMONITOR;
+use windows::Win32::Foundation::POINT;
+use windows::Win32::Graphics::Gdi::{MonitorFromPoint, HMONITOR, MONITOR_DEFAULTTONULL};
 
 /// scRGB's unit: 1.0 is 80 nits.
 pub const SCRGB_UNIT_NITS: f32 = 80.0;
@@ -60,6 +61,16 @@ pub fn any_hdr() -> Result<bool> {
             .iter()
             .any(|d| d.AttachedToDesktop.as_bool() && d.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020))
     }
+}
+
+/// Whether the monitor covering these physical bounds is in HDR — matched by the centre, as the
+/// capture itself does (`ScreenCapture::monitor_by_rect`).
+pub fn hdr_at_rect(x: i32, y: i32, width: i32, height: i32) -> Result<bool> {
+    let hmon = unsafe { MonitorFromPoint(POINT { x: x + width / 2, y: y + height / 2 }, MONITOR_DEFAULTTONULL) };
+    if hmon.is_invalid() {
+        bail!("no monitor covers {x},{y} {width}x{height}");
+    }
+    Ok(query(hmon)?.hdr)
 }
 
 /// The DXGI output driving `hmon`.

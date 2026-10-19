@@ -4,7 +4,7 @@
 
 import { apiClient } from "./client";
 import type { VoiceTokenResponse, VoiceState } from "../types";
-import type { NativeEngine, ShareEngine } from "../utils/shareEngine";
+import type { NativeEngine, PublishEngine } from "../utils/publishEngine";
 
 /**
  * Gets a LiveKit JWT token for joining a voice channel.
@@ -57,7 +57,7 @@ export async function reportScreenShareFallback(
   });
 }
 
-/** How a "Sharp Video" share ended without the user stopping it. Mirrors the server's closed set. */
+/** How a share ended without the stop button, on any engine. Mirrors the server's closed set. */
 export type ScreenShareStopReason = "start_failed" | "track_ended" | "unpublished" | "helper_exited";
 
 /**
@@ -68,7 +68,7 @@ export type ScreenShareStopReason = "start_failed" | "track_ended" | "unpublishe
 export async function reportScreenShareStop(
   serverId: string,
   channelId: string,
-  engine: ShareEngine,
+  engine: PublishEngine,
   reason: ScreenShareStopReason,
   aliveMs: number,
   detail?: string

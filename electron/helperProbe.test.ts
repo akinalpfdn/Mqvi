@@ -2,9 +2,9 @@ import { EventEmitter } from "events";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { hdrActiveFrom, parseProbeAnswer, runProbe, smoothSupportFrom, type ProbeChild } from "./helperProbe";
 
-// The helper's answer decides what the share picker offers and warns about. A misread answer either
-// hides "Smooth Video" from a machine that can run it or warns about HDR that is not there, so
-// everything that is not a clean answer must come out as "could not tell".
+// The helper's answer decides what the share picker offers and which engine a share takes. A misread
+// answer either hides "Smooth Video" from a machine that can run it or routes a share on HDR that is
+// not there, so everything that is not a clean answer must come out as "could not tell".
 
 const LOG = "[2026-10-19T12:16:33Z INFO  mqvi_game_capture::mf_encoder] encoder cfg cbr: ok";
 
@@ -35,12 +35,19 @@ describe("smoothSupportFrom", () => {
     expect(smoothSupportFrom({ h264: false, h265: true })).toBe(true);
   });
 
-  it("should be false when neither works", () => {
+  it("should be false only when the machine lists no encoder for either codec", () => {
     expect(smoothSupportFrom({ h264: false, h265: false })).toBe(false);
   });
 
+  // An encoder that is listed but would not start may be busy (NVENC's session limit with OBS open).
+  // Answering false switched "Smooth Video" off for the whole session over a passing hiccup.
+  it("should not tell when an encoder is listed but would not start", () => {
+    expect(smoothSupportFrom({ h264: null, h265: false })).toBeNull();
+    expect(smoothSupportFrom({ h264: null, h265: null })).toBeNull();
+  });
+
   it("should not count a truthy non-boolean as support", () => {
-    expect(smoothSupportFrom({ h264: "none" })).toBe(false);
+    expect(smoothSupportFrom({ h264: "none" })).toBeNull();
   });
 
   it("should be null without an answer", () => {

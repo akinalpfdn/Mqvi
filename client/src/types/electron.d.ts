@@ -106,8 +106,11 @@ interface ElectronAPI {
   stopGameCapture: () => Promise<void>;
   /** Whether this machine can hardware-encode ("Smooth Video"); null if it could not be told. */
   getSmoothCaptureSupport: () => Promise<boolean | null>;
-  /** Whether any monitor is in HDR right now; null if it could not be told. */
-  getHdrActive: () => Promise<boolean | null>;
+  /**
+   * Whether a monitor is in HDR right now — a screen source's own monitor if one is given, any
+   * monitor otherwise; null if it could not be told.
+   */
+  getHdrActive: (sourceId?: string) => Promise<boolean | null>;
   /** The helper exited on its own: its exit code (-1 = spawn error, null = killed) and last words. */
   onGameCaptureStopped: (cb: (code: number | null, said: string) => void) => void;
   removeGameCaptureListeners: () => void;

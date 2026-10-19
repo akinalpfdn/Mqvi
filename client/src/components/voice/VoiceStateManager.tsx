@@ -19,7 +19,7 @@ import type {
   RemoteParticipant,
 } from "livekit-client";
 import { useVoiceStore } from "../../stores/voiceStore";
-import { shouldReceiveMic as receiveMic } from "../../utils/micSubscription";
+import { applyMicSubscriptions, shouldReceiveMic as receiveMic, silencedMicsKey } from "../../utils/micSubscription";
 import { isStartFailureWorthReporting } from "../../utils/shareStartFailure";
 import type { NoiseReductionMode } from "../../stores/slices/voiceSettingsSlice";
 import { usePushToTalk } from "../../hooks/usePushToTalk";
@@ -146,7 +146,7 @@ function VoiceStateManager() {
   // Capacitor (iOS/Android): native plugin via separate LiveKit connection.
   //   iOS: ReplayKit + LiveKit Swift SDK. Android: MediaProjection + LiveKit Android SDK.
   // Electron/Browser: getDisplayMedia. Share audio is its own effect below — on Electron it
-  // belongs to the share, not to this engine ("Smooth Video" draws video without it).
+  // belongs to the share, not to this engine (the helper engines draw video without it).
   useEffect(() => {
     if (!initialSyncDone.current) return;
 
@@ -239,8 +239,8 @@ function VoiceStateManager() {
   // Mirror local streaming state to the server on every change, whatever the
   // trigger (button, OS "stop sharing", window/game close, track drop). Other
   // clients only learn we stopped through this — the button alone wasn't enough.
-  // One sharing concept, two engines: getDisplayMedia ("Sharp Video") or the native helper
-  // ("Smooth Video") — presence follows either being live.
+  // One sharing concept, two places a share runs: getDisplayMedia, or the native helper ("Smooth
+  // Video", and "Sharp Video" on an HDR display) — presence follows either being live.
   const isNativeCapturing = useVoiceStore((s) => s.isNativeCapturing);
 
   // Two different questions, and they were the same flag until now.
@@ -263,7 +263,7 @@ function VoiceStateManager() {
   // Screen share audio (Electron). Scoped to the picked source by the native capture: a shared
   // window contributes only its own audio — not the film playing next to it — while a shared
   // monitor contributes everything except our own tree (which would echo voice chat back).
-  // It follows isSharing, not isStreaming: with "Smooth Video" the helper draws the video and
+  // It follows isSharing, not isStreaming: with a helper engine the helper draws the video and
   // getDisplayMedia is cancelled, but this track is still published by us.
   useEffect(() => {
     if (!isElectron() || !initialSyncDone.current) return;
@@ -984,22 +984,10 @@ function VoiceStateManager() {
   //
   // Keyed on who is silenced, not on the volumes themselves: every setSubscribed is a signal message,
   // and dragging a volume slider must not send one per step.
-  const silencedMics = useVoiceStore((s) =>
-    Object.keys(s.userVolumes)
-      .filter((id) => s.userVolumes[id] === 0)
-      .sort()
-      .join(",")
-  );
+  const silencedMics = useVoiceStore((s) => silencedMicsKey(s.userVolumes));
   const isMasterSilent = masterVolume === 0;
   useEffect(() => {
-    room.remoteParticipants.forEach((participant) => {
-      const receive = shouldReceiveMic(participant.identity);
-      participant.trackPublications.forEach((pub) => {
-        if (pub.source === Track.Source.Microphone) {
-          (pub as RemoteTrackPublication).setSubscribed(receive);
-        }
-      });
-    });
+    applyMicSubscriptions(room.remoteParticipants.values(), useVoiceStore.getState());
   }, [effectiveDeafened, silencedMics, isMasterSilent, room]);
 
   // Sync isStreaming when screen share track is lost (reconnect, SFU drop).
