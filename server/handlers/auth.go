@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/akinalp/mqvi/models"
@@ -224,8 +225,26 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	authcookie.Clear(w)
+	if h.cookieBelongsTo(r, req.RefreshToken) {
+		authcookie.Clear(w)
+	}
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "logged out"})
+}
+
+// cookieBelongsTo reports whether the request's file cookie was issued to the session the refresh
+// token names. A queued sign-out of an old session is sent after the user signed in again; it must
+// not take the new session's cookie with it. Anything unverifiable is cleared, as before.
+func (h *AuthHandler) cookieBelongsTo(r *http.Request, refreshToken string) bool {
+	cookie := authcookie.Read(r)
+	sid, _, named := strings.Cut(refreshToken, ".")
+	if cookie == "" || !named {
+		return true
+	}
+	claims, err := h.authService.ValidateFileToken(cookie)
+	if err != nil || claims.SessionID == "" {
+		return true
+	}
+	return claims.SessionID == sid
 }
 
 // Me handles GET /api/users/me (requires auth middleware).

@@ -1050,9 +1050,11 @@ func (h *Hub) RevokeAuthSessionsExcept(userID string, keep ...string) {
 	h.revokeConnections(userID, func(c *Client) bool { return !slices.Contains(keep, c.authSessionID) })
 }
 
-// revokeConnections sends OpSessionRevoked to the matching connections and closes them once the
-// frame has had time to flush (as Shutdown does). The close is deferred, not waited for: the caller
-// is an HTTP request that should not stall on it.
+// revokeConnections closes the matching connections, after OpSessionRevoked has had time to flush
+// (as Shutdown does). Only a connection that names its session is told: an unnamed one (opened with
+// a token from before sessions were named, and it stays unnamed for its lifetime) may belong to the
+// very device asking, so it is closed silently — its reconnect presents a current token, and a
+// revoked one is refused there. The close is deferred, not waited for: the caller is an HTTP request.
 func (h *Hub) revokeConnections(userID string, match func(*Client) bool) {
 	h.mu.RLock()
 	var targets []*Client
@@ -1071,7 +1073,9 @@ func (h *Hub) revokeConnections(userID string, match func(*Client) bool) {
 		log.Printf("[ws] failed to marshal session_revoked: %v", err)
 	} else {
 		for _, c := range targets {
-			c.trySend(data)
+			if c.authSessionID != "" {
+				c.trySend(data)
+			}
 		}
 	}
 	time.AfterFunc(serverShutdownGrace, func() {

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg/authcookie"
 	"github.com/akinalp/mqvi/pkg/geoip"
 	"github.com/akinalp/mqvi/pkg/password"
 	"github.com/akinalp/mqvi/repository"
@@ -53,5 +54,51 @@ func TestLogout_ShouldEndTheSessionWithoutAnAccessToken(t *testing.T) {
 	}
 	if left != 0 {
 		t.Fatal("session survived logout")
+	}
+}
+
+// A sign-out queued while offline is sent after the user signed in again. Ending the old session
+// must leave the new session's file cookie alone, or its images 401 until the next refresh.
+func TestLogout_ShouldClearTheFileCookieOnlyWhenItBelongsToTheEndedSession(t *testing.T) {
+	fx := dbtest.New(t)
+	hash, err := bcrypt.GenerateFromPassword([]byte("correct horse battery staple"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	if _, err := fx.DB.Exec(`INSERT INTO users (id, username, password_hash) VALUES ('u1', 'alice', ?)`, string(hash)); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	authSvc := services.NewAuthService(
+		repository.NewSQLiteUserRepo(fx.DB), repository.NewSQLiteSessionRepo(fx.DB),
+		&testutil.MockResetRepo{}, &testutil.MockEventPublisher{}, &testutil.MockEmailSender{},
+		password.NoopChecker{}, geoip.Noop{}, "test-secret", []byte("0123456789abcdef0123456789abcdef"), 15, 90, 24,
+	)
+	login := func() *services.AuthTokens {
+		tokens, err := authSvc.Login(context.Background(), &models.LoginRequest{Username: "alice", Password: "correct horse battery staple"}, models.ClientInfo{})
+		if err != nil {
+			t.Fatalf("login: %v", err)
+		}
+		return tokens
+	}
+	old, current := login(), login()
+	h := NewAuthHandler(authSvc, nil, nil, nil, nil, nil, 0, nil)
+	logout := func(refresh, cookie string) bool {
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/logout", strings.NewReader(`{"refresh_token":"`+refresh+`"}`))
+		req.AddCookie(&http.Cookie{Name: authcookie.Name, Value: cookie})
+		rr := httptest.NewRecorder()
+		h.Logout(rr, req)
+		for _, c := range rr.Result().Cookies() {
+			if c.Name == authcookie.Name && c.MaxAge < 0 {
+				return true
+			}
+		}
+		return false
+	}
+
+	if logout(old.RefreshToken, current.FileToken) {
+		t.Fatal("ending the old session cleared the current session's file cookie")
+	}
+	if !logout(current.RefreshToken, current.FileToken) {
+		t.Fatal("ending the current session left its file cookie behind")
 	}
 }

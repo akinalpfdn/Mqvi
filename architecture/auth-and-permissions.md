@@ -46,7 +46,9 @@ with the row; the 5651 traffic log is a separate concern and does not live here.
 immediate on every surface: `AuthService.ValidateSession` runs after the signature check in the API
 middleware, the WS handshake and file serving (one PK lookup), and the hub sends `session_revoked`
 to that session's sockets before closing them. `push_tokens.session_id` is `ON DELETE CASCADE`, so
-a signed-out phone stops receiving notifications in the same write. A password change revokes every
+a signed-out phone stops receiving notifications in the same write — for tokens registered after
+099. Older, unbound tokens are dropped only by user-initiated sign-outs (revoke, revoke-others,
+password change/reset, account deactivation), not by logout, token-reuse revocation or expiry. A password change revokes every
 other session the same way; the client re-registers its push token afterwards because its own
 session was replaced too.
 

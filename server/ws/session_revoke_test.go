@@ -95,6 +95,14 @@ func TestHub_ShouldCloseEveryOtherConnectionIncludingUnnamedOnesWhenRevokingAllB
 	if !closed[other] || !closed[preSid] || closed[current] {
 		t.Fatalf("closed other=%v preSid=%v current=%v", closed[other], closed[preSid], closed[current])
 	}
+	// The unnamed socket may be the asking device's own: closing makes it reconnect with its
+	// current token, telling it would sign it out.
+	if toldRevoked(t, preSid) {
+		t.Fatal("an unnamed connection was told it was signed out")
+	}
+	if !toldRevoked(t, other) {
+		t.Fatal("the named connection was not told it was signed out")
+	}
 }
 
 // A password change replaces this device's session while its socket stays open; the socket must

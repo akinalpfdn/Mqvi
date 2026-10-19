@@ -116,6 +116,19 @@ describe("credential store", () => {
     expect(res.failure?.reason).toBe("decrypt_failed");
   });
 
+  // fs messages carry the full path, and with it the OS user name, into the admin logs.
+  it("should report a file error by its code, not by a message holding the path", async () => {
+    const { crypto } = fakeCrypto();
+    const pathError = Object.assign(new Error(`EACCES: permission denied, open '${path}'`), { code: "EACCES" });
+    crypto.encryptStringAsync = async () => {
+      throw pathError;
+    };
+
+    const res = await store(crypto).save(creds);
+
+    expect(res).toMatchObject({ ok: false, failure: { reason: "encrypt_failed", detail: "EACCES" } });
+  });
+
   it("should forget the saved credentials on clear, and not fail when there are none", async () => {
     const { crypto } = fakeCrypto();
     const s = store(crypto);

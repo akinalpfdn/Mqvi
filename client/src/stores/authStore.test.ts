@@ -171,12 +171,12 @@ describe("authStore.abandonSession — signing out while the server is unreachab
 
     expect(localStorage.getItem("access_token")).toBeNull();
     expect(localStorage.getItem("refresh_token")).toBeNull();
-    expect(localStorage.getItem("mqvi_pending_logout")).toBe("sid.secret");
+    expect(JSON.parse(localStorage.getItem("mqvi_pending_logout") ?? "null")).toEqual({ server: "", token: "sid.secret" });
     expect(useAuthStore.getState().isServerUnreachable).toBe(false);
   });
 
   it("should send the queued logout on the next boot and forget it once the server answers", async () => {
-    localStorage.setItem("mqvi_pending_logout", "sid.secret");
+    localStorage.setItem("mqvi_pending_logout", JSON.stringify({ server: "", token: "sid.secret" }));
     logout.mockResolvedValue({ success: true, httpStatus: 200 } as Awaited<ReturnType<typeof authApi.logout>>);
 
     await useAuthStore.getState().initialize();
@@ -186,13 +186,27 @@ describe("authStore.abandonSession — signing out while the server is unreachab
   });
 
   it("should keep the queued logout while the server is still unreachable", async () => {
-    localStorage.setItem("mqvi_pending_logout", "sid.secret");
+    const pending = JSON.stringify({ server: "", token: "sid.secret" });
+    localStorage.setItem("mqvi_pending_logout", pending);
     logout.mockResolvedValue({ success: false, error: "offline", httpStatus: 0 } as Awaited<ReturnType<typeof authApi.logout>>);
 
     await useAuthStore.getState().initialize();
     await vi.waitFor(() => expect(logout).toHaveBeenCalled());
 
-    expect(localStorage.getItem("mqvi_pending_logout")).toBe("sid.secret");
+    expect(localStorage.getItem("mqvi_pending_logout")).toBe(pending);
+  });
+
+  // After switching servers the queued token belongs to the previous one; sending it to the new
+  // server would hand a live credential to whoever runs it.
+  it("should never send the queued logout to a different server", async () => {
+    const pending = JSON.stringify({ server: "https://previous.example", token: "sid.secret" });
+    localStorage.setItem("mqvi_pending_logout", pending);
+
+    await useAuthStore.getState().initialize();
+    await Promise.resolve();
+
+    expect(logout).not.toHaveBeenCalled();
+    expect(localStorage.getItem("mqvi_pending_logout")).toBe(pending);
   });
 });
 

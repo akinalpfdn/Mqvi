@@ -41,11 +41,14 @@ export function createCredentialStore(
   crypto: SafeStorageLike,
   describe: () => Pick<CredentialFailure, "platform" | "backend">
 ) {
-  const failure = (reason: CredentialFailure["reason"], err?: unknown): CredentialFailure => ({
-    reason,
-    detail: err instanceof Error ? err.message : err === undefined ? "" : String(err),
-    ...describe(),
-  });
+  // fs errors carry the full path, and with it the OS user name; their code (EACCES, ENOSPC…) is
+  // what diagnoses them. safeStorage errors have no code and no path, so their message is kept.
+  const failure = (reason: CredentialFailure["reason"], err?: unknown): CredentialFailure => {
+    const code = (err as { code?: unknown } | undefined)?.code;
+    const detail =
+      typeof code === "string" ? code : err instanceof Error ? err.message : err === undefined ? "" : String(err);
+    return { reason, detail, ...describe() };
+  };
 
   // An unreadable file would fail the same way on every start; removing it lets the next
   // "remember me" save a fresh copy.

@@ -14,7 +14,7 @@ import {
   isTransientStatus,
   setAuthRejectedHandler,
 } from "../api/client";
-import { API_BASE_URL } from "../utils/constants";
+import { API_BASE_URL, SERVER_URL } from "../utils/constants";
 import i18n, { changeLanguage, resolveLanguage, type Language, SUPPORTED_LANGUAGES } from "../i18n";
 import { useE2EEStore } from "./e2eeStore";
 import { usePreferencesStore } from "./preferencesStore";
@@ -58,10 +58,22 @@ function rememberSignIn(): void {
  */
 const PENDING_LOGOUT_KEY = "mqvi_pending_logout";
 
+/** The server is part of the record: switching servers must not hand one server's token to another. */
+type PendingLogout = { server: string; token: string };
+
+function readPendingLogout(): PendingLogout | null {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PENDING_LOGOUT_KEY) ?? "null") as PendingLogout | null;
+    return parsed && typeof parsed.server === "string" && typeof parsed.token === "string" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 async function flushPendingLogout(): Promise<void> {
-  const pending = localStorage.getItem(PENDING_LOGOUT_KEY);
-  if (!pending) return;
-  const res = await authApi.logout(pending);
+  const pending = readPendingLogout();
+  if (!pending || pending.server !== SERVER_URL) return;
+  const res = await authApi.logout(pending.token);
   if (res.success || !isTransientStatus(res.httpStatus)) {
     localStorage.removeItem(PENDING_LOGOUT_KEY);
   }
@@ -401,7 +413,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   abandonSession: () => {
     const refreshToken = getRefreshToken();
-    if (refreshToken) localStorage.setItem(PENDING_LOGOUT_KEY, refreshToken);
+    if (refreshToken) {
+      const pending: PendingLogout = { server: SERVER_URL, token: refreshToken };
+      localStorage.setItem(PENDING_LOGOUT_KEY, JSON.stringify(pending));
+    }
     clearTokens();
     clearCachedPushToken();
     set({ user: null, isServerUnreachable: false });
