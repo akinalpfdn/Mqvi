@@ -15,7 +15,7 @@ vi.mock("./constants", () => ({
   getCapacitorPlatform: () => "ios",
 }));
 
-import { syncVoipToken, clearCachedPushToken } from "./pushToken";
+import { syncVoipToken, clearCachedPushToken, reassertPushTokens } from "./pushToken";
 
 /** Runs the call to completion, stepping past the retry backoff without waiting for it. */
 async function run(token: string): Promise<void> {
@@ -81,5 +81,40 @@ describe("syncVoipToken", () => {
     clearCachedPushToken();
     await run("tok-1");
     expect(registerPushToken).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("reassertPushTokens", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    localStorage.clear();
+    server = "https://live.example";
+    registerPushToken.mockReset();
+    registerPushToken.mockResolvedValue({ success: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // A password change replaces this device's session and the server drops the tokens registered
+  // under the old one, while the local cache still says they are current.
+  it("should register again a token the cache already counts as registered", async () => {
+    await run("voip-1");
+    registerPushToken.mockClear();
+
+    const done = reassertPushTokens();
+    await vi.runAllTimersAsync();
+    await done;
+
+    expect(registerPushToken).toHaveBeenCalledWith(expect.objectContaining({ token: "voip-1", token_type: "apns_voip" }));
+  });
+
+  it("should do nothing on a device that never registered", async () => {
+    const done = reassertPushTokens();
+    await vi.runAllTimersAsync();
+    await done;
+
+    expect(registerPushToken).not.toHaveBeenCalled();
   });
 });

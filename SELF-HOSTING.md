@@ -149,6 +149,8 @@ demo.example.com {
 
 Then `sudo systemctl reload caddy`.
 
+**Behind Cloudflare?** Also apply [deploy/caddy-real-client-ip.md](deploy/caddy-real-client-ip.md).
+
 ### Firewall ports
 
 Opened automatically if UFW or firewalld is active. If your provider has its own firewall (Hetzner

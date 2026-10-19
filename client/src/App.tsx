@@ -6,6 +6,7 @@ import LoginPage from "./components/auth/LoginPage";
 import RegisterPage from "./components/auth/RegisterPage";
 import ForgotPasswordPage from "./components/auth/ForgotPasswordPage";
 import ResetPasswordPage from "./components/auth/ResetPasswordPage";
+import ConnectingScreen from "./components/auth/ConnectingScreen";
 import AppLayout from "./components/layout/AppLayout";
 import LandingPage from "./components/landing/LandingPage";
 import PrivacyPage from "./components/landing/PrivacyPage";
@@ -15,8 +16,11 @@ import InviteJoinPage from "./components/servers/InviteJoinPage";
 import UpdateNotification from "./components/shared/UpdateNotification";
 import CustomTitleBar from "./components/layout/CustomTitleBar";
 import FileViewerOverlay from "./components/viewers/FileViewerOverlay";
+import ConfirmDialog from "./components/shared/ConfirmDialog";
+import ToastContainer from "./components/shared/ToastContainer";
 import { useUpdateChecker } from "./hooks/useUpdateChecker";
 import { useDeepLinks } from "./hooks/useDeepLinks";
+import { useFileTokenFreshness } from "./hooks/useFileTokenFreshness";
 import { isElectron, isNativeApp, publicAsset } from "./utils/constants";
 
 /**
@@ -28,6 +32,7 @@ function App() {
   const initialize = useAuthStore((s) => s.initialize);
   const isInitialized = useAuthStore((s) => s.isInitialized);
   const user = useAuthStore((s) => s.user);
+  const isServerUnreachable = useAuthStore((s) => s.isServerUnreachable);
   const updater = useUpdateChecker();
   const blurEnabled = useSettingsStore((s) => s.blurEnabled);
   const transparentBackground = useSettingsStore((s) => s.transparentBackground);
@@ -39,6 +44,8 @@ function App() {
   useEffect(() => {
     initialize();
   }, [initialize]);
+
+  useFileTokenFreshness(user !== null);
 
   // Apply blur + transparent classes at root level so they also affect
   // pre-auth pages (login, register, landing).
@@ -71,6 +78,19 @@ function App() {
     }
 
     return spinner;
+  }
+
+  // A stored session the server could not confirm yet: never show login for it.
+  if (isServerUnreachable) {
+    if (isElectron()) {
+      return (
+        <div className="electron-app-wrapper">
+          <CustomTitleBar />
+          <ConnectingScreen />
+        </div>
+      );
+    }
+    return <ConnectingScreen />;
   }
 
   const updateBanner =
@@ -150,6 +170,8 @@ function App() {
         {updateBanner}
         {routes}
         <FileViewerOverlay />
+        <ConfirmDialog />
+        <ToastContainer />
       </div>
     );
   }
@@ -158,6 +180,9 @@ function App() {
     <>
       {routes}
       <FileViewerOverlay />
+      {/* At the root, not in AppLayout: the pre-auth pages (login's connection switcher) need them too. */}
+      <ConfirmDialog />
+      <ToastContainer />
     </>
   );
 }

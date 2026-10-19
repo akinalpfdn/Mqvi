@@ -6,6 +6,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuthStore, hasSignedInBefore } from "../../stores/authStore";
 import { isElectron, isNativeApp } from "../../utils/constants";
 import { detectOS, shouldShowDownloadPrompt } from "../../utils/detectOS";
+import { queueCredentialFailure, flushCredentialFailures } from "../../utils/credentialFailureReport";
 import AccountRecoveryModal from "./AccountRecoveryModal";
 import ConnectionsModal from "../settings/ConnectionsModal";
 
@@ -31,10 +32,12 @@ function LoginPage() {
   // Load saved credentials from Electron safeStorage on mount
   useEffect(() => {
     if (!isElectron()) return;
-    window.electronAPI?.loadCredentials().then((cred) => {
-      if (cred) {
-        setUsername(cred.username);
-        setPassword(cred.password);
+    window.electronAPI?.loadCredentials().then(({ credentials, failure }) => {
+      // Reported after sign-in: there is no session to report with yet.
+      if (failure) queueCredentialFailure("load", failure);
+      if (credentials) {
+        setUsername(credentials.username);
+        setPassword(credentials.password);
         setRememberMe(true);
       }
     });
@@ -54,12 +57,14 @@ function LoginPage() {
     const success = await login(username, password);
     if (success) {
       // Electron: save or clear credentials
-      if (isElectron()) {
+      if (isElectron() && window.electronAPI) {
         if (rememberMe) {
-          window.electronAPI?.saveCredentials(username, password);
+          const saved = await window.electronAPI.saveCredentials(username, password);
+          if (!saved.ok) queueCredentialFailure("save", saved.failure);
         } else {
-          window.electronAPI?.clearCredentials();
+          await window.electronAPI.clearCredentials();
         }
+        void flushCredentialFailures();
       }
       // Redirect to returnUrl (e.g. invite link) or /channels
       const returnUrl = searchParams.get("returnUrl");

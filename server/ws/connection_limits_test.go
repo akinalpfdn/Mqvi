@@ -294,6 +294,10 @@ func (s stubTokenValidator) ValidateAccessToken(string) (*models.TokenClaims, er
 	return &models.TokenClaims{UserID: s.userID}, nil
 }
 
+func (s stubTokenValidator) ValidateSession(context.Context, *models.TokenClaims) error {
+	return nil
+}
+
 // panicUserInfo stands in for the first DB call of the handshake. If a rejected connection ever
 // reaches it, the throttle is running after the cost it exists to avoid.
 type panicUserInfo struct{ t *testing.T }

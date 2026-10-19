@@ -17,6 +17,7 @@
 
 import { useEffect, useRef, useCallback, useState } from "react";
 import { ensureFreshToken } from "../api/client";
+import { getMe } from "../api/auth";
 import { APP_RESUME_EVENT } from "../utils/nativePlugins";
 import { useP2PCallStore } from "../stores/p2pCallStore";
 import { useVoiceStore } from "../stores/voiceStore";
@@ -445,10 +446,12 @@ export function useWebSocket() {
         return;
       }
       wsRef.current = socket;
+      let opened = false;
 
       // ─── onopen ───
       socket.onopen = () => {
         if (activeConnectionIdRef.current !== myId || wsRef.current !== socket) return;
+        opened = true;
 
         reconnectAttemptRef.current = 0;
         setReconnectAttempt(0);
@@ -522,6 +525,11 @@ export function useWebSocket() {
         // decision to report failure once the attempt budget is spent.
         if (!exhaustedRef.current) updateStatus("connecting");
         cleanupTimers();
+        // A refused handshake looks like any drop: the browser hides the 401. If this device was
+        // signed out elsewhere its access token is still unexpired, so nothing else would notice
+        // — ask the API, whose 401 → refresh → rejection path signs the device out. A server that
+        // is simply down answers transiently and the backoff carries on.
+        if (!opened) void getMe();
         scheduleReconnect();
       };
 

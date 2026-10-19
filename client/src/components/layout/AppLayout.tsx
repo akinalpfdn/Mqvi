@@ -20,8 +20,6 @@ import SplitPaneContainer from "./SplitPaneContainer";
 import MobileAppLayout from "./MobileAppLayout";
 import MemberList from "./MemberList";
 import Sidebar from "./Sidebar";
-import ToastContainer from "../shared/ToastContainer";
-import ConfirmDialog from "../shared/ConfirmDialog";
 import DownloadPromptModal from "../shared/DownloadPromptModal";
 import GuideBootstrap from "../guide/GuideBootstrap";
 import GuideSpotlight from "../guide/GuideSpotlight";
@@ -314,12 +312,6 @@ function AppLayout() {
 
       {/* Settings modal */}
       <SettingsModal />
-
-      {/* Confirm dialog */}
-      <ConfirmDialog />
-
-      {/* Toast notifications */}
-      <ToastContainer />
 
       {/* One-time welcome modal for new users */}
       <GuideBootstrap />

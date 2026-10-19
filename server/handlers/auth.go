@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/akinalp/mqvi/models"
@@ -23,6 +25,7 @@ type AuthHandler struct {
 	resetPwdLimiter  *ratelimit.LoginRateLimiter
 	urlSigner        services.FileURLSigner
 	fileCookieTTL    time.Duration
+	credentialRL     *ratelimit.MessageRateLimiter // credential-store failure reports, per user
 }
 
 // NewAuthHandler creates a new AuthHandler. All limiters may be nil to disable rate limiting.
@@ -34,6 +37,7 @@ func NewAuthHandler(
 	resetPwdLimiter *ratelimit.LoginRateLimiter,
 	urlSigner services.FileURLSigner,
 	fileCookieTTL time.Duration,
+	credentialRL *ratelimit.MessageRateLimiter,
 ) *AuthHandler {
 	return &AuthHandler{
 		authService:      authService,
@@ -43,6 +47,53 @@ func NewAuthHandler(
 		resetPwdLimiter:  resetPwdLimiter,
 		urlSigner:        urlSigner,
 		fileCookieTTL:    fileCookieTTL,
+		credentialRL:     credentialRL,
+	}
+}
+
+// CredentialStoreFailure handles POST /api/auth/credential-store-failure.
+// The desktop app reports a "remember me" save or read that failed. Without it the only symptom is
+// an empty login form, which the user can only describe as "it forgets my password".
+func (h *AuthHandler) CredentialStoreFailure(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+	if h.credentialRL != nil && !h.credentialRL.Allow(user.ID) {
+		w.Header().Set("Retry-After", strconv.Itoa(h.credentialRL.CooldownSeconds(user.ID)))
+		pkg.ErrorWithMessage(w, http.StatusTooManyRequests, "too many credential store reports")
+		return
+	}
+
+	var req models.CredentialStoreFailureRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if !models.CredentialStoreOperations[req.Operation] || !models.CredentialStoreFailureReasons[req.Reason] ||
+		!models.CredentialStorePlatforms[req.Platform] || !models.CredentialStoreBackends[req.Backend] {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "unknown operation, reason, platform or backend")
+		return
+	}
+	req.Detail = truncateRunes(req.Detail, models.CredentialStoreDetailMax)
+
+	h.authService.RecordCredentialStoreFailure(user.ID, &req)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// Headers the clients send so the devices screen can tell one session from another.
+const (
+	clientPlatformHeader = "X-Client-Platform"
+	clientDeviceHeader   = "X-Client-Device"
+)
+
+// clientInfo is what the request says about the device. Normalised by the service.
+func clientInfo(r *http.Request) models.ClientInfo {
+	return models.ClientInfo{
+		Platform:    r.Header.Get(clientPlatformHeader),
+		DeviceLabel: r.Header.Get(clientDeviceHeader),
+		IP:          ratelimit.ExtractIP(r),
 	}
 }
 
@@ -67,7 +118,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokens, err := h.authService.Register(r.Context(), &req)
+	tokens, err := h.authService.Register(r.Context(), &req, clientInfo(r))
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -98,7 +149,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokens, err := h.authService.Login(r.Context(), &req)
+	tokens, err := h.authService.Login(r.Context(), &req, clientInfo(r))
 	if err != nil {
 		// Soft-deleted account: 403 with structured payload so the frontend can
 		// show the recovery UI ("Restore your account?"). Custom envelope:
@@ -147,7 +198,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokens, err := h.authService.RefreshToken(r.Context(), req.RefreshToken)
+	tokens, err := h.authService.RefreshToken(r.Context(), req.RefreshToken, clientInfo(r))
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -174,8 +225,26 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	authcookie.Clear(w)
+	if h.cookieBelongsTo(r, req.RefreshToken) {
+		authcookie.Clear(w)
+	}
 	pkg.JSON(w, http.StatusOK, map[string]string{"message": "logged out"})
+}
+
+// cookieBelongsTo reports whether the request's file cookie was issued to the session the refresh
+// token names. A queued sign-out of an old session is sent after the user signed in again; it must
+// not take the new session's cookie with it. Anything unverifiable is cleared, as before.
+func (h *AuthHandler) cookieBelongsTo(r *http.Request, refreshToken string) bool {
+	cookie := authcookie.Read(r)
+	sid, _, named := strings.Cut(refreshToken, ".")
+	if cookie == "" || !named {
+		return true
+	}
+	claims, err := h.authService.ValidateFileToken(cookie)
+	if err != nil || claims.SessionID == "" {
+		return true
+	}
+	return claims.SessionID == sid
 }
 
 // Me handles GET /api/users/me (requires auth middleware).
@@ -220,7 +289,8 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokens, err := h.authService.ChangePassword(r.Context(), user.ID, req.CurrentPassword, req.NewPassword)
+	sid, _ := r.Context().Value(ctxkeys.AuthSessionID).(string) // "" for tokens without a sid
+	tokens, err := h.authService.ChangePassword(r.Context(), user.ID, sid, req.CurrentPassword, req.NewPassword, clientInfo(r))
 	if err != nil {
 		pkg.Error(w, err)
 		return
@@ -407,7 +477,7 @@ func (h *AuthHandler) RestoreAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokens, err := h.authService.RestoreAccount(r.Context(), req.Username, req.Password)
+	tokens, err := h.authService.RestoreAccount(r.Context(), req.Username, req.Password, clientInfo(r))
 	if err != nil {
 		pkg.Error(w, err)
 		return

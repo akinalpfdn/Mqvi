@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 
-const { ensureFreshToken } = vi.hoisted(() => ({ ensureFreshToken: vi.fn() }));
+const { ensureFreshToken, getMe } = vi.hoisted(() => ({ ensureFreshToken: vi.fn(), getMe: vi.fn() }));
 
 vi.mock("../api/client", () => ({ ensureFreshToken }));
+vi.mock("../api/auth", () => ({ getMe }));
 vi.mock("../utils/nativePlugins", () => ({ APP_RESUME_EVENT: "mqvi:app-resume" }));
 const { sendWSRef, previousPageCall } = vi.hoisted(() => ({
   sendWSRef: { current: null as null | ((op: string, data?: unknown) => void) },
@@ -159,6 +160,7 @@ beforeEach(() => {
   vi.spyOn(console, "warn").mockImplementation(() => {});
   FakeSocket.instances = [];
   ensureFreshToken.mockReset().mockResolvedValue("token");
+  getMe.mockReset().mockResolvedValue({ success: true });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double for the global
   globalThis.WebSocket = FakeSocket as any;
 });
@@ -232,6 +234,29 @@ describe("useWebSocket connection status", () => {
       latest().drop();
     });
     expect(result.current.connectionStatus).toBe("connecting");
+  });
+});
+
+// A device signed out elsewhere still holds an unexpired access token; the server refuses its
+// handshake, which the browser reports as a bare close. Only an API call can surface the 401.
+describe("useWebSocket refused handshake", () => {
+  it("should ask the API about the session when a socket closes without ever opening", async () => {
+    renderHook(() => useWebSocket());
+    await advance(0);
+
+    act(() => latest().drop());
+
+    expect(getMe).toHaveBeenCalledTimes(1);
+  });
+
+  it("should not query the API when an established socket drops", async () => {
+    renderHook(() => useWebSocket());
+    await advance(0);
+    act(() => latest().accept());
+
+    act(() => latest().drop());
+
+    expect(getMe).not.toHaveBeenCalled();
   });
 });
 

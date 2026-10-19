@@ -247,11 +247,17 @@ func (m *MockUserRepo) IsPlatformBannedByUserID(ctx context.Context, userID stri
 // ─── SessionRepository mock ───
 
 type MockSessionRepo struct {
-	CreateFn            func(ctx context.Context, session *models.Session) error
-	GetByRefreshTokenFn func(ctx context.Context, token string) (*models.Session, error)
-	DeleteByIDFn        func(ctx context.Context, id string) error
-	DeleteByUserIDFn    func(ctx context.Context, userID string) error
-	DeleteExpiredFn     func(ctx context.Context) error
+	CreateFn              func(ctx context.Context, session *models.Session) error
+	GetByIDFn             func(ctx context.Context, id string) (*models.Session, error)
+	GetByLegacyTokenFn    func(ctx context.Context, rawToken, tokenHash string) (*models.Session, error)
+	RotateFn              func(ctx context.Context, current *models.Session, next models.SessionRotation) (bool, error)
+	ListByUserFn          func(ctx context.Context, userID string) ([]models.Session, error)
+	DeleteForUserFn       func(ctx context.Context, id, userID string) (bool, error)
+	DeleteOthersForUserFn func(ctx context.Context, userID, keepID string) ([]string, error)
+	DeleteByIDFn          func(ctx context.Context, id string) error
+	DeleteByUserIDFn      func(ctx context.Context, userID string) error
+	DeleteExpiredFn       func(ctx context.Context, now time.Time) (int64, error)
+	ClearPendingFn        func(ctx context.Context, cutoff time.Time) (int64, error)
 }
 
 func (m *MockSessionRepo) Create(ctx context.Context, session *models.Session) error {
@@ -260,8 +266,23 @@ func (m *MockSessionRepo) Create(ctx context.Context, session *models.Session) e
 	}
 	return nil
 }
-func (m *MockSessionRepo) GetByRefreshToken(ctx context.Context, token string) (*models.Session, error) {
-	return m.GetByRefreshTokenFn(ctx, token)
+func (m *MockSessionRepo) GetByID(ctx context.Context, id string) (*models.Session, error) {
+	return m.GetByIDFn(ctx, id)
+}
+func (m *MockSessionRepo) GetByLegacyToken(ctx context.Context, rawToken, tokenHash string) (*models.Session, error) {
+	return m.GetByLegacyTokenFn(ctx, rawToken, tokenHash)
+}
+func (m *MockSessionRepo) Rotate(ctx context.Context, current *models.Session, next models.SessionRotation) (bool, error) {
+	return m.RotateFn(ctx, current, next)
+}
+func (m *MockSessionRepo) ListByUser(ctx context.Context, userID string) ([]models.Session, error) {
+	return m.ListByUserFn(ctx, userID)
+}
+func (m *MockSessionRepo) DeleteForUser(ctx context.Context, id, userID string) (bool, error) {
+	return m.DeleteForUserFn(ctx, id, userID)
+}
+func (m *MockSessionRepo) DeleteOthersForUser(ctx context.Context, userID, keepID string) ([]string, error) {
+	return m.DeleteOthersForUserFn(ctx, userID, keepID)
 }
 func (m *MockSessionRepo) DeleteByID(ctx context.Context, id string) error {
 	if m.DeleteByIDFn != nil {
@@ -275,11 +296,17 @@ func (m *MockSessionRepo) DeleteByUserID(ctx context.Context, userID string) err
 	}
 	return nil
 }
-func (m *MockSessionRepo) DeleteExpired(ctx context.Context) error {
+func (m *MockSessionRepo) DeleteExpired(ctx context.Context, now time.Time) (int64, error) {
 	if m.DeleteExpiredFn != nil {
-		return m.DeleteExpiredFn(ctx)
+		return m.DeleteExpiredFn(ctx, now)
 	}
-	return nil
+	return 0, nil
+}
+func (m *MockSessionRepo) ClearPending(ctx context.Context, cutoff time.Time) (int64, error) {
+	if m.ClearPendingFn != nil {
+		return m.ClearPendingFn(ctx, cutoff)
+	}
+	return 0, nil
 }
 
 // ─── PasswordResetRepository mock ───
@@ -624,6 +651,9 @@ type MockEventPublisher struct {
 	RemovePresencePeerFn        func(userA, userB string)
 	SetInvisibleFn              func(userID string, invisible bool)
 	DisconnectUserFn            func(userID string)
+	RevokeAuthSessionsFn        func(userID string, authSessionIDs []string)
+	RevokeAuthSessionsExceptFn  func(userID string, keep ...string)
+	RetagAuthSessionFn          func(userID, from, to string)
 	AddClientServerIDFn         func(userID, serverID string)
 	RemoveClientServerIDFn      func(userID, serverID string)
 }
@@ -674,6 +704,21 @@ func (m *MockEventPublisher) SetInvisible(userID string, invisible bool) {
 func (m *MockEventPublisher) DisconnectUser(userID string) {
 	if m.DisconnectUserFn != nil {
 		m.DisconnectUserFn(userID)
+	}
+}
+func (m *MockEventPublisher) RevokeAuthSessions(userID string, authSessionIDs []string) {
+	if m.RevokeAuthSessionsFn != nil {
+		m.RevokeAuthSessionsFn(userID, authSessionIDs)
+	}
+}
+func (m *MockEventPublisher) RevokeAuthSessionsExcept(userID string, keep ...string) {
+	if m.RevokeAuthSessionsExceptFn != nil {
+		m.RevokeAuthSessionsExceptFn(userID, keep...)
+	}
+}
+func (m *MockEventPublisher) RetagAuthSession(userID, from, to string) {
+	if m.RetagAuthSessionFn != nil {
+		m.RetagAuthSessionFn(userID, from, to)
 	}
 }
 func (m *MockEventPublisher) AddClientServerID(userID, serverID string) {

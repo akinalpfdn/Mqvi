@@ -4,6 +4,7 @@
 
 import { apiClient } from "./client";
 import type { AuthTokens, LoginRequest, RegisterRequest, User } from "../types";
+import type { CredentialStoreFailure } from "../types/electron";
 
 /** Register a new user. First user automatically becomes Owner. */
 export async function register(data: RegisterRequest) {
@@ -122,4 +123,12 @@ export interface AccountDeletedResponse {
   username: string;
   deleted_at: string;
   permanent_delete_at: string;
+}
+
+/** Reports a "remember me" save or read that failed in the desktop app. */
+export async function reportCredentialStoreFailure(operation: "save" | "load", failure: CredentialStoreFailure) {
+  return apiClient<null>("/auth/credential-store-failure", {
+    method: "POST",
+    body: { operation, ...failure },
+  });
 }

@@ -6,8 +6,15 @@ import { create } from "zustand";
 import * as authApi from "../api/auth";
 import * as profileApi from "../api/profile";
 import { passwordErrorMessage } from "../utils/passwordError";
-import { setTokens, clearTokens, getAccessToken, setAuthRejectedHandler } from "../api/client";
-import { API_BASE_URL } from "../utils/constants";
+import {
+  setTokens,
+  clearTokens,
+  getAccessToken,
+  getRefreshToken,
+  isTransientStatus,
+  setAuthRejectedHandler,
+} from "../api/client";
+import { API_BASE_URL, SERVER_URL } from "../utils/constants";
 import i18n, { changeLanguage, resolveLanguage, type Language, SUPPORTED_LANGUAGES } from "../i18n";
 import { useE2EEStore } from "./e2eeStore";
 import { usePreferencesStore } from "./preferencesStore";
@@ -18,7 +25,8 @@ import { GUIDE_TAB_ID } from "../utils/guideScript";
 import { useVoiceStore } from "./voiceStore";
 import { endP2PCallForLogout } from "./shared/p2pCallControl";
 import { useSettingsStore } from "./settingsStore";
-import { unregisterCurrentPushToken, clearCachedPushToken } from "../utils/pushToken";
+import { useSessionStore } from "./sessionStore";
+import { unregisterCurrentPushToken, clearCachedPushToken, reassertPushTokens } from "../utils/pushToken";
 import { resetMarkReadTracking } from "./shared/markReadTracking";
 import type { User, UserStatus } from "../types";
 
@@ -43,6 +51,36 @@ function closeGuideSurfaces(): void {
 function rememberSignIn(): void {
   localStorage.setItem(SIGNED_IN_BEFORE_KEY, "1");
 }
+
+/**
+ * A refresh token whose logout could not reach the server. Kept until it can, so the server-side
+ * session (and the device's push registration with it) does not outlive a sign-out made offline.
+ */
+const PENDING_LOGOUT_KEY = "mqvi_pending_logout";
+
+/** The server is part of the record: switching servers must not hand one server's token to another. */
+type PendingLogout = { server: string; token: string };
+
+function readPendingLogout(): PendingLogout | null {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PENDING_LOGOUT_KEY) ?? "null") as PendingLogout | null;
+    return parsed && typeof parsed.server === "string" && typeof parsed.token === "string" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function flushPendingLogout(): Promise<void> {
+  const pending = readPendingLogout();
+  if (!pending || pending.server !== SERVER_URL) return;
+  const res = await authApi.logout(pending.token);
+  if (res.success || !isTransientStatus(res.httpStatus)) {
+    localStorage.removeItem(PENDING_LOGOUT_KEY);
+  }
+}
+
+/** One boot attempt at a time: the retry timer, the online event and the button can all fire it. */
+let initializeInFlight: Promise<void> | null = null;
 
 /** Apply user's DB language preference to i18n (takes priority over browser locale). */
 function syncLanguageFromUser(user: User): void {
@@ -83,6 +121,8 @@ type AuthState = {
   isLoading: boolean;
   error: string | null;
   isInitialized: boolean;
+  /** A session is stored but the server could not be reached to resume it. Not signed out. */
+  isServerUnreachable: boolean;
   accountDeleted: AccountDeletedInfo | null;
 
   // ─── Actions ───
@@ -100,6 +140,11 @@ type AuthState = {
    */
   forceLogout: () => Promise<void>;
   initialize: () => Promise<void>;
+  /**
+   * Sign out while the server is unreachable: local state goes now, the server-side logout is
+   * queued and sent on the next successful contact.
+   */
+  abandonSession: () => void;
   clearError: () => void;
   updateUser: (partial: Partial<User>) => void;
   replaceTokens: (access: string, refresh: string, file: string) => void;
@@ -119,6 +164,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isLoading: false,
   error: null,
   isInitialized: false,
+  isServerUnreachable: false,
   accountDeleted: null,
   manualStatus: (localStorage.getItem(MANUAL_STATUS_KEY) as UserStatus) || "online",
 
@@ -159,6 +205,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ user: res.data.user, isLoading: false });
       // Fetch server-side preferences and apply to stores
       usePreferencesStore.getState().fetchAndApply();
+      void flushPendingLogout();
       return true;
     }
 
@@ -247,6 +294,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     clearTokens();
     // Close settings modal if open (SPA doesn't reload between logout → login)
     useSettingsStore.getState().closeSettings();
+    useSessionStore.getState().reset();
     set({ user: null });
   },
 
@@ -295,51 +343,83 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       closeGuideSurfaces();
       clearCachedPushToken();
       useSettingsStore.getState().closeSettings();
+      useSessionStore.getState().reset();
     } catch (err) {
       console.error("[authStore] forceLogout: cleanup failed", err);
     }
   },
 
-  /** Restore session from stored token on app start. */
+  /**
+   * Restore session from stored token on app start. Three outcomes: signed in; rejected (tokens
+   * cleared by the API layer → login); unreachable (network/5xx — tokens kept, `isServerUnreachable`
+   * set, and the caller retries). Safe to call repeatedly; concurrent calls share one attempt.
+   */
   initialize: async () => {
-    // Wire the API layer's auth-rejection signal (refresh 401/403) → forced logout, so a
-    // mid-session token revocation routes to login instead of a zombie logged-in UI whose
-    // every request 401s (F5). Registered here (app boot, before any authenticated request,
-    // even a no-token → login flow) rather than at module scope — a module-load side-effect
-    // would run during the authStore↔voiceStore circular import and break partial mocks.
-    setAuthRejectedHandler(() => {
-      useAuthStore.getState().forceLogout().catch((err) => {
-        console.error("[authStore] forceLogout failed", err);
+    if (initializeInFlight) return initializeInFlight;
+    initializeInFlight = (async () => {
+      // Wire the API layer's auth-rejection signal (refresh 401/403) → forced logout, so a
+      // mid-session token revocation routes to login instead of a zombie logged-in UI whose
+      // every request 401s (F5). Registered here (app boot, before any authenticated request,
+      // even a no-token → login flow) rather than at module scope — a module-load side-effect
+      // would run during the authStore↔voiceStore circular import and break partial mocks.
+      setAuthRejectedHandler(() => {
+        useAuthStore.getState().forceLogout().catch((err) => {
+          console.error("[authStore] forceLogout failed", err);
+        });
       });
-    });
 
-    const token = localStorage.getItem("access_token");
-    if (!token) {
-      set({ isInitialized: true });
-      return;
-    }
-    const fileToken = localStorage.getItem("file_token");
-    if (fileToken) {
-      void window.electronAPI?.setFileAuthToken(fileToken, API_BASE_URL);
-    }
+      void flushPendingLogout();
 
-    const res = await authApi.getMe();
-    if (res.success && res.data) {
-      rememberSignIn(); // an existing session from before this flag existed
-      syncLanguageFromUser(res.data);
-      set({ user: res.data, isInitialized: true });
-      usePreferencesStore.getState().fetchAndApply();
-    } else {
-      // getMe failed. The API layer clears tokens ONLY on a genuine 401/403 rejection;
-      // network/5xx/offline failures preserve them, so a transient blip or an offline
-      // launch never wipes a still-valid session (F4). Only run the logged-out push-cache
-      // cleanup when the tokens are actually gone (a real rejection) — otherwise keep the
-      // session intact for the next (online) launch.
+      const token = localStorage.getItem("access_token");
+      if (!token) {
+        set({ isInitialized: true, isServerUnreachable: false });
+        return;
+      }
+      const fileToken = localStorage.getItem("file_token");
+      if (fileToken) {
+        void window.electronAPI?.setFileAuthToken(fileToken, API_BASE_URL);
+      }
+
+      const res = await authApi.getMe();
+      if (res.success && res.data) {
+        rememberSignIn(); // an existing session from before this flag existed
+        syncLanguageFromUser(res.data);
+        set({ user: res.data, isInitialized: true, isServerUnreachable: false });
+        usePreferencesStore.getState().fetchAndApply();
+        return;
+      }
+
+      // The API layer clears tokens ONLY on a genuine 401/403 refresh rejection, so tokens still
+      // present plus a transient status means the server, not the session, is the problem (F4):
+      // keep everything and let the connecting screen retry.
+      if (getAccessToken() && getRefreshToken() && isTransientStatus(res.httpStatus)) {
+        set({ isInitialized: true, isServerUnreachable: true });
+        return;
+      }
+
+      // Not resumable now. Only run the logged-out push-cache cleanup when the tokens are actually
+      // gone (a real rejection); a non-auth failure keeps them for the next launch, as before.
       if (!getAccessToken()) {
         clearCachedPushToken();
       }
-      set({ isInitialized: true });
+      set({ isInitialized: true, isServerUnreachable: false });
+    })();
+    try {
+      await initializeInFlight;
+    } finally {
+      initializeInFlight = null;
     }
+  },
+
+  abandonSession: () => {
+    const refreshToken = getRefreshToken();
+    if (refreshToken) {
+      const pending: PendingLogout = { server: SERVER_URL, token: refreshToken };
+      localStorage.setItem(PENDING_LOGOUT_KEY, JSON.stringify(pending));
+    }
+    clearTokens();
+    clearCachedPushToken();
+    set({ user: null, isServerUnreachable: false });
   },
 
   clearError: () => set({ error: null }),
@@ -351,6 +431,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   replaceTokens: (access, refresh, file) => {
     setTokens(access, refresh, file);
+    // A new session replaced this device's old one, and the push registration went with it.
+    void reassertPushTokens();
   },
 
   setManualStatus: (status) => {

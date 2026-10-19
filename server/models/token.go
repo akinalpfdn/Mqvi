@@ -13,6 +13,7 @@ const (
 type TokenClaims struct {
 	UserID       string `json:"user_id"`
 	Username     string `json:"username"`
-	TokenVersion int    `json:"tv,omitempty"` // bumped on password change to invalidate prior tokens
+	TokenVersion int    `json:"tv,omitempty"`  // bumped on password change to invalidate prior tokens
+	SessionID    string `json:"sid,omitempty"` // the device session that issued it
 	jwt.RegisteredClaims
 }

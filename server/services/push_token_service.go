@@ -12,7 +12,9 @@ import (
 
 // PushTokenService manages registration of device push notification tokens.
 type PushTokenService interface {
-	RegisterToken(ctx context.Context, userID string, req *models.RegisterPushTokenRequest) (*models.PushToken, error)
+	// RegisterToken binds the token to sessionID (the registering device) so signing that device
+	// out removes it. sessionID is "" for tokens issued without a sid.
+	RegisterToken(ctx context.Context, userID, sessionID string, req *models.RegisterPushTokenRequest) (*models.PushToken, error)
 	UnregisterToken(ctx context.Context, userID, token string) error
 	ListUserTokens(ctx context.Context, userID string) ([]models.PushToken, error)
 	// HasVoIPToken reports whether this device registered a VoIP (CallKit) token: the only proof
@@ -28,7 +30,7 @@ func NewPushTokenService(repo repository.PushTokenRepository) PushTokenService {
 	return &pushTokenService{repo: repo}
 }
 
-func (s *pushTokenService) RegisterToken(ctx context.Context, userID string, req *models.RegisterPushTokenRequest) (*models.PushToken, error) {
+func (s *pushTokenService) RegisterToken(ctx context.Context, userID, sessionID string, req *models.RegisterPushTokenRequest) (*models.PushToken, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
@@ -49,6 +51,9 @@ func (s *pushTokenService) RegisterToken(ctx context.Context, userID string, req
 	// Empty for clients that predate the device chain — the server then addresses the whole user.
 	if req.DeviceID != "" {
 		t.DeviceID = &req.DeviceID
+	}
+	if sessionID != "" {
+		t.SessionID = &sessionID
 	}
 
 	if err := s.repo.Upsert(ctx, t); err != nil {

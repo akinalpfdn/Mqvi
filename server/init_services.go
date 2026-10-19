@@ -13,6 +13,7 @@ import (
 	"github.com/akinalp/mqvi/pkg/apns"
 	"github.com/akinalp/mqvi/pkg/email"
 	"github.com/akinalp/mqvi/pkg/files"
+	"github.com/akinalp/mqvi/pkg/geoip"
 	"github.com/akinalp/mqvi/pkg/password"
 	"github.com/akinalp/mqvi/pkg/push"
 	"github.com/akinalp/mqvi/pkg/ratelimit"
@@ -69,6 +70,7 @@ type Services struct {
 	SettingsBadge      services.SettingsBadgeService
 	VoiceMessage       services.VoiceMessageService
 	PushToken          services.PushTokenService
+	Session            services.SessionService
 	Push               services.PushNotifier
 	Discovery          services.DiscoveryService
 	Guide              services.GuideService
@@ -101,12 +103,16 @@ type RateLimiters struct {
 	// DM being read on the desktop.
 	DMRead      *ratelimit.MessageRateLimiter
 	ChannelRead *ratelimit.MessageRateLimiter
+	// SessionRevoke caps devices-screen sign-outs per user.
+	SessionRevoke *ratelimit.LoginRateLimiter
+	// CredentialStore caps "remember me" failure reports per user.
+	CredentialStore *ratelimit.MessageRateLimiter
 }
 
 // initServices creates all services. Order matters:
 // channelPermService -> voiceService/messageService (dependency)
 // voiceService/p2pCallService -> before Hub callbacks (closure scoping)
-func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *config.Config, encryptionKey []byte, urlSigner services.FileURLSigner) (*Services, *RateLimiters, services.MetricsCollector) {
+func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *config.Config, encryptionKey []byte, urlSigner services.FileURLSigner, locator geoip.Locator) (*Services, *RateLimiters, services.MetricsCollector) {
 	// File locator: single source of truth for upload paths and URLs.
 	fileLocator := files.NewLocator(cfg.Upload.Dir, cfg.Upload.PublicURL)
 
@@ -165,8 +171,8 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	}
 
 	authService := services.NewAuthService(
-		repos.User, repos.Session, repos.ResetToken, hub, emailSender, breachChecker,
-		cfg.JWT.Secret, cfg.JWT.AccessTokenExpiry, cfg.JWT.RefreshTokenExpiry,
+		repos.User, repos.Session, repos.ResetToken, hub, emailSender, breachChecker, locator,
+		cfg.JWT.Secret, encryptionKey, cfg.JWT.AccessTokenExpiry, cfg.JWT.RefreshTokenExpiry, cfg.JWT.FileTokenExpiry,
 	)
 	channelService := services.NewChannelService(repos.Channel, repos.Category, hub, channelPermService, voiceService, voiceService, fileCleanupService)
 	categoryService := services.NewCategoryService(repos.Category, hub)
@@ -249,6 +255,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	deviceService := services.NewDeviceService(repos.Device, hub)
 	e2eeService := services.NewE2EEService(repos.E2EEBackup, repos.GroupSession, channelPermService, hub)
 	pushTokenService := services.NewPushTokenService(repos.PushToken)
+	sessionService := services.NewSessionService(repos.Session, hub)
 
 	adminUserService := services.NewAdminUserService(db, repos.User, repos.Session, repos.Server, hub, voiceService, emailSender, fileCleanupService)
 	adminServerService := services.NewAdminServerService(repos.Server, repos.User, repos.LiveKit, hub, voiceService, emailSender, fileCleanupService, urlSigner)
@@ -284,7 +291,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	)
 	cleanupService := services.NewCleanupService(
 		db, repos.Cleanup, repos.ScanHashCache,
-		repos.User, repos.Server,
+		repos.User, repos.Server, repos.Session,
 		adminUserService, adminServerService,
 		fileLocator, appLogService,
 		cfg.Upload.Dir,
@@ -366,6 +373,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		SettingsBadge:      settingsBadgeService,
 		VoiceMessage:       voiceMessageService,
 		PushToken:          pushTokenService,
+		Session:            sessionService,
 		Discovery:          discoveryService,
 		Guide:              guideService,
 		Push:               pushService,
@@ -387,6 +395,9 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		NoiseReduction: noiseReductionLimiter,
 		DMRead:         dmReadLimiter,
 		ChannelRead:    channelReadLimiter,
+		SessionRevoke:  ratelimit.NewLoginRateLimiter(10, time.Minute),
+		// A real failure reports once per login attempt; a handful an hour is plenty.
+		CredentialStore: ratelimit.NewMessageRateLimiter(5, time.Hour, time.Hour),
 	}
 
 	return svcs, limiters, metricsCollector

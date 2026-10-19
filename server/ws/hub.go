@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -45,6 +46,14 @@ type UserStateProvider interface {
 type ClientManager interface {
 	SetInvisible(userID string, invisible bool)
 	DisconnectUser(userID string)
+	// RevokeAuthSessions tells the user's connections from these device sessions they were
+	// signed out, then closes them.
+	RevokeAuthSessions(userID string, authSessionIDs []string)
+	// RevokeAuthSessionsExcept does the same for every connection not from one of keep.
+	RevokeAuthSessionsExcept(userID string, keep ...string)
+	// RetagAuthSession moves the user's connections from one device session to another, for a
+	// device whose session was replaced while its sockets stayed open (password change).
+	RetagAuthSession(userID, from, to string)
 	AddClientServerID(userID, serverID string)
 	RemoveClientServerID(userID, serverID string)
 }
@@ -1017,6 +1026,65 @@ func (h *Hub) DisconnectUser(userID string) {
 	for _, client := range clients {
 		h.unregister <- client
 	}
+}
+
+func (h *Hub) RevokeAuthSessions(userID string, authSessionIDs []string) {
+	revoked := make(map[string]bool, len(authSessionIDs))
+	for _, id := range authSessionIDs {
+		revoked[id] = true
+	}
+	h.revokeConnections(userID, func(c *Client) bool { return c.authSessionID != "" && revoked[c.authSessionID] })
+}
+
+func (h *Hub) RetagAuthSession(userID, from, to string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for client := range h.clients[userID] {
+		if client.authSessionID == from {
+			client.authSessionID = to
+		}
+	}
+}
+
+func (h *Hub) RevokeAuthSessionsExcept(userID string, keep ...string) {
+	h.revokeConnections(userID, func(c *Client) bool { return !slices.Contains(keep, c.authSessionID) })
+}
+
+// revokeConnections closes the matching connections, after OpSessionRevoked has had time to flush
+// (as Shutdown does). Only a connection that names its session is told: an unnamed one (opened with
+// a token from before sessions were named, and it stays unnamed for its lifetime) may belong to the
+// very device asking, so it is closed silently — its reconnect presents a current token, and a
+// revoked one is refused there. The close is deferred, not waited for: the caller is an HTTP request.
+func (h *Hub) revokeConnections(userID string, match func(*Client) bool) {
+	// authSessionID is guarded by h.mu (RetagAuthSession writes it), so who gets told is decided here.
+	h.mu.RLock()
+	var targets, told []*Client
+	for client := range h.clients[userID] {
+		if match(client) {
+			targets = append(targets, client)
+			if client.authSessionID != "" {
+				told = append(told, client)
+			}
+		}
+	}
+	h.mu.RUnlock()
+	if len(targets) == 0 {
+		return
+	}
+
+	data, err := json.Marshal(Event{Op: OpSessionRevoked})
+	if err != nil {
+		log.Printf("[ws] failed to marshal session_revoked: %v", err)
+	} else {
+		for _, c := range told {
+			c.trySend(data)
+		}
+	}
+	time.AfterFunc(serverShutdownGrace, func() {
+		for _, c := range targets {
+			h.unregister <- c
+		}
+	})
 }
 
 // Shutdown closes all client connections (graceful shutdown).

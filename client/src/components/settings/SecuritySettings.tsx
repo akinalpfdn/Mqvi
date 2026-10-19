@@ -1,5 +1,5 @@
 /** SecuritySettings — Email change/remove (with password verification), password change,
- *  deleted servers list, and self-account-delete. */
+ *  active devices, deleted servers list, and self-account-delete. */
 
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,6 +10,7 @@ import * as authApi from "../../api/auth";
 import * as serversApi from "../../api/servers";
 import { PASSWORD_MIN_LENGTH, PASSWORD_MAX_BYTES, passwordByteLength } from "../../utils/constants";
 import { passwordErrorKey } from "../../utils/passwordError";
+import ActiveSessions from "./ActiveSessions";
 import type { DeletedServerInfo } from "../../api/servers";
 
 function formatDate(iso: string, locale: string): string {
@@ -316,6 +317,11 @@ function SecuritySettings() {
       </div>
 
       {/* ═══ Separator ═══ */}
+      <div className="settings-divider" />
+
+      {/* ═══ Active Devices Section ═══ */}
+      <ActiveSessions />
+
       <div className="settings-divider" />
 
       {/* ═══ Deleted Servers Section ═══ */}

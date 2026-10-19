@@ -6,6 +6,7 @@
 
 import type { APIResponse } from "../types";
 import { API_BASE_URL } from "../utils/constants";
+import { clientHeaders } from "../utils/clientPlatform";
 import { extensionForType, type GeneratedThumbnail } from "../utils/imageEncoding";
 
 function getAccessToken(): string | null {
@@ -70,7 +71,7 @@ async function doRefresh(): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...clientHeaders() },
       body: JSON.stringify({ refresh_token: refreshToken }),
       // Honor the rotated file-serve cookie that /auth/refresh sets.
       credentials: "include",
@@ -134,11 +135,11 @@ async function withTokenRefresh<T>(
 ): Promise<APIResponse<T>> {
   const token = getAccessToken();
   const first = await send(token);
-  if (first.status !== 401) return first.response;
+  if (first.status !== 401) return withStatus(first);
 
   if (!getRefreshToken()) {
     console.warn(`[api] 401 on ${label} but NO refresh_token in storage`, { hadAuthHeader: !!token });
-    return first.response;
+    return withStatus(first);
   }
 
   console.warn(`[api] 401 on ${label} — attempting refresh`, {
@@ -152,11 +153,21 @@ async function withTokenRefresh<T>(
   });
   if (!refreshed) {
     console.warn(`[api] refresh FAILED on ${label} — returning original 401`);
-    return first.response;
+    // Tokens still stored means the refresh did not get an answer (network, 5xx), not a
+    // rejection: report no response, so callers treat it as the server being away.
+    return getRefreshToken() ? { ...first.response, httpStatus: 0 } : withStatus(first);
   }
 
-  const retry = await send(getAccessToken());
-  return retry.response;
+  return withStatus(await send(getAccessToken()));
+}
+
+function withStatus<T>(result: XhrResult<T>): APIResponse<T> {
+  return { ...result.response, httpStatus: result.status };
+}
+
+/** No response, a timeout, rate limiting or a server error: the session may be fine, the server is not. */
+function isTransientStatus(status: number | undefined): boolean {
+  return status === undefined || status === 0 || status === 408 || status === 429 || status >= 500;
 }
 
 /**
@@ -171,7 +182,7 @@ async function sendFetch<T>(
   signal: AbortSignal | undefined,
   token: string | null
 ): Promise<XhrResult<T>> {
-  const headers: Record<string, string> = { ...extraHeaders };
+  const headers: Record<string, string> = { ...clientHeaders(), ...extraHeaders };
   if (token) headers["Authorization"] = `Bearer ${token}`;
   if (body && !(body instanceof FormData)) headers["Content-Type"] = "application/json";
 
@@ -287,7 +298,7 @@ function sendXhr<T>(
       xhr.withCredentials = true;
 
       if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
-      for (const [key, value] of Object.entries(extraHeaders ?? {})) {
+      for (const [key, value] of Object.entries({ ...clientHeaders(), ...extraHeaders })) {
         xhr.setRequestHeader(key, value);
       }
       // Content-Type is left unset on purpose: the browser derives it from the FormData, including
@@ -395,11 +406,24 @@ async function ensureFreshToken(): Promise<string | null> {
   return getAccessToken();
 }
 
+/**
+ * Renews the file token if it has lapsed. Media requests carry it with no 401 retry of their own,
+ * so after a long sleep images would fail until something else happened to refresh.
+ */
+async function ensureFreshFileToken(): Promise<void> {
+  const fileToken = localStorage.getItem("file_token");
+  if (!fileToken || !getRefreshToken() || !isTokenExpired(fileToken)) return;
+  await refreshAccessToken();
+}
+
 export {
   setTokens,
   clearTokens,
   getAccessToken,
+  getRefreshToken,
   ensureFreshToken,
+  ensureFreshFileToken,
+  isTransientStatus,
   setAuthRejectedHandler,
   uploadRequest,
   UPLOAD_ABORTED,

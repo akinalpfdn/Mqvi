@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -36,6 +37,11 @@ type Config struct {
 	// PasswordBreachCheck queries Have I Been Pwned when a password is set. Needs no key or
 	// account; turn it off only for a self-host with no route out. Failures allow the password.
 	PasswordBreachCheck bool
+	// GeoIPDir holds the DB-IP city database behind the devices screen's locations.
+	GeoIPDir string
+	// GeoIPAutoUpdate downloads the database monthly from DB-IP. Off: only a copy placed in
+	// GeoIPDir by hand is used, and without one locations are blank.
+	GeoIPAutoUpdate bool
 }
 
 // PushConfig — optional. If CredentialsFile is missing or invalid, push is disabled
@@ -136,7 +142,8 @@ type DatabaseConfig struct {
 type JWTConfig struct {
 	Secret             string
 	AccessTokenExpiry  int // minutes (default: 15)
-	RefreshTokenExpiry int // days (default: 7)
+	RefreshTokenExpiry int // days (default: 90), sliding: every refresh restarts it
+	FileTokenExpiry    int // hours (default: 24); must outlive the 1h signed URLs
 }
 
 type LiveKitConfig struct {
@@ -220,9 +227,14 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid JWT_ACCESS_EXPIRY_MINUTES: %w", err)
 	}
 
-	refreshExpiry, err := strconv.Atoi(getEnv("JWT_REFRESH_EXPIRY_DAYS", "7"))
-	if err != nil {
-		return nil, fmt.Errorf("invalid JWT_REFRESH_EXPIRY_DAYS: %w", err)
+	refreshExpiry, err := strconv.Atoi(getEnv("JWT_REFRESH_EXPIRY_DAYS", "90"))
+	if err != nil || refreshExpiry < 1 {
+		return nil, fmt.Errorf("invalid JWT_REFRESH_EXPIRY_DAYS %q: must be a whole number of days, at least 1", getEnv("JWT_REFRESH_EXPIRY_DAYS", "90"))
+	}
+
+	fileExpiry, err := strconv.Atoi(getEnv("JWT_FILE_EXPIRY_HOURS", "24"))
+	if err != nil || fileExpiry < 2 {
+		return nil, fmt.Errorf("invalid JWT_FILE_EXPIRY_HOURS %q: must be a whole number of hours, at least 2 (it has to outlive a 1h signed URL)", getEnv("JWT_FILE_EXPIRY_HOURS", "24"))
 	}
 
 	maxSize, err := strconv.ParseInt(getEnv("UPLOAD_MAX_SIZE", "104857600"), 10, 64) // 100 MB — Cloudflare body limit
@@ -276,6 +288,10 @@ func Load() (*Config, error) {
 	breachCheck, err := strconv.ParseBool(getEnv("MQVI_PASSWORD_BREACH_CHECK", "true"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid MQVI_PASSWORD_BREACH_CHECK: %w", err)
+	}
+	geoAutoUpdate, err := strconv.ParseBool(getEnv("MQVI_GEOIP_AUTO_UPDATE", "true"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid MQVI_GEOIP_AUTO_UPDATE: %w", err)
 	}
 	avTimeout, err := strconv.Atoi(getEnv("MQVI_ANTIVIRUS_TIMEOUT_SECONDS", "10"))
 	if err != nil {
@@ -398,6 +414,7 @@ func Load() (*Config, error) {
 			Secret:             jwtSecret,
 			AccessTokenExpiry:  accessExpiry,
 			RefreshTokenExpiry: refreshExpiry,
+			FileTokenExpiry:    fileExpiry,
 		},
 		LiveKit: LiveKitConfig{
 			URL:       getEnv("LIVEKIT_URL", "ws://localhost:7880"),
@@ -472,6 +489,8 @@ func Load() (*Config, error) {
 		EncryptionKey:       encKey,
 		HetznerAPIToken:     getEnv("HETZNER_API_TOKEN", ""),
 		PasswordBreachCheck: breachCheck,
+		GeoIPDir:            getEnv("MQVI_GEOIP_DIR", filepath.Join(filepath.Dir(getEnv("DATABASE_PATH", "./data/mqvi.db")), "geoip")),
+		GeoIPAutoUpdate:     geoAutoUpdate,
 	}
 
 	return cfg, nil

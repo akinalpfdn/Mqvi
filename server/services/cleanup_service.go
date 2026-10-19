@@ -12,6 +12,7 @@
 //  3. Hard-delete soft-deleted servers whose 30-day TTL has elapsed
 //  4. Clear stale quarantine and scan-cache rows
 //  5. Walk the upload directory and reclaim orphan files (with 24h grace)
+//  6. Delete expired device sessions and drop encrypted refresh tokens past their grace window
 package services
 
 import (
@@ -55,6 +56,12 @@ type SoftDeletedServerLister interface {
 	ListSoftDeletedExpired(ctx context.Context, ttlDays int) ([]models.Server, error)
 }
 
+// SessionPruner narrows SessionRepository to the sweep's two deletes.
+type SessionPruner interface {
+	DeleteExpired(ctx context.Context, now time.Time) (int64, error)
+	ClearPending(ctx context.Context, cutoff time.Time) (int64, error)
+}
+
 // UserExpirer is the worker-driven half of AdminUserService.
 type UserExpirer interface {
 	ExpireSoftDeletedUser(ctx context.Context, targetUserID string) error
@@ -71,6 +78,7 @@ type cleanupService struct {
 	scanCache     repository.ScanHashCacheRepository
 	userLister    SoftDeletedUserLister
 	serverLister  SoftDeletedServerLister
+	sessions      SessionPruner
 	userExpirer   UserExpirer
 	serverExpirer ServerExpirer
 	fileDeleter   FileDeleter
@@ -94,6 +102,7 @@ func NewCleanupService(
 	scanCache repository.ScanHashCacheRepository,
 	userLister SoftDeletedUserLister,
 	serverLister SoftDeletedServerLister,
+	sessions SessionPruner,
 	userExpirer UserExpirer,
 	serverExpirer ServerExpirer,
 	fileDeleter FileDeleter,
@@ -108,6 +117,7 @@ func NewCleanupService(
 		scanCache:     scanCache,
 		userLister:    userLister,
 		serverLister:  serverLister,
+		sessions:      sessions,
 		userExpirer:   userExpirer,
 		serverExpirer: serverExpirer,
 		fileDeleter:   fileDeleter,
@@ -179,11 +189,17 @@ func (s *cleanupService) scheduleLoop(ctx context.Context) {
 
 	timer := time.NewTimer(firstWait)
 	defer timer.Stop()
+	// The encrypted refresh-token copy is only needed for the 60s grace window; an active device
+	// rotates every ~10 minutes, so left to the daily sweep it would sit in the DB nearly always.
+	pendingTicker := time.NewTicker(pendingClearInterval)
+	defer pendingTicker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-pendingTicker.C:
+			s.clearPendingTokens(ctx)
 		case <-timer.C:
 			runCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 			if runErr := s.RunOnce(runCtx); runErr != nil {
@@ -207,6 +223,8 @@ type runStats struct {
 	orphansEnqueued    int
 	quarantineDeleted  int
 	scanCachePruned    int
+	sessionsExpired    int64
+	pendingCleared     int64
 	orphanScanDuration time.Duration
 }
 
@@ -223,6 +241,7 @@ func (s *cleanupService) RunOnce(ctx context.Context) error {
 	s.cleanQuarantine(ctx, &st)
 	s.pruneScanCache(ctx, &st)
 	s.walkOrphans(ctx, &st)
+	s.pruneSessions(ctx, &st)
 
 	if err := s.cleanupRepo.SetLastRunAt(ctx, start); err != nil {
 		log.Printf("[cleanup] failed to stamp last_run_at: %v", err)
@@ -233,12 +252,13 @@ func (s *cleanupService) RunOnce(ctx context.Context) error {
 		level = models.LogLevelWarn
 	}
 	msg := fmt.Sprintf(
-		"cleanup sweep: users=%d/%d servers=%d/%d retries=%d/%d (gaveup=%d) quarantine=%d scan_cache=%d orphans=%d (queued=%d) duration=%s",
+		"cleanup sweep: users=%d/%d servers=%d/%d retries=%d/%d (gaveup=%d) quarantine=%d scan_cache=%d orphans=%d (queued=%d) sessions=%d pending=%d duration=%s",
 		st.usersExpired, st.usersExpired+st.usersFailed,
 		st.serversExpired, st.serversExpired+st.serversFailed,
 		st.retriesSucceeded, st.retriesProcessed, st.retriesGaveUp,
 		st.quarantineDeleted, st.scanCachePruned,
 		st.orphansDeleted, st.orphansEnqueued,
+		st.sessionsExpired, st.pendingCleared,
 		time.Since(start).Round(time.Millisecond),
 	)
 	s.appLog.Log(level, models.LogCategoryCleaner, nil, nil, msg, map[string]string{
@@ -254,8 +274,39 @@ func (s *cleanupService) RunOnce(ctx context.Context) error {
 		"orphans_deleted":    itoa(st.orphansDeleted),
 		"orphans_enqueued":   itoa(st.orphansEnqueued),
 		"orphan_scan_ms":     itoa(int(st.orphanScanDuration.Milliseconds())),
+		"sessions_expired":   itoa(int(st.sessionsExpired)),
+		"pending_cleared":    itoa(int(st.pendingCleared)),
 	})
 	return nil
+}
+
+const pendingClearInterval = time.Minute
+
+// clearPendingTokens drops encrypted refresh-token copies whose grace window has ended.
+func (s *cleanupService) clearPendingTokens(ctx context.Context) {
+	if s.sessions == nil {
+		return
+	}
+	if _, err := s.sessions.ClearPending(ctx, time.Now().UTC().Add(-refreshGraceWindow)); err != nil {
+		log.Printf("[cleanup] pending refresh token clear failed: %v", err)
+	}
+}
+
+func (s *cleanupService) pruneSessions(ctx context.Context, st *runStats) {
+	if s.sessions == nil {
+		return
+	}
+	now := time.Now().UTC()
+	n, err := s.sessions.DeleteExpired(ctx, now)
+	if err != nil {
+		log.Printf("[cleanup] expired session prune failed: %v", err)
+	}
+	st.sessionsExpired = n
+	n, err = s.sessions.ClearPending(ctx, now.Add(-refreshGraceWindow))
+	if err != nil {
+		log.Printf("[cleanup] pending refresh token clear failed: %v", err)
+	}
+	st.pendingCleared = n
 }
 
 func (s *cleanupService) pruneScanCache(ctx context.Context, st *runStats) {

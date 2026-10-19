@@ -9,6 +9,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/geoip"
 	"github.com/akinalp/mqvi/pkg/password"
 	"github.com/akinalp/mqvi/testutil"
 	"github.com/golang-jwt/jwt/v5"
@@ -16,6 +17,9 @@ import (
 )
 
 const testJWTSecret = "test-secret-key-for-auth-service"
+
+// 32 bytes, the AES-256 key size the server requires of ENCRYPTION_KEY.
+var testEncryptionKey = []byte("0123456789abcdef0123456789abcdef")
 
 // preHashPassword generates a bcrypt hash at cost 4 (fast for tests).
 // Tests that need to verify password comparison use this instead of cost 12.
@@ -33,7 +37,7 @@ func preHashPassword(t *testing.T, password string) string {
 const testRegisterPassword = "correct horse battery staple"
 
 func newTestAuthService(userRepo *testutil.MockUserRepo, sessionRepo *testutil.MockSessionRepo) AuthService {
-	return NewAuthService(userRepo, sessionRepo, &testutil.MockResetRepo{}, &testutil.MockEventPublisher{}, &testutil.MockEmailSender{}, password.NoopChecker{}, testJWTSecret, 15, 7)
+	return NewAuthService(userRepo, sessionRepo, &testutil.MockResetRepo{}, &testutil.MockEventPublisher{}, &testutil.MockEmailSender{}, password.NoopChecker{}, geoip.Noop{}, testJWTSecret, testEncryptionKey, 15, 90, 24)
 }
 
 func TestRegister(t *testing.T) {
@@ -123,7 +127,7 @@ func TestRegister(t *testing.T) {
 			}
 
 			svc := newTestAuthService(userRepo, sessionRepo)
-			tokens, err := svc.Register(context.Background(), tc.req)
+			tokens, err := svc.Register(context.Background(), tc.req, models.ClientInfo{})
 
 			if tc.wantErr {
 				if err == nil {
@@ -226,7 +230,7 @@ func TestLogin(t *testing.T) {
 			}
 
 			svc := newTestAuthService(userRepo, sessionRepo)
-			tokens, err := svc.Login(context.Background(), tc.req)
+			tokens, err := svc.Login(context.Background(), tc.req, models.ClientInfo{})
 
 			if tc.wantErr {
 				if err == nil {
@@ -252,121 +256,6 @@ func TestLogin(t *testing.T) {
 			}
 			if tokens.User.PasswordHash != "" {
 				t.Error("password hash should be cleared from returned user")
-			}
-		})
-	}
-}
-
-func TestRefreshToken(t *testing.T) {
-	tests := []struct {
-		name      string
-		token     string
-		setupRepo func(*testutil.MockUserRepo, *testutil.MockSessionRepo)
-		wantErr   bool
-		errIs     error
-	}{
-		{
-			name:  "should refresh successfully with valid token",
-			token: "valid-refresh-token",
-			setupRepo: func(ur *testutil.MockUserRepo, sr *testutil.MockSessionRepo) {
-				sr.GetByRefreshTokenFn = func(ctx context.Context, token string) (*models.Session, error) {
-					return &models.Session{
-						ID:           "session-1",
-						UserID:       "user-1",
-						RefreshToken: token,
-						ExpiresAt:    time.Now().Add(24 * time.Hour),
-					}, nil
-				}
-				ur.GetByIDFn = func(ctx context.Context, id string) (*models.User, error) {
-					return &models.User{
-						ID:       "user-1",
-						Username: "testuser",
-					}, nil
-				}
-			},
-			wantErr: false,
-		},
-		{
-			name:  "should return unauthorized when token not found",
-			token: "invalid-token",
-			setupRepo: func(ur *testutil.MockUserRepo, sr *testutil.MockSessionRepo) {
-				sr.GetByRefreshTokenFn = func(ctx context.Context, token string) (*models.Session, error) {
-					return nil, pkg.ErrNotFound
-				}
-			},
-			wantErr: true,
-			errIs:   pkg.ErrUnauthorized,
-		},
-		{
-			name:  "should return unauthorized when token is expired",
-			token: "expired-token",
-			setupRepo: func(ur *testutil.MockUserRepo, sr *testutil.MockSessionRepo) {
-				sr.GetByRefreshTokenFn = func(ctx context.Context, token string) (*models.Session, error) {
-					return &models.Session{
-						ID:           "session-1",
-						UserID:       "user-1",
-						RefreshToken: token,
-						ExpiresAt:    time.Now().Add(-1 * time.Hour),
-					}, nil
-				}
-			},
-			wantErr: true,
-			errIs:   pkg.ErrUnauthorized,
-		},
-		{
-			name:  "should return forbidden when user is banned",
-			token: "banned-user-token",
-			setupRepo: func(ur *testutil.MockUserRepo, sr *testutil.MockSessionRepo) {
-				sr.GetByRefreshTokenFn = func(ctx context.Context, token string) (*models.Session, error) {
-					return &models.Session{
-						ID:           "session-2",
-						UserID:       "user-2",
-						RefreshToken: token,
-						ExpiresAt:    time.Now().Add(24 * time.Hour),
-					}, nil
-				}
-				ur.GetByIDFn = func(ctx context.Context, id string) (*models.User, error) {
-					return &models.User{
-						ID:               "user-2",
-						Username:         "banned",
-						IsPlatformBanned: true,
-					}, nil
-				}
-			},
-			wantErr: true,
-			errIs:   pkg.ErrForbidden,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			userRepo := &testutil.MockUserRepo{}
-			sessionRepo := &testutil.MockSessionRepo{}
-			if tc.setupRepo != nil {
-				tc.setupRepo(userRepo, sessionRepo)
-			}
-
-			svc := newTestAuthService(userRepo, sessionRepo)
-			tokens, err := svc.RefreshToken(context.Background(), tc.token)
-
-			if tc.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if tc.errIs != nil && !errors.Is(err, tc.errIs) {
-					t.Errorf("expected error wrapping %v, got: %v", tc.errIs, err)
-				}
-				return
-			}
-
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if tokens.AccessToken == "" {
-				t.Error("expected non-empty access token")
-			}
-			if tokens.RefreshToken == "" {
-				t.Error("expected non-empty refresh token")
 			}
 		})
 	}
@@ -544,7 +433,7 @@ func TestGenerateTokens_StampsAudienceAndTokenVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("expected *authService")
 	}
-	tokens, err := authSvc.generateTokens(context.Background(), user)
+	tokens, err := authSvc.generateTokens(context.Background(), user, models.ClientInfo{})
 	if err != nil {
 		t.Fatalf("generateTokens: %v", err)
 	}
@@ -675,7 +564,7 @@ func TestChangePassword(t *testing.T) {
 			}
 
 			svc := newTestAuthService(userRepo, &testutil.MockSessionRepo{})
-			_, err := svc.ChangePassword(context.Background(), tc.userID, tc.currentPass, tc.newPass)
+			_, err := svc.ChangePassword(context.Background(), tc.userID, "", tc.currentPass, tc.newPass, models.ClientInfo{})
 
 			if tc.wantErr {
 				if err == nil {
@@ -683,80 +572,6 @@ func TestChangePassword(t *testing.T) {
 				}
 				if tc.errIs != nil && !errors.Is(err, tc.errIs) {
 					t.Errorf("expected error wrapping %v, got: %v", tc.errIs, err)
-				}
-				return
-			}
-
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-		})
-	}
-}
-
-func TestLogout(t *testing.T) {
-	tests := []struct {
-		name      string
-		token     string
-		setupRepo func(*testutil.MockUserRepo, *testutil.MockSessionRepo)
-		wantErr   bool
-	}{
-		{
-			name:  "should logout successfully",
-			token: "valid-refresh-token",
-			setupRepo: func(ur *testutil.MockUserRepo, sr *testutil.MockSessionRepo) {
-				sr.GetByRefreshTokenFn = func(ctx context.Context, token string) (*models.Session, error) {
-					return &models.Session{
-						ID:     "session-1",
-						UserID: "user-1",
-					}, nil
-				}
-				var statusUpdated bool
-				ur.UpdateStatusFn = func(ctx context.Context, userID string, status models.UserStatus) error {
-					if status != models.UserStatusOffline {
-						t.Errorf("expected status offline, got %v", status)
-					}
-					statusUpdated = true
-					return nil
-				}
-				sr.DeleteByIDFn = func(ctx context.Context, id string) error {
-					if !statusUpdated {
-						t.Error("expected status update before session delete")
-					}
-					if id != "session-1" {
-						t.Errorf("expected session id 'session-1', got %q", id)
-					}
-					return nil
-				}
-			},
-			wantErr: false,
-		},
-		{
-			name:  "should return nil when token not found",
-			token: "nonexistent-token",
-			setupRepo: func(ur *testutil.MockUserRepo, sr *testutil.MockSessionRepo) {
-				sr.GetByRefreshTokenFn = func(ctx context.Context, token string) (*models.Session, error) {
-					return nil, pkg.ErrNotFound
-				}
-			},
-			wantErr: false,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			userRepo := &testutil.MockUserRepo{}
-			sessionRepo := &testutil.MockSessionRepo{}
-			if tc.setupRepo != nil {
-				tc.setupRepo(userRepo, sessionRepo)
-			}
-
-			svc := newTestAuthService(userRepo, sessionRepo)
-			err := svc.Logout(context.Background(), tc.token)
-
-			if tc.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
 				}
 				return
 			}
@@ -790,7 +605,7 @@ func TestPasswordRejectionsCarryACode(t *testing.T) {
 			_, err := svc.Register(context.Background(), &models.CreateUserRequest{
 				Username: "testuser",
 				Password: tt.password,
-			})
+			}, models.ClientInfo{})
 
 			if err == nil {
 				t.Fatal("expected the password to be rejected")

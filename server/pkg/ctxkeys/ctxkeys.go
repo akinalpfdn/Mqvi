@@ -14,6 +14,9 @@ type contextKey string
 // User is the authenticated *models.User, set by AuthMiddleware.
 const User contextKey = "user"
 
+// AuthSessionID is the device session (JWT `sid`) of the request; "" for tokens issued without one.
+const AuthSessionID contextKey = "auth_session_id"
+
 // ServerID is the active server, set by ServerMembershipMiddleware.
 const ServerID contextKey = "server_id"
 

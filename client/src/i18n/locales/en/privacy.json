@@ -1,6 +1,6 @@
 {
   "title": "Privacy Policy",
-  "lastUpdated": "Last updated: July 8, 2026",
+  "lastUpdated": "Last updated: October 18, 2026",
   "introTitle": "Introduction",
   "introDesc": "mqvi is an open-source communication platform. We are committed to transparency about what data we collect and how we handle it. This policy applies to the mqvi instance hosted at mqvi.net.",
   "dataCollectedTitle": "What We Collect",
@@ -9,6 +9,7 @@
   "dataItem3": "Files: images, videos, and other files you upload are stored on our servers for delivery.",
   "dataItem4": "Basic usage data: timestamps of account creation and last activity for operational purposes.",
   "dataItem5": "Push notification tokens: if you enable notifications on mobile, a device token issued by Apple or Google is stored to deliver them. It is removed when your account is deleted.",
+  "dataItem6": "Signed-in devices: for each device you are signed in on, we store its type (for example \"Windows · Desktop app\"), the IP address it last connected from, the approximate city and country derived from that address, and when it was last active. This is shown to you under Settings → Security so you can recognise and sign out devices. The location is looked up on our own server using the DB-IP database; your address is not sent to any third party. This information is deleted as soon as the device signs out, is signed out, or goes 90 days without use.",
   "dataUsageTitle": "How We Use Your Data",
   "dataUsageDesc": "Your data is used solely to provide the service:",
   "usageItem1": "Deliver messages and files to their intended recipients.",

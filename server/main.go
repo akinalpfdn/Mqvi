@@ -23,6 +23,7 @@ import (
 	"github.com/akinalp/mqvi/pkg/crypto"
 	"github.com/akinalp/mqvi/pkg/fileacl"
 	"github.com/akinalp/mqvi/pkg/files"
+	"github.com/akinalp/mqvi/pkg/geoip"
 	"github.com/akinalp/mqvi/pkg/i18n"
 	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/akinalp/mqvi/pkg/signedurl"
@@ -120,7 +121,16 @@ func main() {
 	hub := ws.NewHub()
 
 	// 10. Service layer (order matters: channelPerm -> voice -> p2pCall -> rest)
-	svcs, limiters, metricsCollector := initServices(db.Conn, repos, hub, cfg, encryptionKey, urlSigner)
+	// City lookups for the devices screen. Lookups answer nothing until a database is loaded.
+	geoReader := &geoip.Reader{}
+	geoUpdater := geoip.NewUpdater(geoReader, cfg.GeoIPDir, geoip.DBIPBaseURL)
+	if cfg.GeoIPAutoUpdate {
+		geoUpdater.Start()
+	} else {
+		geoUpdater.LoadLocal()
+	}
+
+	svcs, limiters, metricsCollector := initServices(db.Conn, repos, hub, cfg, encryptionKey, urlSigner, geoReader)
 
 	// 10b. Wire structured app logger into Hub and services
 	hub.SetAppLogger(svcs.AppLog)
@@ -278,6 +288,10 @@ func main() {
 	log.Println("[main] shutting down...")
 
 	svcs.Cleanup.Stop()
+	geoUpdater.Stop()
+	if err := geoReader.Close(); err != nil {
+		log.Printf("[main] geoip close: %v", err)
+	}
 	svcs.AppLog.Stop()
 	metricsCollector.Stop()
 	fileLimiter.Stop()
@@ -564,7 +578,7 @@ func initCORS(cfg *config.Config) (*cors.Cors, []string) {
 	return cors.New(cors.Options{
 		AllowedOrigins:   corsOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Authorization", "Content-Type"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type", "X-Client-Platform", "X-Client-Device"},
 		AllowCredentials: true,
 	}), corsOrigins
 }
@@ -717,6 +731,9 @@ func fileUserFromToken(
 ) (*models.User, bool) {
 	claims, err := authService.ValidateFileToken(token)
 	if err != nil {
+		return nil, false
+	}
+	if authService.ValidateSession(r.Context(), claims) != nil {
 		return nil, false
 	}
 	user, err := userRepo.GetActiveByID(r.Context(), claims.UserID)

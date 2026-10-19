@@ -5,6 +5,14 @@
  * window.electronAPI is only available in Electron — undefined in browser mode.
  */
 
+export /** Why a "remember me" save or read failed, as main reports it. Mirrors electron/credentialStore.ts. */
+type CredentialStoreFailure = {
+  reason: "unavailable" | "encrypt_failed" | "write_failed" | "decrypt_failed" | "read_failed";
+  detail: string;
+  platform: "windows" | "macos" | "linux";
+  backend: string;
+};
+
 interface ElectronUpdateInfo {
   version: string;
   releaseNotes?: string;
@@ -135,9 +143,16 @@ interface ElectronAPI {
   onDeafenGlobalToggle: (cb: () => void) => void;
   removeDeafenListeners: () => void;
 
-  /** Save credentials encrypted with safeStorage */
-  saveCredentials: (username: string, password: string) => Promise<void>;
-  loadCredentials: () => Promise<{ username: string; password: string } | null>;
+  /** Save credentials encrypted with safeStorage; reports why when it could not. */
+  saveCredentials: (
+    username: string,
+    password: string
+  ) => Promise<{ ok: true } | { ok: false; failure: CredentialStoreFailure }>;
+  /** `failure` says why a stored copy could not be read; the bad copy has been removed. */
+  loadCredentials: () => Promise<{
+    credentials: { username: string; password: string } | null;
+    failure?: CredentialStoreFailure;
+  }>;
   clearCredentials: () => Promise<void>;
 
   /** Read all app settings */

@@ -19,8 +19,8 @@ func NewSQLitePushTokenRepo(db database.TxQuerier) PushTokenRepository {
 
 func (r *sqlitePushTokenRepo) Upsert(ctx context.Context, t *models.PushToken) error {
 	query := `
-		INSERT INTO push_tokens (user_id, token, platform, token_type, device_label, device_id)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO push_tokens (user_id, token, platform, token_type, device_label, device_id, session_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(token)
 		DO UPDATE SET
 			user_id = excluded.user_id,
@@ -28,11 +28,12 @@ func (r *sqlitePushTokenRepo) Upsert(ctx context.Context, t *models.PushToken) e
 			token_type = excluded.token_type,
 			device_label = excluded.device_label,
 			device_id = excluded.device_id,
+			session_id = excluded.session_id,
 			last_seen_at = CURRENT_TIMESTAMP
 		RETURNING id, created_at, last_seen_at`
 
 	err := r.db.QueryRowContext(ctx, query,
-		t.UserID, t.Token, t.Platform, t.TokenType, t.DeviceLabel, t.DeviceID,
+		t.UserID, t.Token, t.Platform, t.TokenType, t.DeviceLabel, t.DeviceID, t.SessionID,
 	).Scan(&t.ID, &t.CreatedAt, &t.LastSeenAt)
 	if err != nil {
 		return fmt.Errorf("failed to upsert push token: %w", err)

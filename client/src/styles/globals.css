@@ -2231,9 +2231,11 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 
 /* ── ID (monospace, truncated) ── */
 .admin-user-id {
+  display:block;max-width:100%;padding:0;border:none;background:none;text-align:left;
   font-family:var(--f-m);font-size:13px;color:var(--t2);
-  max-width:100px;overflow:hidden;text-overflow:ellipsis;cursor:default;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;
 }
+.admin-user-id:hover { color:var(--t0); }
 
 /* ── Status badge ── */
 .admin-user-status-badge {
@@ -2810,6 +2812,10 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .app-loading { display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:16px; }
 .app-loading-logo { width:72px;height:72px; }
 .app-loading-spinner { width:28px;height:28px;border:3px solid rgba(255,255,255,0.1);border-top-color:var(--primary);border-radius:999px;animation:spin .7s linear infinite; }
+.app-connecting { padding:0 16px;text-align:center; }
+.app-connecting-text { margin:0;max-width:340px;font-family:var(--f-ui);font-size:14px;line-height:1.5;color:var(--t2); }
+.app-connecting-logout { border:none;background:none;padding:8px;font-family:var(--f-ui);font-size:14px;color:var(--t2);cursor:pointer; }
+.app-connecting-logout:hover { color:var(--t0);text-decoration:underline; }
 
 /* ═══════════════════════════════════════
    PINNED MESSAGES PANEL
@@ -4221,6 +4227,20 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .e2ee-device-this { font-weight:400;color:var(--green);font-size:13px; }
 .e2ee-device-meta { font-size:13px;color:var(--t3); }
 .e2ee-device-remove { flex-shrink:0;margin-left:12px; }
+.session-list { display:flex;flex-direction:column;gap:8px;margin-top:12px; }
+.session-item { display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;background:var(--input-bg);border-radius:8px;border:1px solid var(--input-border); }
+.session-info { display:flex;flex-direction:column;gap:2px;min-width:0; }
+.session-name { font-size:14px;font-weight:600;color:var(--t0);overflow:hidden;text-overflow:ellipsis; }
+.session-this { font-weight:400;color:var(--green);font-size:13px; }
+.session-meta { font-size:13px;color:var(--t3);overflow-wrap:anywhere; }
+.session-revoke { flex-shrink:0; }
+.session-revoke-others { margin-top:12px; }
+.session-attribution { margin:12px 0 0;font-size:13px;color:var(--t3); }
+.session-attribution a { color:var(--t3); }
+.session-attribution a:hover { color:var(--t1); }
+@media (max-width: 600px) {
+  .session-item { flex-direction:column;align-items:stretch; }
+}
 
 /* ─── AFK Kick Popup ─── */
 .afk-kick-overlay { position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.75);backdrop-filter:var(--overlay-backdrop,none);-webkit-backdrop-filter:var(--overlay-backdrop,none); }

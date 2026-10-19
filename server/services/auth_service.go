@@ -13,7 +13,9 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/crypto"
 	"github.com/akinalp/mqvi/pkg/email"
+	"github.com/akinalp/mqvi/pkg/geoip"
 	"github.com/akinalp/mqvi/pkg/password"
 	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/ws"
@@ -27,13 +29,19 @@ type AuthAppLogger interface {
 }
 
 type AuthService interface {
-	Register(ctx context.Context, req *models.CreateUserRequest) (*AuthTokens, error)
-	Login(ctx context.Context, req *models.LoginRequest) (*AuthTokens, error)
-	RefreshToken(ctx context.Context, refreshToken string) (*AuthTokens, error)
+	Register(ctx context.Context, req *models.CreateUserRequest, client models.ClientInfo) (*AuthTokens, error)
+	Login(ctx context.Context, req *models.LoginRequest, client models.ClientInfo) (*AuthTokens, error)
+	RefreshToken(ctx context.Context, refreshToken string, client models.ClientInfo) (*AuthTokens, error)
 	Logout(ctx context.Context, refreshToken string) error
 	ValidateAccessToken(tokenString string) (*models.TokenClaims, error)
 	ValidateFileToken(tokenString string) (*models.TokenClaims, error)
-	ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) (*AuthTokens, error)
+	// ValidateSession rejects a token whose device session has been revoked, signed out or has
+	// expired. Every surface that accepts a JWT calls it after the signature check. Tokens issued
+	// before sessions were named in them (no sid) pass; they expire on their own.
+	ValidateSession(ctx context.Context, claims *models.TokenClaims) error
+	// ChangePassword signs every device out, then this one back in. currentSessionID is the
+	// requesting device's session, whose connections must survive the sign-out.
+	ChangePassword(ctx context.Context, userID, currentSessionID, currentPassword, newPassword string, client models.ClientInfo) (*AuthTokens, error)
 	ChangeEmail(ctx context.Context, userID, password, newEmail string) error
 
 	// ForgotPassword sends a password reset email.
@@ -51,7 +59,11 @@ type AuthService interface {
 
 	// RestoreAccount un-soft-deletes the user after password verification.
 	// Returns auth tokens like a regular login. Tombstone (is_hard_deleted=1) is not recoverable.
-	RestoreAccount(ctx context.Context, username, password string) (*AuthTokens, error)
+	RestoreAccount(ctx context.Context, username, password string, client models.ClientInfo) (*AuthTokens, error)
+
+	// RecordCredentialStoreFailure logs a desktop app that could not save or read its
+	// remembered credentials. The request is validated by the handler.
+	RecordCredentialStoreFailure(userID string, req *models.CredentialStoreFailureRequest)
 
 	SetAppLogger(logger AuthAppLogger)
 }
@@ -84,14 +96,40 @@ type authService struct {
 	hub           ws.EventPublisher
 	emailSender   email.EmailSender // nil if RESEND_API_KEY not set
 	breachChecker password.BreachChecker
+	locator       geoip.Locator
 	appLogger     AuthAppLogger
 	jwtSecret     []byte
+	encryptionKey []byte // encrypts the pending refresh token at rest
 	accessExp     time.Duration
 	refreshExp    time.Duration
+	fileExp       time.Duration
 }
+
+// refreshGraceWindow is how long a just-rotated refresh token keeps answering with the same
+// successor, so parallel refreshes (several tabs, one storage) cannot log each other out.
+const refreshGraceWindow = 60 * time.Second
+
+// rotateAttempts bounds the compare-and-swap loop; each retry means another request won a race.
+const rotateAttempts = 3
 
 func (s *authService) SetAppLogger(logger AuthAppLogger) {
 	s.appLogger = logger
+}
+
+func (s *authService) RecordCredentialStoreFailure(userID string, req *models.CredentialStoreFailureRequest) {
+	metadata := map[string]string{
+		"operation": req.Operation,
+		"reason":    req.Reason,
+		"platform":  req.Platform,
+	}
+	if req.Backend != "" {
+		metadata["backend"] = req.Backend
+	}
+	if req.Detail != "" {
+		metadata["detail"] = req.Detail
+	}
+	// Operation and reason in the message: the log list is scanned by eye.
+	s.logWarn(&userID, "remember-me credentials "+req.Operation+" failed: "+req.Reason+" ("+req.Platform+")", metadata)
 }
 
 func (s *authService) logWarn(userID *string, message string, metadata map[string]string) {
@@ -107,9 +145,12 @@ func NewAuthService(
 	hub ws.EventPublisher,
 	emailSender email.EmailSender,
 	breachChecker password.BreachChecker,
+	locator geoip.Locator,
 	jwtSecret string,
+	encryptionKey []byte,
 	accessExpMinutes int,
 	refreshExpDays int,
+	fileExpHours int,
 ) AuthService {
 	return &authService{
 		userRepo:      userRepo,
@@ -118,9 +159,12 @@ func NewAuthService(
 		hub:           hub,
 		emailSender:   emailSender,
 		breachChecker: breachChecker,
+		locator:       locator,
 		jwtSecret:     []byte(jwtSecret),
+		encryptionKey: encryptionKey,
 		accessExp:     time.Duration(accessExpMinutes) * time.Minute,
 		refreshExp:    time.Duration(refreshExpDays) * 24 * time.Hour,
+		fileExp:       time.Duration(fileExpHours) * time.Hour,
 	}
 }
 
@@ -173,7 +217,7 @@ func (s *authService) checkPasswordBreached(ctx context.Context, newPassword str
 // Register creates a new user account.
 // Multi-server: no server membership or role assignment at registration.
 // Users join servers via invite or create their own.
-func (s *authService) Register(ctx context.Context, req *models.CreateUserRequest) (*AuthTokens, error) {
+func (s *authService) Register(ctx context.Context, req *models.CreateUserRequest, client models.ClientInfo) (*AuthTokens, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
@@ -233,7 +277,7 @@ func (s *authService) Register(ctx context.Context, req *models.CreateUserReques
 		return nil, err
 	}
 
-	tokens, err := s.generateTokens(ctx, user)
+	tokens, err := s.generateTokens(ctx, user, client)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +286,7 @@ func (s *authService) Register(ctx context.Context, req *models.CreateUserReques
 }
 
 // Login authenticates a user. Platform-level ban checked here; server bans checked at WS connect.
-func (s *authService) Login(ctx context.Context, req *models.LoginRequest) (*AuthTokens, error) {
+func (s *authService) Login(ctx context.Context, req *models.LoginRequest, client models.ClientInfo) (*AuthTokens, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
@@ -294,11 +338,15 @@ func (s *authService) Login(ctx context.Context, req *models.LoginRequest) (*Aut
 	}
 	user.Status = models.UserStatusOnline
 
-	return s.generateTokens(ctx, user)
+	return s.generateTokens(ctx, user, client)
 }
 
-func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*AuthTokens, error) {
-	session, err := s.sessionRepo.GetByRefreshToken(ctx, refreshToken)
+// RefreshToken exchanges a refresh token for a new set. The session row is the device; only its
+// token hashes rotate. Presenting the token the current one replaced is not an error — it means a
+// response was lost or another tab refreshed first — but presenting anything older is treated as
+// a stolen token and ends the device's session.
+func (s *authService) RefreshToken(ctx context.Context, refreshToken string, client models.ClientInfo) (*AuthTokens, error) {
+	session, err := s.findSession(ctx, refreshToken)
 	if err != nil {
 		if errors.Is(err, pkg.ErrNotFound) {
 			return nil, fmt.Errorf("%w: invalid refresh token", pkg.ErrUnauthorized)
@@ -311,10 +359,6 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*A
 			return nil, fmt.Errorf("failed to delete expired session: %w", delErr)
 		}
 		return nil, fmt.Errorf("%w: refresh token expired", pkg.ErrUnauthorized)
-	}
-
-	if err := s.sessionRepo.DeleteByID(ctx, session.ID); err != nil {
-		return nil, fmt.Errorf("failed to delete old session: %w", err)
 	}
 
 	user, err := s.userRepo.GetByID(ctx, session.UserID)
@@ -334,16 +378,70 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*A
 		return nil, fmt.Errorf("%w: account deleted", pkg.ErrUnauthorized)
 	}
 
-	return s.generateTokens(ctx, user)
+	presented := hashToken(refreshToken)
+	for attempt := 0; attempt < rotateAttempts; attempt++ {
+		switch {
+		case matchesCurrent(session, refreshToken, presented):
+			tokens, ok, err := s.rotate(ctx, session, user, &presented, client)
+			if err != nil || ok {
+				return tokens, err
+			}
+
+		case session.PrevTokenHash != nil && *session.PrevTokenHash == presented:
+			if session.PendingToken != nil && session.RotatedAt != nil &&
+				time.Since(*session.RotatedAt) <= refreshGraceWindow {
+				pending, err := crypto.Decrypt(*session.PendingToken, s.encryptionKey)
+				if err != nil {
+					return nil, fmt.Errorf("failed to open pending refresh token: %w", err)
+				}
+				return s.issueTokens(user, session.ID, pending)
+			}
+			// The successor was never exchanged, so whoever holds it never received it: replace it.
+			tokens, ok, err := s.rotate(ctx, session, user, session.PrevTokenHash, client)
+			if err != nil || ok {
+				return tokens, err
+			}
+
+		default:
+			// Older than the previous token: someone kept a copy. Ending the session locks out
+			// whichever side is not the owner; the owner signs in again.
+			if delErr := s.sessionRepo.DeleteByID(ctx, session.ID); delErr != nil {
+				return nil, fmt.Errorf("failed to revoke session after token reuse: %w", delErr)
+			}
+			s.logWarn(&user.ID, "Refresh token reuse detected: session revoked", map[string]string{
+				"username":   user.Username,
+				"session_id": session.ID,
+			})
+			return nil, fmt.Errorf("%w: refresh token reuse", pkg.ErrUnauthorized)
+		}
+
+		// Another request rotated between our read and our write; decide again on what it wrote.
+		session, err = s.sessionRepo.GetByID(ctx, session.ID)
+		if err != nil {
+			if errors.Is(err, pkg.ErrNotFound) {
+				return nil, fmt.Errorf("%w: invalid refresh token", pkg.ErrUnauthorized)
+			}
+			return nil, err
+		}
+	}
+	return nil, fmt.Errorf("refresh token rotation kept losing to concurrent refreshes for session %s", session.ID)
 }
 
+// Logout ends the device session the token belongs to. A token that does not match the session
+// it names is ignored rather than allowed to sign that device out.
 func (s *authService) Logout(ctx context.Context, refreshToken string) error {
-	session, err := s.sessionRepo.GetByRefreshToken(ctx, refreshToken)
+	session, err := s.findSession(ctx, refreshToken)
 	if err != nil {
 		if errors.Is(err, pkg.ErrNotFound) {
 			return nil
 		}
 		return err
+	}
+
+	presented := hashToken(refreshToken)
+	isPrev := session.PrevTokenHash != nil && *session.PrevTokenHash == presented
+	if !matchesCurrent(session, refreshToken, presented) && !isPrev {
+		return nil
 	}
 
 	if err := s.userRepo.UpdateStatus(ctx, session.UserID, models.UserStatusOffline); err != nil {
@@ -353,12 +451,74 @@ func (s *authService) Logout(ctx context.Context, refreshToken string) error {
 	return s.sessionRepo.DeleteByID(ctx, session.ID)
 }
 
+// findSession resolves a refresh token to its session: by the embedded session ID, or for a
+// pre-098 token by the plaintext value (or its hash, once converted).
+func (s *authService) findSession(ctx context.Context, refreshToken string) (*models.Session, error) {
+	if sid, ok := sessionIDOf(refreshToken); ok {
+		return s.sessionRepo.GetByID(ctx, sid)
+	}
+	return s.sessionRepo.GetByLegacyToken(ctx, refreshToken, hashToken(refreshToken))
+}
+
+func matchesCurrent(session *models.Session, raw, hash string) bool {
+	if session.TokenHash != nil && *session.TokenHash == hash {
+		return true
+	}
+	return session.LegacyToken != nil && *session.LegacyToken == raw
+}
+
+// rotate issues a successor for session. ok=false means another request rotated first and the
+// caller must re-read the row.
+func (s *authService) rotate(ctx context.Context, session *models.Session, user *models.User, prevHash *string, client models.ClientInfo) (*AuthTokens, bool, error) {
+	next, err := newRefreshToken(session.ID)
+	if err != nil {
+		return nil, false, err
+	}
+	encrypted, err := crypto.Encrypt(next, s.encryptionKey)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to encrypt refresh token: %w", err)
+	}
+
+	now := time.Now()
+	ok, err := s.sessionRepo.Rotate(ctx, session, models.SessionRotation{
+		TokenHash:     hashToken(next),
+		PrevTokenHash: prevHash,
+		PendingToken:  &encrypted,
+		RotatedAt:     now,
+		ExpiresAt:     now.Add(s.refreshExp),
+		Client:        s.sessionClient(client),
+	})
+	if err != nil || !ok {
+		return nil, false, err
+	}
+
+	tokens, err := s.issueTokens(user, session.ID, next)
+	return tokens, err == nil, err
+}
+
 func (s *authService) ValidateAccessToken(tokenString string) (*models.TokenClaims, error) {
 	return s.validateToken(tokenString, models.AudienceAPI)
 }
 
 func (s *authService) ValidateFileToken(tokenString string) (*models.TokenClaims, error) {
 	return s.validateToken(tokenString, models.AudienceFile)
+}
+
+func (s *authService) ValidateSession(ctx context.Context, claims *models.TokenClaims) error {
+	if claims.SessionID == "" {
+		return nil
+	}
+	session, err := s.sessionRepo.GetByID(ctx, claims.SessionID)
+	if err != nil {
+		if errors.Is(err, pkg.ErrNotFound) {
+			return fmt.Errorf("%w: session revoked", pkg.ErrUnauthorized)
+		}
+		return fmt.Errorf("failed to check session: %w", err)
+	}
+	if session.UserID != claims.UserID || time.Now().After(session.ExpiresAt) {
+		return fmt.Errorf("%w: session revoked", pkg.ErrUnauthorized)
+	}
+	return nil
 }
 
 func (s *authService) validateToken(tokenString, requiredAud string) (*models.TokenClaims, error) {
@@ -387,7 +547,7 @@ func (s *authService) validateToken(tokenString, requiredAud string) (*models.To
 	return nil, fmt.Errorf("%w: wrong token audience", pkg.ErrUnauthorized)
 }
 
-func (s *authService) ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) (*AuthTokens, error) {
+func (s *authService) ChangePassword(ctx context.Context, userID, currentSessionID, currentPassword, newPassword string, client models.ClientInfo) (*AuthTokens, error) {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -421,7 +581,22 @@ func (s *authService) ChangePassword(ctx context.Context, userID, currentPasswor
 	}
 	user.TokenVersion = newTV
 	user.PasswordHash = string(newHash)
-	return s.generateTokens(ctx, user)
+	tokens, err := s.generateTokens(ctx, user, client)
+	if err != nil {
+		return nil, err
+	}
+	// UpdatePassword deleted every session; the devices still connected must hear it now, not
+	// when their next request fails. This device keeps its open sockets, so they move to the new
+	// session — left on the old sid, a later "sign out other devices" would take them too.
+	if s.hub != nil {
+		if sid, ok := sessionIDOf(tokens.RefreshToken); ok {
+			if currentSessionID != "" {
+				s.hub.RetagAuthSession(userID, currentSessionID, sid)
+			}
+			s.hub.RevokeAuthSessionsExcept(userID, sid)
+		}
+	}
+	return tokens, nil
 }
 
 func (s *authService) ChangeEmail(ctx context.Context, userID, password, newEmail string) error {
@@ -502,7 +677,7 @@ func (s *authService) SoftDeleteSelf(ctx context.Context, userID, password strin
 // RestoreAccount un-soft-deletes the user after username + password verification
 // and returns auth tokens (so the user is logged in immediately).
 // Tombstone (is_hard_deleted=1) is not recoverable.
-func (s *authService) RestoreAccount(ctx context.Context, username, password string) (*AuthTokens, error) {
+func (s *authService) RestoreAccount(ctx context.Context, username, password string, client models.ClientInfo) (*AuthTokens, error) {
 	user, err := s.userRepo.GetByUsername(ctx, username)
 	if err != nil {
 		if errors.Is(err, pkg.ErrNotFound) {
@@ -545,7 +720,7 @@ func (s *authService) RestoreAccount(ctx context.Context, username, password str
 	}
 	user.Status = models.UserStatusOnline
 
-	return s.generateTokens(ctx, user)
+	return s.generateTokens(ctx, user, client)
 }
 
 // ─── Password Reset ───
@@ -675,55 +850,76 @@ func (s *authService) ResetPassword(ctx context.Context, token, newPassword stri
 		return fmt.Errorf("failed to update password: %w", err)
 	}
 
+	// The reset deleted every session; sockets still open (possibly whoever took the account)
+	// must close now. No device to keep: the reset happens outside any session.
+	if s.hub != nil {
+		s.hub.RevokeAuthSessionsExcept(resetToken.UserID)
+	}
+
 	log.Printf("[auth] password reset completed for user %s", resetToken.UserID)
 	return nil
 }
 
 // ─── Private Helpers ───
 
-func (s *authService) generateTokens(ctx context.Context, user *models.User) (*AuthTokens, error) {
+// generateTokens starts a new device session for user and returns its first token set.
+func (s *authService) generateTokens(ctx context.Context, user *models.User, client models.ClientInfo) (*AuthTokens, error) {
+	sidBytes := make([]byte, 8)
+	if _, err := rand.Read(sidBytes); err != nil {
+		return nil, fmt.Errorf("failed to generate session id: %w", err)
+	}
+	sid := hex.EncodeToString(sidBytes)
+
+	refresh, err := newRefreshToken(sid)
+	if err != nil {
+		return nil, err
+	}
+	refreshHash := hashToken(refresh)
+
+	session := &models.Session{
+		ID:        sid,
+		UserID:    user.ID,
+		TokenHash: &refreshHash,
+		ExpiresAt: time.Now().Add(s.refreshExp),
+		Client:    s.sessionClient(client),
+	}
+	if err := s.sessionRepo.Create(ctx, session); err != nil {
+		return nil, fmt.Errorf("failed to create session: %w", err)
+	}
+
+	return s.issueTokens(user, sid, refresh)
+}
+
+// issueTokens signs a fresh access and file token for an existing session and pairs them with
+// that session's refresh token.
+func (s *authService) issueTokens(user *models.User, sid, refreshToken string) (*AuthTokens, error) {
 	now := time.Now()
 
-	accessString, err := s.signJWT(user, models.AudienceAPI, now, s.accessExp)
+	accessString, err := s.signJWT(user, sid, models.AudienceAPI, now, s.accessExp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign access token: %w", err)
 	}
-	fileString, err := s.signJWT(user, models.AudienceFile, now, s.refreshExp)
+	fileString, err := s.signJWT(user, sid, models.AudienceFile, now, s.fileExp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign file token: %w", err)
-	}
-
-	refreshBytes := make([]byte, 32)
-	if _, err := rand.Read(refreshBytes); err != nil {
-		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
-	}
-	refreshString := hex.EncodeToString(refreshBytes)
-
-	session := &models.Session{
-		UserID:       user.ID,
-		RefreshToken: refreshString,
-		ExpiresAt:    now.Add(s.refreshExp),
-	}
-
-	if err := s.sessionRepo.Create(ctx, session); err != nil {
-		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
 
 	user.PasswordHash = ""
 
 	return &AuthTokens{
 		AccessToken:  accessString,
-		RefreshToken: refreshString,
+		RefreshToken: refreshToken,
 		FileToken:    fileString,
 		User:         *user,
 	}, nil
 }
 
-func (s *authService) signJWT(user *models.User, audience string, now time.Time, ttl time.Duration) (string, error) {
+func (s *authService) signJWT(user *models.User, sid, audience string, now time.Time, ttl time.Duration) (string, error) {
 	claims := &models.TokenClaims{
 		UserID:       user.ID,
 		Username:     user.Username,
 		TokenVersion: user.TokenVersion,
+		SessionID:    sid,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Audience:  jwt.ClaimStrings{audience},
 			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
@@ -732,4 +928,48 @@ func (s *authService) signJWT(user *models.User, audience string, now time.Time,
 		},
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(s.jwtSecret)
+}
+
+// sessionClient is what gets stored about the device: normalised client claims plus the place its
+// address resolves to. An empty value stays nil so a refresh cannot overwrite a known one with "".
+func (s *authService) sessionClient(c models.ClientInfo) models.SessionClient {
+	c = c.Normalized()
+	var city, country string
+	if s.locator != nil {
+		city, country = s.locator.Lookup(c.IP)
+	}
+	return models.SessionClient{
+		Platform:    nonEmpty(c.Platform),
+		DeviceLabel: nonEmpty(c.DeviceLabel),
+		IP:          nonEmpty(c.IP),
+		City:        nonEmpty(city),
+		Country:     nonEmpty(country),
+	}
+}
+
+func nonEmpty(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
+// Refresh tokens are "<session id>.<secret>": the ID locates the device even when the secret is
+// stale, which is what lets a replayed old token be recognised and its session ended.
+func newRefreshToken(sid string) (string, error) {
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		return "", fmt.Errorf("failed to generate refresh token: %w", err)
+	}
+	return sid + "." + hex.EncodeToString(secret), nil
+}
+
+func sessionIDOf(refreshToken string) (string, bool) {
+	sid, secret, found := strings.Cut(refreshToken, ".")
+	return sid, found && sid != "" && secret != ""
+}
+
+func hashToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }

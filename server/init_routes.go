@@ -66,7 +66,13 @@ func initRoutes(
 	mux.HandleFunc("POST /api/auth/register", h.Auth.Register)
 	mux.HandleFunc("POST /api/auth/login", h.Auth.Login)
 	mux.HandleFunc("POST /api/auth/refresh", h.Auth.Refresh)
-	mux.Handle("POST /api/auth/logout", auth(h.Auth.Logout))
+	// No access token required: the refresh token is the credential, as for /refresh, so a device
+	// can still end its session after the access token has lapsed (an offline sign-out sent later).
+	mux.HandleFunc("POST /api/auth/logout", h.Auth.Logout)
+	mux.Handle("GET /api/auth/sessions", auth(h.Session.List))
+	mux.Handle("DELETE /api/auth/sessions", auth(h.Session.RevokeOthers))
+	mux.Handle("DELETE /api/auth/sessions/{sessionId}", auth(h.Session.Revoke))
+	mux.Handle("POST /api/auth/credential-store-failure", auth(h.Auth.CredentialStoreFailure))
 	mux.HandleFunc("POST /api/auth/forgot-password", h.Auth.ForgotPassword)
 	mux.HandleFunc("POST /api/auth/reset-password", h.Auth.ResetPassword)
 	mux.HandleFunc("POST /api/auth/restore", h.Auth.RestoreAccount)

@@ -34,7 +34,8 @@ func (h *PushTokenHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := h.pushTokenService.RegisterToken(r.Context(), user.ID, &req)
+	sid, _ := r.Context().Value(ctxkeys.AuthSessionID).(string) // "" for tokens without a sid
+	token, err := h.pushTokenService.RegisterToken(r.Context(), user.ID, sid, &req)
 	if err != nil {
 		pkg.Error(w, err)
 		return
