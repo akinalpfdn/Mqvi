@@ -85,7 +85,7 @@ func (s *sessionService) Revoke(ctx context.Context, userID, currentSessionID, t
 
 func (s *sessionService) RevokeOthers(ctx context.Context, userID, currentSessionID string) (int, error) {
 	// A token issued before sessions were named carries no sid; "every other device" would then
-	// include this one. The client refreshes first, which names it.
+	// include this one. Refused until the device's next refresh names it (within one access TTL).
 	if currentSessionID == "" {
 		return 0, fmt.Errorf("%w: refresh the session before signing out other devices", pkg.ErrBadRequest)
 	}

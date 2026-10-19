@@ -53,7 +53,8 @@ type Client struct {
 
 	// authSessionID is the signed-in DEVICE session (the JWT `sid`) — not the connection id
 	// above. Revoking that session from the devices screen closes every connection carrying it.
-	// Empty for tokens issued before sessions were named in them.
+	// Empty for tokens issued before sessions were named in them. Guarded by hub.mu: a password
+	// change retags it in place.
 	authSessionID string
 
 	// deviceID identifies the INSTALLATION behind this connection, and is the same id the

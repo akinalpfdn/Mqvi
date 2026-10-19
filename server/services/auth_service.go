@@ -586,15 +586,14 @@ func (s *authService) ChangePassword(ctx context.Context, userID, currentSession
 		return nil, err
 	}
 	// UpdatePassword deleted every session; the devices still connected must hear it now, not
-	// when their next request fails. This device's open sockets still carry its old sid.
+	// when their next request fails. This device keeps its open sockets, so they move to the new
+	// session — left on the old sid, a later "sign out other devices" would take them too.
 	if s.hub != nil {
 		if sid, ok := sessionIDOf(tokens.RefreshToken); ok {
-			keep := []string{sid}
-			// "" would spare every connection from a pre-sid token, other devices' included.
 			if currentSessionID != "" {
-				keep = append(keep, currentSessionID)
+				s.hub.RetagAuthSession(userID, currentSessionID, sid)
 			}
-			s.hub.RevokeAuthSessionsExcept(userID, keep...)
+			s.hub.RevokeAuthSessionsExcept(userID, sid)
 		}
 	}
 	return tokens, nil
@@ -849,6 +848,12 @@ func (s *authService) ResetPassword(ctx context.Context, token, newPassword stri
 			return fmt.Errorf("%w: invalid or expired reset token", pkg.ErrBadRequest)
 		}
 		return fmt.Errorf("failed to update password: %w", err)
+	}
+
+	// The reset deleted every session; sockets still open (possibly whoever took the account)
+	// must close now. No device to keep: the reset happens outside any session.
+	if s.hub != nil {
+		s.hub.RevokeAuthSessionsExcept(resetToken.UserID)
 	}
 
 	log.Printf("[auth] password reset completed for user %s", resetToken.UserID)

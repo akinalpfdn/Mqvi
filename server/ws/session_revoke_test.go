@@ -97,7 +97,23 @@ func TestHub_ShouldCloseEveryOtherConnectionIncludingUnnamedOnesWhenRevokingAllB
 	}
 }
 
-// A password change replaces this device's session; its open socket still carries the old one.
+// A password change replaces this device's session while its socket stays open; the socket must
+// then count as the new session, or a later "sign out other devices" would close it.
+func TestHub_ShouldTreatARetaggedConnectionAsItsNewSession(t *testing.T) {
+	h := NewHub()
+	h.unregister = make(chan *Client, 8)
+	self := revocableClient(h, "u1", "s-old")
+	other := revocableClient(h, "u1", "s-other")
+
+	h.RetagAuthSession("u1", "s-old", "s-new")
+	h.RevokeAuthSessionsExcept("u1", "s-new")
+
+	closed := unregistered(h, 1)
+	if !closed[other] || closed[self] {
+		t.Fatalf("closed other=%v self=%v", closed[other], closed[self])
+	}
+}
+
 func TestHub_ShouldSpareEverySessionItIsToldToKeep(t *testing.T) {
 	h := NewHub()
 	h.unregister = make(chan *Client, 8)

@@ -51,6 +51,9 @@ type ClientManager interface {
 	RevokeAuthSessions(userID string, authSessionIDs []string)
 	// RevokeAuthSessionsExcept does the same for every connection not from one of keep.
 	RevokeAuthSessionsExcept(userID string, keep ...string)
+	// RetagAuthSession moves the user's connections from one device session to another, for a
+	// device whose session was replaced while its sockets stayed open (password change).
+	RetagAuthSession(userID, from, to string)
 	AddClientServerID(userID, serverID string)
 	RemoveClientServerID(userID, serverID string)
 }
@@ -1031,6 +1034,16 @@ func (h *Hub) RevokeAuthSessions(userID string, authSessionIDs []string) {
 		revoked[id] = true
 	}
 	h.revokeConnections(userID, func(c *Client) bool { return c.authSessionID != "" && revoked[c.authSessionID] })
+}
+
+func (h *Hub) RetagAuthSession(userID, from, to string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for client := range h.clients[userID] {
+		if client.authSessionID == from {
+			client.authSessionID = to
+		}
+	}
 }
 
 func (h *Hub) RevokeAuthSessionsExcept(userID string, keep ...string) {

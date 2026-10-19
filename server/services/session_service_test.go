@@ -296,8 +296,10 @@ func TestChangePassword_ShouldCloseTheOtherDevicesConnections(t *testing.T) {
 	}
 	var keptFor string
 	var keep []string
+	var retag [3]string
 	hub := &testutil.MockEventPublisher{
 		RevokeAuthSessionsExceptFn: func(userID string, ids ...string) { keptFor, keep = userID, ids },
+		RetagAuthSessionFn:         func(userID, from, to string) { retag = [3]string{userID, from, to} },
 	}
 	auth := NewAuthService(users, repository.NewSQLiteSessionRepo(fx.DB),
 		&testutil.MockResetRepo{}, hub, &testutil.MockEmailSender{},
@@ -310,9 +312,12 @@ func TestChangePassword_ShouldCloseTheOtherDevicesConnections(t *testing.T) {
 		t.Fatalf("change password: %v", err)
 	}
 	sid, _, _ := strings.Cut(tokens.RefreshToken, ".")
-	// The new session and the old one this device's open sockets still carry.
-	if keptFor != "u1" || len(keep) != 2 || keep[0] != sid || keep[1] != "s-this-device" {
-		t.Fatalf("revoked connections for %q except %v, want u1 except [%s s-this-device]", keptFor, keep, sid)
+	// This device's open sockets move to the new session, which is the only one kept.
+	if retag != [3]string{"u1", "s-this-device", sid} {
+		t.Fatalf("retagged %v, want u1 s-this-device -> %s", retag, sid)
+	}
+	if keptFor != "u1" || len(keep) != 1 || keep[0] != sid {
+		t.Fatalf("revoked connections for %q except %v, want u1 except [%s]", keptFor, keep, sid)
 	}
 }
 
@@ -440,5 +445,37 @@ func TestSessions_ShouldNotListExpiredSessions(t *testing.T) {
 	}
 	if len(views) != 1 || views[0].ID != current {
 		t.Fatalf("listed %d sessions, want only the live one", len(views))
+	}
+}
+
+// A reset deletes every session; whoever holds an open socket (possibly the account's thief) must
+// lose it now, not keep receiving events until the socket happens to drop.
+func TestResetPassword_ShouldCloseEveryOpenConnectionOfTheUser(t *testing.T) {
+	var revokedFor string
+	var keep []string
+	called := false
+	hub := &testutil.MockEventPublisher{
+		RevokeAuthSessionsExceptFn: func(userID string, ids ...string) { called, revokedFor, keep = true, userID, ids },
+	}
+	reset := &testutil.MockResetRepo{
+		GetByTokenHashFn: func(context.Context, string) (*models.PasswordResetToken, error) {
+			return &models.PasswordResetToken{ID: "rt1", UserID: "u1", ExpiresAt: time.Now().Add(time.Hour)}, nil
+		},
+	}
+	users := &testutil.MockUserRepo{
+		GetByIDFn: func(context.Context, string) (*models.User, error) {
+			return &models.User{ID: "u1", Username: "alice"}, nil
+		},
+		ResetPasswordWithTokenFn: func(context.Context, string, string, string) (int, error) { return 2, nil },
+	}
+	auth := NewAuthService(users, &testutil.MockSessionRepo{}, reset, hub, &testutil.MockEmailSender{},
+		password.NoopChecker{}, geoip.Noop{}, testJWTSecret, testEncryptionKey, 15, 90, 24)
+
+	if err := auth.ResetPassword(context.Background(), "reset-token", "another horse battery staple"); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+
+	if !called || revokedFor != "u1" || len(keep) != 0 {
+		t.Fatalf("revoked=%v for %q keeping %v, want every connection of u1", called, revokedFor, keep)
 	}
 }

@@ -653,6 +653,7 @@ type MockEventPublisher struct {
 	DisconnectUserFn            func(userID string)
 	RevokeAuthSessionsFn        func(userID string, authSessionIDs []string)
 	RevokeAuthSessionsExceptFn  func(userID string, keep ...string)
+	RetagAuthSessionFn          func(userID, from, to string)
 	AddClientServerIDFn         func(userID, serverID string)
 	RemoveClientServerIDFn      func(userID, serverID string)
 }
@@ -713,6 +714,11 @@ func (m *MockEventPublisher) RevokeAuthSessions(userID string, authSessionIDs []
 func (m *MockEventPublisher) RevokeAuthSessionsExcept(userID string, keep ...string) {
 	if m.RevokeAuthSessionsExceptFn != nil {
 		m.RevokeAuthSessionsExceptFn(userID, keep...)
+	}
+}
+func (m *MockEventPublisher) RetagAuthSession(userID, from, to string) {
+	if m.RetagAuthSessionFn != nil {
+		m.RetagAuthSessionFn(userID, from, to)
 	}
 }
 func (m *MockEventPublisher) AddClientServerID(userID, serverID string) {
