@@ -27,6 +27,7 @@ function installElectron(support: boolean | null | "throws") {
     sendScreenPickerResult,
     getSmoothCaptureSupport: () =>
       support === "throws" ? Promise.reject(new Error("ipc")) : Promise.resolve(support),
+    getHdrActive: () => Promise.resolve(false),
   };
 }
 
@@ -36,6 +37,10 @@ async function openPicker() {
     await Promise.resolve();
   });
   act(() => showPicker([{ id: "screen:1:0", name: "Screen 1", thumbnail: "" }]));
+  // Opening also asks about HDR; let that answer land before the test looks.
+  await act(async () => {
+    await Promise.resolve();
+  });
 }
 
 beforeEach(() => {

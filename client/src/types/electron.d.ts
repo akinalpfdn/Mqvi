@@ -102,6 +102,8 @@ interface ElectronAPI {
   stopGameCapture: () => Promise<void>;
   /** Whether this machine can hardware-encode ("Akıcı Görüntü"); null if it could not be told. */
   getSmoothCaptureSupport: () => Promise<boolean | null>;
+  /** Whether any monitor is in HDR right now; null if it could not be told. */
+  getHdrActive: () => Promise<boolean | null>;
   onGameCaptureStopped: (cb: (code: number) => void) => void;
   removeGameCaptureListeners: () => void;
 

@@ -39,6 +39,7 @@ import {
 import { createCredentialStore } from "./credentialStore";
 import { createRedactor } from "./redact";
 import { createOutputTracker } from "./helperOutput";
+import { hdrActiveFrom, parseProbeAnswer, smoothSupportFrom, type ProbeAnswer } from "./helperProbe";
 
 /** Main application window reference */
 let mainWindow: BrowserWindow | null = null;
@@ -1390,16 +1391,12 @@ function setupIPC(): void {
       ? path.join(app.getAppPath(), "native", "mqvi-game-capture.exe")
       : path.join(process.resourcesPath, "native", "mqvi-game-capture.exe");
 
-  // Whether this machine can hardware-encode, asked of the helper once per launch and kept in
-  // memory: it is a property of this machine (GPU, driver), not of the account, and it can change
-  // with a new GPU or driver — a stored answer could go stale, a launch-time one cannot.
-  // null = the probe could not answer; the renderer then keeps offering "Akıcı Görüntü" as before.
-  let smoothCaptureSupport: Promise<boolean | null> | null = null;
-  const probeSmoothCapture = (): Promise<boolean | null> =>
+  // Runs the helper with a `--probe-*` flag and resolves its answer, or null if it gave none.
+  const runHelperProbe = (flag: string): Promise<ProbeAnswer | null> =>
     new Promise((resolve) => {
       let child: ChildProcess;
       try {
-        child = spawn(gameCaptureExePath(), ["--probe-encoders"], { stdio: ["ignore", "pipe", "ignore"] });
+        child = spawn(gameCaptureExePath(), [flag], { stdio: ["ignore", "pipe", "ignore"] });
       } catch {
         resolve(null);
         return;
@@ -1418,20 +1415,27 @@ function setupIPC(): void {
       });
       child.on("exit", () => {
         clearTimeout(timer);
-        try {
-          const lines = out.trim().split(/\r?\n/);
-          const answer = JSON.parse(lines[lines.length - 1]) as { h264?: boolean; h265?: boolean };
-          resolve(Boolean(answer.h264 || answer.h265));
-        } catch {
-          resolve(null);
-        }
+        resolve(parseProbeAnswer(out));
       });
     });
 
+  // Whether this machine can hardware-encode, asked of the helper once per launch and kept in
+  // memory: it is a property of this machine (GPU, driver), not of the account, and it can change
+  // with a new GPU or driver — a stored answer could go stale, a launch-time one cannot.
+  // null = the probe could not answer; the renderer then keeps offering "Akıcı Görüntü" as before.
+  let smoothCaptureSupport: Promise<boolean | null> | null = null;
+
   ipcMain.handle("get-smooth-capture-support", () => {
     if (process.platform !== "win32") return false;
-    smoothCaptureSupport ??= probeSmoothCapture();
+    smoothCaptureSupport ??= runHelperProbe("--probe-encoders").then(smoothSupportFrom);
     return smoothCaptureSupport;
+  });
+
+  // Whether a monitor is in HDR, asked fresh for every picker: HDR is toggled at will, so unlike
+  // the encoder this is never cached. Windows-only, like the helper that answers it.
+  ipcMain.handle("get-hdr-active", async () => {
+    if (process.platform !== "win32") return false;
+    return hdrActiveFrom(await runHelperProbe("--probe-hdr"));
   });
 
   // Spawns mqvi-game-capture.exe (WGC capture + hardware encode). It joins the LiveKit room as

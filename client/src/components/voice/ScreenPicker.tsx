@@ -29,6 +29,10 @@ function ScreenPicker() {
   const [startingId, setStartingId] = useState<string | null>(null);
   /** Set when the user cancels while a helper is starting, so the pick in flight aborts. */
   const cancelledRef = useRef(false);
+  /** Whether a monitor is in HDR, asked each time the picker opens; null until it answers. */
+  const [isHdrActive, setIsHdrActive] = useState<boolean | null>(null);
+  /** Which opening an HDR answer belongs to, so a slow one cannot land on a later picker. */
+  const hdrQueryRef = useRef(0);
   const screenShareAudio = useVoiceStore((s) => s.screenShareAudio);
   const setScreenShareAudio = useVoiceStore((s) => s.setScreenShareAudio);
   const screenShareMode = useVoiceStore((s) => s.screenShareMode);
@@ -61,6 +65,15 @@ function ScreenPicker() {
 
     api.onShowScreenPicker((incoming) => {
       setSources(incoming);
+      // Asked per opening, not once: HDR is a toggle in Windows settings, flipped at will.
+      const query = ++hdrQueryRef.current;
+      setIsHdrActive(null);
+      api
+        .getHdrActive()
+        .catch(() => null)
+        .then((hdr) => {
+          if (hdrQueryRef.current === query) setIsHdrActive(hdr);
+        });
     });
 
     return () => api.removeScreenPickerListener();
@@ -247,6 +260,13 @@ function ScreenPicker() {
                 </button>
               </div>
             </div>
+          )}
+          {/* The browser engine captures HDR 8-bit and clips it; only the helper tone-maps. Said
+              here, before the share, because the streamer's own screen looks fine. */}
+          {smoothOffered && isHdrActive === true && effectiveMode === "sharp" && (
+            <p className="sp-hdr-note">
+              {smoothAvailable ? t("screenHdrSharpWarning") : t("screenHdrNoSmoothWarning")}
+            </p>
           )}
           <label className="sp-audio-toggle">
             <span className="sp-audio-label">

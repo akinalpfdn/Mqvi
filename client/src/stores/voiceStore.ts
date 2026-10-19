@@ -183,6 +183,12 @@ type VoiceCoreActions = {
    * rather than better.
    */
   reportSmoothFallback: (failure: SmoothCaptureFailure) => void;
+  /**
+   * Warns, after the fact, that a "Net Görüntü" share on an HDR display streams HDR content
+   * clipped. For shares that never show the picker, which says it up front. `smoothCanFix` picks
+   * whether to point at "Akıcı Görüntü" or at Windows' HDR setting.
+   */
+  warnIfHdrClipsSharpShare: (smoothCanFix: boolean) => Promise<void>;
   stopNativeSmoothCapture: () => void;
   setPickedShareSourceId: (sourceId: string | null) => void;
   setRtt: (rtt: number) => void;
@@ -500,6 +506,14 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
       failure.reason,
       failure.detail
     );
+  },
+
+  warnIfHdrClipsSharpShare: async (smoothCanFix) => {
+    const hdr = await window.electronAPI?.getHdrActive().catch(() => null);
+    if (hdr !== true) return;
+    useToastStore
+      .getState()
+      .addToast("warning", i18n.t(smoothCanFix ? "voice:screenHdrSharpWarning" : "voice:screenHdrNoSmoothWarning"));
   },
 
   stopNativeSmoothCapture: () => {

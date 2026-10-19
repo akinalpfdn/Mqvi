@@ -32,6 +32,7 @@ use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
 use livekit::{Room, RoomEvent, RoomOptions};
 use mqvi_game_capture::capture::ScreenCapture;
+use mqvi_game_capture::display_light;
 use mqvi_game_capture::mf_encoder::{describe_hardware_encoders, HwEncoder};
 use mqvi_game_capture::nv12;
 use tokio::sync::oneshot;
@@ -69,17 +70,22 @@ struct Args {
     #[arg(long)]
     probe_encoders: bool,
 
+    /// Print `{"hdr":bool}` — whether any monitor is in HDR — and exit. The app asks before each
+    /// share to warn that "Net Görüntü" streams HDR content clipped.
+    #[arg(long)]
+    probe_hdr: bool,
+
     /// LiveKit server URL (from the screen-token response `url`).
-    #[arg(long, env = "LK_URL", required_unless_present_any = ["config_stdin", "probe_encoders"])]
+    #[arg(long, env = "LK_URL", required_unless_present_any = ["config_stdin", "probe_encoders", "probe_hdr"])]
     url: Option<String>,
 
     /// LiveKit access token for the "{userId}_ss" identity (screen-token `token`).
-    #[arg(long, env = "LK_TOKEN", required_unless_present_any = ["config_stdin", "probe_encoders"])]
+    #[arg(long, env = "LK_TOKEN", required_unless_present_any = ["config_stdin", "probe_encoders", "probe_hdr"])]
     token: Option<String>,
 
     /// Room E2EE passphrase (screen-token `e2eePassphrase`). Must equal what the
     /// app clients passed to ExternalE2EEKeyProvider.setKey for this room.
-    #[arg(long, env = "LK_E2EE_KEY", required_unless_present_any = ["config_stdin", "probe_encoders"])]
+    #[arg(long, env = "LK_E2EE_KEY", required_unless_present_any = ["config_stdin", "probe_encoders", "probe_hdr"])]
     e2ee_key: Option<String>,
 
     /// Frame width (kept even for I420 chroma subsampling).
@@ -197,7 +203,6 @@ impl Connection {
     }
 }
 
-/// "x,y,width,height" → (x, y, width, height).
 /// Builds a real encoder at the settings a share uses, not just lists them: an encoder can be listed
 /// and still refuse the configuration (see `create_hw_encoder`), and that machine cannot share
 /// smoothly either.
@@ -209,6 +214,19 @@ fn probe_encoders() -> String {
     format!(r#"{{"h264":{},"h265":{}}}"#, works(false), works(true))
 }
 
+/// `{"hdr":null}` when the displays cannot be asked: the app then shows no warning rather than a
+/// wrong one.
+fn probe_hdr() -> String {
+    match display_light::any_hdr() {
+        Ok(hdr) => format!(r#"{{"hdr":{hdr}}}"#),
+        Err(e) => {
+            log::warn!("could not read the displays' HDR state: {e:#}");
+            r#"{"hdr":null}"#.to_string()
+        }
+    }
+}
+
+/// "x,y,width,height" → (x, y, width, height).
 fn parse_rect(s: &str) -> Result<(i32, i32, i32, i32)> {
     let n: Vec<i32> = s
         .split(',')
@@ -307,6 +325,10 @@ async fn run() -> Result<()> {
     let args = Args::parse();
     if args.probe_encoders {
         println!("{}", probe_encoders());
+        return Ok(());
+    }
+    if args.probe_hdr {
+        println!("{}", probe_hdr());
         return Ok(());
     }
     // Read before anything slow: the app writes this line right after spawning us.

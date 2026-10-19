@@ -17,6 +17,7 @@ export function useGameDetection(isInVoice: boolean) {
   const startNativeSmoothCapture = useVoiceStore((s) => s.startNativeSmoothCapture);
   const smoothCaptureSupported = useVoiceStore((s) => s.smoothCaptureSupported);
   const reportSmoothFallback = useVoiceStore((s) => s.reportSmoothFallback);
+  const warnIfHdrClipsSharpShare = useVoiceStore((s) => s.warnIfHdrClipsSharpShare);
   const setPickedShareSourceId = useVoiceStore((s) => s.setPickedShareSourceId);
 
   // The probe exists to feed this row, so it lives exactly as long as the row can be on screen.
@@ -54,6 +55,8 @@ export function useGameDetection(isInVoice: boolean) {
       if (!game || isStarting) return;
       setIsStarting(true);
 
+      // Whether "Akıcı Görüntü" is still the way out for an HDR warning — not if it just failed here.
+      let smoothCanFix = smoothCaptureSupported !== false;
       try {
         // Same gate as the picker: no hardware encoder, no helper attempt and no fallback warning.
         if (screenShareMode === "smooth" && smoothCaptureSupported !== false) {
@@ -66,11 +69,14 @@ export function useGameDetection(isInVoice: boolean) {
           // same window rather than leaving the user with a button that did nothing. No cancel
           // path here, unlike the picker — the row is one click, so every failure is a real one.
           reportSmoothFallback(result);
+          smoothCanFix = false;
         }
 
         await window.electronAPI?.setPrePickedSource?.(game.sourceId);
         onFallbackShare();
         setPickedShareSourceId(game.sourceId);
+        // The picker warns about HDR before a sharp share; this path has no picker.
+        void warnIfHdrClipsSharpShare(smoothCanFix);
       } catch (err) {
         console.error("[useGameDetection] share failed:", err);
         // Don't strand a pre-picked source on a later share we never asked for.
@@ -79,7 +85,16 @@ export function useGameDetection(isInVoice: boolean) {
         setIsStarting(false);
       }
     },
-    [game, isStarting, screenShareMode, smoothCaptureSupported, startNativeSmoothCapture, reportSmoothFallback, setPickedShareSourceId]
+    [
+      game,
+      isStarting,
+      screenShareMode,
+      smoothCaptureSupported,
+      startNativeSmoothCapture,
+      reportSmoothFallback,
+      setPickedShareSourceId,
+      warnIfHdrClipsSharpShare,
+    ]
   );
 
   return { game, isStarting, shareGame };

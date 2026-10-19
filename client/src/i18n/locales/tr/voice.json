@@ -11,6 +11,8 @@
   "screenModeSmooth": "Akıcı Görüntü",
   "screenModeSmoothHint": "oyun, film, video",
   "screenModeSmoothUnavailable": "bu bilgisayarda donanım kodlayıcı yok",
+  "screenHdrSharpWarning": "HDR açık: Net Görüntü'de HDR video ve oyunlar izleyenlere aşırı parlak görünebilir. Akıcı Görüntü bunu düzeltir.",
+  "screenHdrNoSmoothWarning": "HDR açık: HDR video ve oyunlar izleyenlere aşırı parlak görünebilir. Windows ayarlarından HDR'yi kapatmak bunu önler.",
   "screenModeSharp": "Net Görüntü",
   "screenModeSharpHint": "metin, kod, sunum",
   "smoothCaptureStopped": "Akıcı Görüntü beklenmedik şekilde durdu. Ekran paylaşımı sona erdi.",

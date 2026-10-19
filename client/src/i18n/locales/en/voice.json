@@ -11,6 +11,8 @@
   "screenModeSmooth": "Smooth Video",
   "screenModeSmoothHint": "games, films, video",
   "screenModeSmoothUnavailable": "no hardware encoder on this computer",
+  "screenHdrSharpWarning": "HDR is on: in Sharp Video, HDR videos and games may look overexposed to viewers. Smooth Video fixes this.",
+  "screenHdrNoSmoothWarning": "HDR is on: HDR videos and games may look overexposed to viewers. Turning off HDR in Windows settings prevents this.",
   "screenModeSharp": "Sharp Video",
   "screenModeSharpHint": "text, code, presentations",
   "smoothCaptureStopped": "Smooth Video stopped unexpectedly. Screen sharing has ended.",

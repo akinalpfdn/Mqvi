@@ -54,8 +54,12 @@ features = [
     "Graphics_DirectX",
     "Graphics_DirectX_Direct3D11",
     "Win32_Graphics_Direct3D",
+    # d3dcompiler: the HDR tone-map compute shader is compiled at start-up.
+    "Win32_Graphics_Direct3D_Fxc",
     "Win32_Graphics_Direct3D11",
     "Win32_Graphics_Dxgi",
+    # QueryDisplayConfig / DisplayConfigGetDeviceInfo: the SDR white level of an HDR display.
+    "Win32_Devices_Display",
     "Win32_Graphics_Dxgi_Common",
     "Win32_Graphics_Gdi",
     "Win32_System_WinRT",
@@ -80,3 +84,8 @@ path = "src/bin/probe_lifecycle.rs"
 [[bin]]
 name = "test-capture-encode"
 path = "src/bin/test_capture_encode.rs"
+
+# One frame through the shipping capture path to a BMP: checks the HDR tone-map on a real display.
+[[bin]]
+name = "snapshot-capture"
+path = "src/bin/snapshot_capture.rs"
