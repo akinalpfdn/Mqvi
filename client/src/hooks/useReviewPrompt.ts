@@ -1,13 +1,15 @@
 /**
  * useReviewPrompt — asks the iOS / Android app user for a store review on the 10th open of an
- * app version (an open is defined in utils/reviewPrompt.ts), a few seconds in, and never during a call or a voice
- * channel; busy then, it tries on the next open. The OS decides whether its sheet actually
- * appears (iOS shows it at most three times a year) and does not say, so this asks once.
+ * app version (an open is defined in utils/reviewPrompt.ts), a few seconds in. Never during a
+ * call or a voice channel, or while the update prompt is up; held back then, it tries again the
+ * next time the app comes to the foreground. The OS decides whether its sheet actually appears
+ * (iOS shows it at most three times a year) and does not say, so this asks once.
  */
 
 import { useEffect } from "react";
 import { App } from "@capacitor/app";
 import { AppReview } from "@capawesome/capacitor-app-review";
+import { useAppUpdateStore } from "../stores/appUpdateStore";
 import { useP2PCallStore } from "../stores/p2pCallStore";
 import { useVoiceStore } from "../stores/voiceStore";
 import { isCapacitor } from "../utils/constants";
@@ -34,9 +36,15 @@ function save(record: ReviewRecord): void {
   }
 }
 
+/** In a call or voice channel, or looking at the update prompt: not the moment to ask. */
 function isBusy(): boolean {
   const call = useP2PCallStore.getState();
-  return !!useVoiceStore.getState().currentVoiceChannelId || !!call.activeCall || !!call.incomingCall;
+  return (
+    !!useVoiceStore.getState().currentVoiceChannelId ||
+    !!call.activeCall ||
+    !!call.incomingCall ||
+    useAppUpdateStore.getState().promptVisible
+  );
 }
 
 export function useReviewPrompt(): void {

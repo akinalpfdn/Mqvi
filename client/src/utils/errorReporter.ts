@@ -34,7 +34,10 @@ export function scrubText(text: string): string {
     .replace(/eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}/g, "[token]")
     .replace(/bearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [token]")
     .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[email]")
-    .replace(/(https?:\/\/[^\s?#"'<>]+)\?[^\s#"'<>]*/g, "$1?[query]");
+    .replace(/(https?:\/\/[^\s?#"'<>]+)\?[^\s#"'<>]*/g, "$1?[query]")
+    // Ids written into messages: uuids, and the 16-hex ids the database generates.
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[id]")
+    .replace(/\b[0-9a-f]{16,}\b/gi, "[id]");
 }
 
 /** Keeps the shape of the route (/channels/:id/:id), drops its ids. */
@@ -83,15 +86,21 @@ export function createErrorReporter(send: Sender, version: () => string) {
       if (seen.has(key) || sent >= MAX_REPORTS_PER_SESSION) return;
       seen.add(key);
       sent++;
-      queue.push({
+      const entry: ClientErrorReport = {
         kind,
         message: scrubText(message).slice(0, MAX_MESSAGE),
         stack: scrubText(stack).slice(0, MAX_STACK),
         route: scrubRoute(currentRoute()),
         platform: currentPlatform(),
         app_version: version(),
-      });
-      if (immediate || queue.length >= BATCH_SIZE) flush();
+      };
+      // Alone and at once: the server gives a lone render crash its own budget.
+      if (immediate) {
+        send([entry]).catch(() => {});
+        return;
+      }
+      queue.push(entry);
+      if (queue.length >= BATCH_SIZE) flush();
       else timer ??= setTimeout(flush, FLUSH_DELAY_MS);
     },
   };

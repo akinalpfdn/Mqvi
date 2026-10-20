@@ -1,11 +1,24 @@
 /** MobileUpdatePrompt — "update the app" on iOS and Android: dismissible, or blocking when required. */
 
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { useBackHandler } from "../../hooks/useBackHandler";
 import { useMobileUpdate } from "../../hooks/useMobileUpdate";
+import { useAppUpdateStore } from "../../stores/appUpdateStore";
+import { BackPriority } from "../../utils/backStack";
 
 function MobileUpdatePrompt() {
   const { t } = useTranslation("common");
   const { state, update, dismiss } = useMobileUpdate();
+  const setPromptVisible = useAppUpdateStore((s) => s.setPromptVisible);
+
+  const visible = state.kind !== "none";
+  useEffect(() => {
+    setPromptVisible(visible);
+  }, [visible, setPromptVisible]);
+  // Android back puts the optional prompt off, before anything under it. The required one has no
+  // back action: back then does what it would anyway (close what is under it, or leave the app).
+  useBackHandler(dismiss, state.kind === "available", BackPriority.Overlay);
 
   if (state.kind === "none") return null;
   const required = state.kind === "required";

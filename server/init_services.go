@@ -112,7 +112,9 @@ type RateLimiters struct {
 	// CredentialStore caps "remember me" failure reports per user.
 	CredentialStore *ratelimit.MessageRateLimiter
 	// Client error reports, per IP: the route is public, so the IP is all there is to limit by.
-	ClientError *ratelimit.MessageRateLimiter
+	// Render crashes have their own bucket (see ClientErrorHandler).
+	ClientError       *ratelimit.MessageRateLimiter
+	ClientRenderCrash *ratelimit.MessageRateLimiter
 }
 
 // initServices creates all services. Order matters:
@@ -409,10 +411,12 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		SessionRevoke:   ratelimit.NewLoginRateLimiter(10, time.Minute),
 		// A real failure reports once per login attempt; a handful an hour is plenty.
 		CredentialStore: ratelimit.NewMessageRateLimiter(5, time.Hour, time.Hour),
-		// One batch (up to five reports) a minute per IP: well under the service's global cap of 20
-		// a minute, so a single client cannot spend everyone's budget. A real session rarely has
-		// more than one batch to send; a second one inside the minute is dropped.
-		ClientError: ratelimit.NewMessageRateLimiter(1, time.Minute, time.Minute),
+		// Two batches (up to ten reports) a minute per IP: under the service's global cap of 20, so
+		// one client cannot spend everyone's budget, yet a session with a second batch is not cut off.
+		ClientError: ratelimit.NewMessageRateLimiter(2, time.Minute, time.Minute),
+		// Five single-report render crashes a minute per IP: the error boundary reloads up to three
+		// times on a deterministic crash, and users behind one NAT share the bucket.
+		ClientRenderCrash: ratelimit.NewMessageRateLimiter(5, time.Minute, time.Minute),
 	}
 
 	return svcs, limiters, metricsCollector

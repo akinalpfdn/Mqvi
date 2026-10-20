@@ -1,3 +1,5 @@
+// First import: error reporting listens before any other module runs (see errorReporting.ts).
+import { errorReporting } from "./errorReporting";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, HashRouter } from "react-router-dom";
@@ -10,10 +12,6 @@ import { configureMobileUI, initAppLifecycle } from "./utils/nativePlugins";
 import { discardOrphanedNativeCall, findAdoptableNativeCall } from "./native/nativeP2PCall";
 import { useP2PCallStore } from "./stores/p2pCallStore";
 import { initAppFocus } from "./utils/appFocus";
-import { installErrorReporting } from "./utils/errorReporter";
-
-// First, so errors during start-up are reported too.
-const errorReporting = installErrorReporting();
 
 // Native shells (Electron file://, Capacitor capacitor://) don't support HTML5 History API.
 // Web uses BrowserRouter for clean URLs.

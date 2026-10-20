@@ -36,6 +36,9 @@ const (
 	// The per-day cap is what bounds the table: at most 30 days of it are ever kept.
 	ClientErrorsPerMinute = 20
 	ClientErrorsPerDay    = 1000
+	// Render crashes have their own minute budget: they are the reports that matter most, and a
+	// flood of ordinary ones must not crowd them out. The day cap is shared.
+	RenderCrashesPerMinute = 10
 	// The same error (message, first stack line, platform, version) is stored once per window.
 	clientErrorDedupeWindow = time.Hour
 	// Bounds the dedupe memory; reaching it starts the window over.
@@ -46,10 +49,14 @@ var (
 	clientErrorKinds     = map[string]bool{"error": true, "unhandledrejection": true, "render": true}
 	clientErrorPlatforms = map[string]bool{"web": true, "electron": true, "ios": true, "android": true}
 
-	jwtPattern       = regexp.MustCompile(`eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}`)
-	bearerPattern    = regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9._~+/-]+=*`)
-	emailPattern     = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)
-	urlQueryPattern  = regexp.MustCompile(`(https?://[^\s?#"'<>]+)\?[^\s#"'<>]*`)
+	jwtPattern      = regexp.MustCompile(`eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}`)
+	bearerPattern   = regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9._~+/-]+=*`)
+	emailPattern    = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)
+	urlQueryPattern = regexp.MustCompile(`(https?://[^\s?#"'<>]+)\?[^\s#"'<>]*`)
+	// Ids written into messages ("No session found for <user>:<device>"): uuids, and the 16-hex
+	// ids the database generates (lower(hex(randomblob(8)))) or longer hex runs.
+	uuidPattern      = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`)
+	hexIDPattern     = regexp.MustCompile(`(?i)\b[0-9a-f]{16,}\b`)
 	appVersionFormat = regexp.MustCompile(`^[0-9A-Za-z.+-]{1,32}$`)
 	// A route segment that is an id: long alphanumerics (uuids, snowflakes) or a number.
 	routeIDSegment = regexp.MustCompile(`^([A-Za-z0-9_-]{16,}|[0-9]{4,})$`)
@@ -67,10 +74,11 @@ type ClientErrorService struct {
 	logger ClientErrorLogger
 	now    func() time.Time
 
-	mu     sync.Mutex
-	seen   map[[sha256.Size]byte]time.Time
-	minute window
-	day    window
+	mu           sync.Mutex
+	seen         map[[sha256.Size]byte]time.Time
+	minute       window
+	renderMinute window
+	day          window
 }
 
 // window counts admissions in a fixed period and remembers whether its cap was reported.
@@ -147,10 +155,14 @@ func (s *ClientErrorService) admit(r ClientErrorReport) bool {
 		}
 		return false
 	}
-	if ok, first := s.minute.take(now, time.Minute, ClientErrorsPerMinute); !ok {
+	minute, limit := &s.minute, ClientErrorsPerMinute
+	if r.Kind == "render" {
+		minute, limit = &s.renderMinute, RenderCrashesPerMinute
+	}
+	if ok, first := minute.take(now, time.Minute, limit); !ok {
 		s.day.count-- // not stored after all
 		if first {
-			log.Printf("[client_errors] per-minute cap of %d reached; dropping reports", ClientErrorsPerMinute)
+			log.Printf("[client_errors] per-minute cap of %d %s reports reached; dropping them", limit, r.Kind)
 		}
 		return false
 	}
@@ -196,7 +208,9 @@ func scrubSecrets(s string) string {
 	s = jwtPattern.ReplaceAllString(s, "[token]")
 	s = bearerPattern.ReplaceAllString(s, "Bearer [token]")
 	s = emailPattern.ReplaceAllString(s, "[email]")
-	return urlQueryPattern.ReplaceAllString(s, "$1?[query]")
+	s = urlQueryPattern.ReplaceAllString(s, "$1?[query]")
+	s = uuidPattern.ReplaceAllString(s, "[id]")
+	return hexIDPattern.ReplaceAllString(s, "[id]")
 }
 
 // scrubRoute keeps the path's shape (/channels/:id/:id) and drops the query, fragment and ids.

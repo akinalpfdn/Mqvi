@@ -27,6 +27,7 @@ vi.mock("@capawesome/capacitor-app-review", () => ({
 import { AppReview } from "@capawesome/capacitor-app-review";
 import { useVoiceStore } from "../stores/voiceStore";
 import { useP2PCallStore } from "../stores/p2pCallStore";
+import { useAppUpdateStore } from "../stores/appUpdateStore";
 import { REVIEW_DELAY_MS, useReviewPrompt } from "./useReviewPrompt";
 import { NEW_OPEN_AFTER_MS } from "../utils/reviewPrompt";
 
@@ -48,6 +49,7 @@ beforeEach(() => {
   vi.setSystemTime(START);
   useVoiceStore.setState({ currentVoiceChannelId: null });
   useP2PCallStore.setState({ activeCall: null, incomingCall: null });
+  useAppUpdateStore.setState({ promptVisible: false });
 });
 
 afterEach(() => {
@@ -91,6 +93,15 @@ describe("useReviewPrompt", () => {
   it("holds back during a call", async () => {
     seedNineOpens();
     useP2PCallStore.setState({ activeCall: { id: "c1" } as never });
+    renderHook(() => useReviewPrompt());
+    await flush();
+    await act(async () => vi.advanceTimersByTime(REVIEW_DELAY_MS));
+    expect(AppReview.requestReview).not.toHaveBeenCalled();
+  });
+
+  it("holds back while the update prompt is on screen", async () => {
+    seedNineOpens();
+    useAppUpdateStore.setState({ promptVisible: true });
     renderHook(() => useReviewPrompt());
     await flush();
     await act(async () => vi.advanceTimersByTime(REVIEW_DELAY_MS));

@@ -47,6 +47,7 @@ describe("scrubbing", () => {
     ["Authorization: Bearer abc.def", "Authorization: Bearer [token]"],
     ["no user ali.veli@example.com", "no user [email]"],
     ["GET https://mqvi.net/f/a.png?token=s&exp=1 failed", "GET https://mqvi.net/f/a.png?[query] failed"],
+    ["No session found for 9f3a1c2b4d5e6f70:0193f1e2-7a4b-4c3d-8e9f-001122334455", "No session found for [id]:[id]"],
   ])("%s", (input, expected) => {
     expect(scrubText(input)).toBe(expected);
   });
@@ -82,10 +83,14 @@ describe("createErrorReporter", () => {
     expect(sent[0][0]).toMatchObject({ kind: "error", message: "failed for [email]", platform: "web", app_version: "1.1.0" });
   });
 
-  it("sends a render crash at once, without waiting for the batch", () => {
-    reporter().report("render", "TypeError: x is undefined", "", true);
-    expect(sent).toHaveLength(1);
-    expect(sent[0][0].kind).toBe("render");
+  it("sends a render crash at once and alone, leaving queued reports to their batch", () => {
+    const r = reporter();
+    r.report("error", "earlier ws error", "");
+    r.report("render", "TypeError: x is undefined", "", true);
+    expect(sent).toEqual([[expect.objectContaining({ kind: "render" })]]);
+
+    vi.advanceTimersByTime(FLUSH_DELAY_MS);
+    expect(sent[1]).toEqual([expect.objectContaining({ message: "earlier ws error" })]);
   });
 
   it("sends the same error once", () => {

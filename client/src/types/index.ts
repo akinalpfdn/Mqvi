@@ -727,7 +727,18 @@ export type FeedbackReply = {
 
 // ──────────────────────────────────
 export type AppLogLevel = "error" | "warn" | "info";
-export type AppLogCategory = "voice" | "video" | "screen_share" | "ws" | "auth" | "general" | "feedback" | "livekit" | "cleaner";
+export type AppLogCategory =
+  | "voice"
+  | "video"
+  | "screen_share"
+  | "noise_reduction"
+  | "ws"
+  | "auth"
+  | "general"
+  | "feedback"
+  | "livekit"
+  | "cleaner"
+  | "client";
 
 export type AppLog = {
   id: string;

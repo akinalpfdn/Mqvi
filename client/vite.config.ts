@@ -2,8 +2,16 @@ import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// The desktop/web release version (root package.json), stamped into client error reports.
-const appVersion = (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }).version;
+// The desktop/web release version (root package.json), stamped into client error reports. A
+// build context of client/ alone (docker-compose.dev.yml) has no root package.json: no version.
+function readAppVersion(): string {
+  try {
+    return (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }).version;
+  } catch {
+    return "";
+  }
+}
+const appVersion = readAppVersion();
 
 // https://vite.dev/config/
 // command: "serve" → dev server (vite dev), "build" → production build (vite build)

@@ -66,6 +66,15 @@ func TestClientError_ScrubsWhatCouldIdentifySomeone(t *testing.T) {
 			},
 		},
 		{
+			name: "ids written into the message",
+			in:   ClientErrorReport{Message: "No session found for 9f3a1c2b4d5e6f70:0193f1e2-7a4b-4c3d-8e9f-001122334455"},
+			check: func(t *testing.T, got clientErrorLog) {
+				if got.message != "client error: No session found for [id]:[id]" {
+					t.Fatalf("message = %q", got.message)
+				}
+			},
+		},
+		{
 			name: "ids and query in the route",
 			in:   ClientErrorReport{Message: "x", Route: "/channels/0193f1e2-7a4b-7c3d/12345678?tab=1#top"},
 			check: func(t *testing.T, got clientErrorLog) {
@@ -242,5 +251,18 @@ func TestClientError_KeepsRenderCrashesAsTheirOwnKind(t *testing.T) {
 	NewClientErrorService(logger).Record([]ClientErrorReport{{Kind: "render", Message: "TypeError: x"}})
 	if len(logger.logs) != 1 || logger.logs[0].metadata["kind"] != "render" {
 		t.Fatalf("logs = %+v", logger.logs)
+	}
+}
+
+func TestClientError_RenderCrashesKeepTheirOwnMinuteBudget(t *testing.T) {
+	logger := &fakeClientErrorLogger{}
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	svc := newClientErrorService(logger, func() time.Time { return now })
+	for i := 0; i < ClientErrorsPerMinute+5; i++ {
+		svc.Record([]ClientErrorReport{{Kind: "error", Message: fmt.Sprintf("flood %d", i)}})
+	}
+	svc.Record([]ClientErrorReport{{Kind: "render", Message: "TypeError: x"}})
+	if n := len(logger.logs); n != ClientErrorsPerMinute+1 || logger.logs[n-1].metadata["kind"] != "render" {
+		t.Fatalf("%d logs, last %v: want the render crash stored past the ordinary cap", n, logger.logs[n-1].metadata)
 	}
 }
