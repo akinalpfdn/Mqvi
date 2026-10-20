@@ -21,7 +21,7 @@ const MAX_REPORTS_PER_SESSION = 20;
 const BATCH_SIZE = 5;
 export const FLUSH_DELAY_MS = 2000;
 const MAX_MESSAGE = 500;
-const MAX_STACK = 4000;
+const MAX_STACK = 2000;
 
 /** Noise nobody can act on: browser quirks, opaque cross-origin errors, browser extensions. */
 const IGNORED = [/ResizeObserver loop/i, /^Script error\.?$/i];
@@ -99,6 +99,14 @@ function describe(reason: unknown): { message: string; stack: string } {
   return { message: typeof reason === "string" ? reason : String(reason), stack: "" };
 }
 
+/**
+ * What an `error` event says. A script from another origin gives `error: null` and only the
+ * message "Script error." — that has to reach the noise filter as such, not as "null".
+ */
+export function errorEventDetails(event: Pick<ErrorEvent, "error" | "message">): { message: string; stack: string } {
+  return event.error != null ? describe(event.error) : { message: event.message, stack: "" };
+}
+
 /** Starts reporting; a no-op in development, where the console already shows everything. */
 export function installErrorReporting(): () => void {
   if (import.meta.env.DEV) return () => {};
@@ -123,7 +131,7 @@ export function installErrorReporting(): () => void {
   );
 
   const onError = (event: ErrorEvent) => {
-    const { message, stack } = event.error !== undefined ? describe(event.error) : { message: event.message, stack: "" };
+    const { message, stack } = errorEventDetails(event);
     reporter.report("error", message, stack);
   };
   const onRejection = (event: PromiseRejectionEvent) => {

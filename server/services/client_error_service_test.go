@@ -1,8 +1,11 @@
 package services
 
 import (
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/akinalp/mqvi/models"
 )
@@ -111,11 +114,97 @@ func TestClientError_SkipsEmptyAndCapsTheBatch(t *testing.T) {
 	logger := &fakeClientErrorLogger{}
 	reports := []ClientErrorReport{{Message: "  "}}
 	for i := 0; i < MaxClientErrorsPerBatch+3; i++ {
-		reports = append(reports, ClientErrorReport{Message: "boom"})
+		reports = append(reports, ClientErrorReport{Message: fmt.Sprintf("boom %d", i)})
 	}
 	NewClientErrorService(logger).Record(reports)
 	// The batch is cut first, then the blank one is skipped.
 	if len(logger.logs) != MaxClientErrorsPerBatch-1 {
 		t.Fatalf("logs = %d, want %d", len(logger.logs), MaxClientErrorsPerBatch-1)
 	}
+}
+
+func TestClientError_StoresTheSameErrorOncePerWindow(t *testing.T) {
+	logger := &fakeClientErrorLogger{}
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	svc := newClientErrorService(logger, func() time.Time { return now })
+	report := ClientErrorReport{Message: "boom", Stack: "Error: boom\n    at a (app.js:1:1)", Platform: "android", AppVersion: "1.1.0"}
+
+	svc.Record([]ClientErrorReport{report, report})
+	now = now.Add(30 * time.Minute)
+	svc.Record([]ClientErrorReport{report})
+	if len(logger.logs) != 1 {
+		t.Fatalf("within the window: %d logs, want 1", len(logger.logs))
+	}
+
+	other := report
+	other.Platform = "ios"
+	svc.Record([]ClientErrorReport{other})
+	if len(logger.logs) != 2 {
+		t.Fatalf("same error on another platform: %d logs, want 2", len(logger.logs))
+	}
+
+	now = now.Add(clientErrorDedupeWindow)
+	svc.Record([]ClientErrorReport{report})
+	if len(logger.logs) != 3 {
+		t.Fatalf("after the window: %d logs, want 3", len(logger.logs))
+	}
+}
+
+func TestClientError_CapsTheTotalPerMinute(t *testing.T) {
+	logger := &fakeClientErrorLogger{}
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	svc := newClientErrorService(logger, func() time.Time { return now })
+	flood := func(prefix string, n int) {
+		for i := 0; i < n; i++ {
+			svc.Record([]ClientErrorReport{{Message: fmt.Sprintf("%s %d", prefix, i)}})
+		}
+	}
+
+	flood("a", ClientErrorsPerMinute+10)
+	if len(logger.logs) != ClientErrorsPerMinute {
+		t.Fatalf("first minute: %d logs, want %d", len(logger.logs), ClientErrorsPerMinute)
+	}
+
+	now = now.Add(time.Minute)
+	flood("b", 3)
+	if len(logger.logs) != ClientErrorsPerMinute+3 {
+		t.Fatalf("next minute: %d logs, want %d", len(logger.logs), ClientErrorsPerMinute+3)
+	}
+}
+
+func TestClientError_ConcurrentReportsStayWithinTheCap(t *testing.T) {
+	logger := &lockedClientErrorLogger{}
+	svc := NewClientErrorService(logger)
+	done := make(chan struct{})
+	for g := 0; g < 8; g++ {
+		go func(g int) {
+			for i := 0; i < 20; i++ {
+				svc.Record([]ClientErrorReport{{Message: fmt.Sprintf("g%d-%d", g, i)}})
+			}
+			done <- struct{}{}
+		}(g)
+	}
+	for g := 0; g < 8; g++ {
+		<-done
+	}
+	if n := logger.count(); n > ClientErrorsPerMinute {
+		t.Fatalf("%d logs, want at most %d", n, ClientErrorsPerMinute)
+	}
+}
+
+type lockedClientErrorLogger struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (l *lockedClientErrorLogger) Log(models.LogLevel, models.LogCategory, *string, *string, string, map[string]string) {
+	l.mu.Lock()
+	l.n++
+	l.mu.Unlock()
+}
+
+func (l *lockedClientErrorLogger) count() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.n
 }

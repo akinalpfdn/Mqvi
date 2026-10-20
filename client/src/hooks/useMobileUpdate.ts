@@ -1,14 +1,17 @@
 /**
  * useMobileUpdate — on the iOS and Android apps, decides whether to show the update prompt:
  * required below the server's minimum version, optional when the store has a newer one.
- * Checks at launch and whenever the app comes back to the foreground. Inert everywhere else
- * (the desktop app has its own updater).
+ * Checks at launch and whenever the app comes back to the foreground. Held back during a call
+ * or a voice channel — a blocking screen there would cover the hang-up button — and shown when
+ * it ends. Inert everywhere else (the desktop app has its own updater).
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { App } from "@capacitor/app";
 import { AppUpdate, AppUpdateAvailability, type AppUpdateInfo } from "@capawesome/capacitor-app-update";
 import { getClientPolicy } from "../api/clientPolicy";
+import { useP2PCallStore } from "../stores/p2pCallStore";
+import { useVoiceStore } from "../stores/voiceStore";
 import { decideUpdate, type UpdateState } from "../utils/appUpdate";
 import { getCapacitorPlatform, isCapacitor } from "../utils/constants";
 import { APP_STORE_ID } from "../utils/detectOS";
@@ -53,6 +56,8 @@ async function check(): Promise<{ state: UpdateState; info: AppUpdateInfo | null
 export function useMobileUpdate() {
   const [state, setState] = useState<UpdateState>({ kind: "none" });
   const infoRef = useRef<AppUpdateInfo | null>(null);
+  const inVoice = useVoiceStore((s) => !!s.currentVoiceChannelId);
+  const inCall = useP2PCallStore((s) => !!s.activeCall || !!s.incomingCall);
 
   useEffect(() => {
     if (!isCapacitor()) return;
@@ -108,5 +113,6 @@ export function useMobileUpdate() {
     setState({ kind: "none" });
   }, [state]);
 
-  return { state, update, dismiss };
+  const busy = inVoice || inCall;
+  return { state: busy ? ({ kind: "none" } as const) : state, update, dismiss };
 }

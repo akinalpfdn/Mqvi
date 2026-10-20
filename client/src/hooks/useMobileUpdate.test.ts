@@ -43,6 +43,8 @@ vi.mock("../api/clientPolicy", () => ({
 }));
 
 import { AppUpdate } from "@capawesome/capacitor-app-update";
+import { useP2PCallStore } from "../stores/p2pCallStore";
+import { useVoiceStore } from "../stores/voiceStore";
 import { useMobileUpdate } from "./useMobileUpdate";
 
 const newer = { updateAvailability: 2, availableVersionCode: "9", immediateUpdateAllowed: true };
@@ -62,6 +64,8 @@ beforeEach(() => {
   });
   localStorage.clear();
   vi.clearAllMocks();
+  useVoiceStore.setState({ currentVoiceChannelId: null });
+  useP2PCallStore.setState({ activeCall: null, incomingCall: null });
 });
 
 describe("useMobileUpdate", () => {
@@ -140,6 +144,28 @@ describe("useMobileUpdate", () => {
     await act(async () => result.current.update());
     expect(AppUpdate.openAppStore).toHaveBeenCalledWith({ appId: "6761312531" });
     expect(AppUpdate.performImmediateUpdate).not.toHaveBeenCalled();
+  });
+
+  it("holds a required update back during a call and shows it when the call ends", async () => {
+    env.minimum = { android: "1.2.0", ios: "" };
+    useP2PCallStore.setState({ activeCall: { id: "c1" } as never });
+    const { result } = renderHook(() => useMobileUpdate());
+    await settle();
+    expect(result.current.state).toEqual({ kind: "none" });
+
+    act(() => useP2PCallStore.setState({ activeCall: null }));
+    expect(result.current.state).toEqual({ kind: "required" });
+  });
+
+  it("holds an offered update back in a voice channel", async () => {
+    env.store = newer;
+    useVoiceStore.setState({ currentVoiceChannelId: "v1" });
+    const { result } = renderHook(() => useMobileUpdate());
+    await settle();
+    expect(result.current.state).toEqual({ kind: "none" });
+
+    act(() => useVoiceStore.setState({ currentVoiceChannelId: null }));
+    expect(result.current.state).toEqual({ kind: "available", id: "9" });
   });
 
   it("does nothing outside the mobile apps", async () => {

@@ -3,7 +3,18 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 vi.mock("@capacitor/app", () => ({ App: { getInfo: vi.fn() } }));
 
-import { FLUSH_DELAY_MS, createErrorReporter, scrubRoute, scrubText, type ClientErrorReport } from "./errorReporter";
+import { FLUSH_DELAY_MS, createErrorReporter, errorEventDetails, scrubRoute, scrubText, type ClientErrorReport } from "./errorReporter";
+
+describe("error events", () => {
+  it("reads a cross-origin script error by its message, not as \"null\"", () => {
+    expect(errorEventDetails({ error: null, message: "Script error." })).toEqual({ message: "Script error.", stack: "" });
+  });
+
+  it("reads a real error by its name, message and stack", () => {
+    const error = new TypeError("x is undefined");
+    expect(errorEventDetails({ error, message: "ignored" })).toEqual({ message: "TypeError: x is undefined", stack: error.stack });
+  });
+});
 
 describe("scrubbing", () => {
   it.each([

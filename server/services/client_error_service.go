@@ -3,6 +3,8 @@ package services
 import (
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/akinalp/mqvi/models"
 )
@@ -23,8 +25,17 @@ const MaxClientErrorsPerBatch = 5
 
 const (
 	maxClientErrorMessage = 500
-	maxClientErrorStack   = 4000
+	maxClientErrorStack   = 2000
 	maxClientErrorRoute   = 200
+
+	// The route is public, so the per-IP limit alone does not bound what is stored: every report
+	// is a 30-day app_logs row and shares the log writer's queue with every other category.
+	// ClientErrorsPerMinute caps them across all clients; past it, reports are dropped.
+	ClientErrorsPerMinute = 20
+	// The same error (message, first stack line, platform, version) is stored once per window.
+	clientErrorDedupeWindow = time.Hour
+	// Bounds the dedupe memory; reaching it starts the window over.
+	maxClientErrorKeys = 10000
 )
 
 var (
@@ -46,23 +57,34 @@ type ClientErrorLogger interface {
 }
 
 // ClientErrorService stores client error reports as app logs (category "client"), which the
-// platform admin panel lists and the log service purges after 30 days.
+// platform admin panel lists and the log service purges after 30 days. Repeats are dropped and
+// the total is capped per minute, so the public route cannot flood the table or the log queue.
 type ClientErrorService struct {
 	logger ClientErrorLogger
+	now    func() time.Time
+
+	mu          sync.Mutex
+	seen        map[string]time.Time
+	minuteStart time.Time
+	minuteCount int
 }
 
 func NewClientErrorService(logger ClientErrorLogger) *ClientErrorService {
-	return &ClientErrorService{logger: logger}
+	return newClientErrorService(logger, time.Now)
 }
 
-// Record scrubs and stores each report; reports with no message are skipped.
+func newClientErrorService(logger ClientErrorLogger, now func() time.Time) *ClientErrorService {
+	return &ClientErrorService{logger: logger, now: now, seen: make(map[string]time.Time)}
+}
+
+// Record scrubs and stores each report; empty, repeated and over-cap reports are skipped.
 func (s *ClientErrorService) Record(reports []ClientErrorReport) {
 	if len(reports) > MaxClientErrorsPerBatch {
 		reports = reports[:MaxClientErrorsPerBatch]
 	}
 	for _, report := range reports {
 		r := sanitizeClientError(report)
-		if r.Message == "" {
+		if r.Message == "" || !s.admit(r) {
 			continue
 		}
 		s.logger.Log(models.LogLevelError, models.LogCategoryClient, nil, nil, "client error: "+r.Message, map[string]string{
@@ -73,6 +95,44 @@ func (s *ClientErrorService) Record(reports []ClientErrorReport) {
 			"app_version": r.AppVersion,
 		})
 	}
+}
+
+// admit decides, in one critical section, whether a report is new and fits this minute's budget.
+func (s *ClientErrorService) admit(r ClientErrorReport) bool {
+	now := s.now()
+	// The first frame, not the whole stack: the same bug reached by different paths is one bug.
+	firstFrame := ""
+	if lines := strings.SplitN(r.Stack, "\n", 3); len(lines) > 1 {
+		firstFrame = lines[1]
+	}
+	key := r.Platform + "|" + r.AppVersion + "|" + r.Message + "|" + firstFrame
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if at, ok := s.seen[key]; ok && now.Sub(at) < clientErrorDedupeWindow {
+		return false
+	}
+	if now.Sub(s.minuteStart) >= time.Minute {
+		s.minuteStart, s.minuteCount = now, 0
+	}
+	if s.minuteCount >= ClientErrorsPerMinute {
+		return false
+	}
+	s.minuteCount++
+
+	if len(s.seen) >= maxClientErrorKeys {
+		for k, at := range s.seen {
+			if now.Sub(at) >= clientErrorDedupeWindow {
+				delete(s.seen, k)
+			}
+		}
+		if len(s.seen) >= maxClientErrorKeys {
+			s.seen = make(map[string]time.Time)
+		}
+	}
+	s.seen[key] = now
+	return true
 }
 
 func sanitizeClientError(r ClientErrorReport) ClientErrorReport {
