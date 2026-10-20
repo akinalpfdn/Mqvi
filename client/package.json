@@ -24,6 +24,7 @@
     "@capacitor/keyboard": "^8.0.2",
     "@capacitor/push-notifications": "^8.1.1",
     "@capacitor/status-bar": "^8.0.2",
+    "@capawesome/capacitor-app-review": "8.1.0",
     "@capawesome/capacitor-app-update": "8.1.0",
     "@capawesome/capacitor-file-picker": "^8.0.3",
     "@dnd-kit/core": "^6.3.1",

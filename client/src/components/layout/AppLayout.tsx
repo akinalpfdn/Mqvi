@@ -61,6 +61,7 @@ import { useInviteStore } from "../../stores/inviteStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useSoundboardStore } from "../../stores/soundboardStore";
 import { useNotificationBadge } from "../../hooks/useNotificationBadge";
+import { useReviewPrompt } from "../../hooks/useReviewPrompt";
 import { ChatCommandActionsProvider } from "../../hooks/useChatCommandActions";
 
 function AppLayout() {
@@ -81,6 +82,7 @@ function AppLayout() {
 
   // Electron taskbar badge for unread count
   useNotificationBadge();
+  useReviewPrompt();
 
   // E2EE device identity check + key init
   useE2EE();
