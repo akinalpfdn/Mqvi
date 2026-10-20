@@ -298,6 +298,7 @@ func initRoutes(
 
 	// Stats — public
 	mux.HandleFunc("GET /api/stats", h.Stats.GetPublicStats)
+	mux.HandleFunc("GET /api/client-policy", h.ClientPolicy.Get)
 
 	// Invite Preview — public (no auth)
 	mux.HandleFunc("GET /api/invites/{code}/preview", h.Invite.Preview)

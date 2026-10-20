@@ -1645,6 +1645,8 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 
 /* ── Download Prompt Modal ── */
 .download-prompt-overlay { position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:var(--overlay-backdrop,none);-webkit-backdrop-filter:var(--overlay-backdrop,none); }
+/* Blocks the app until it is updated: above every dialog and toast. */
+.download-prompt-overlay.update-required { z-index:10002; }
 .download-prompt-modal { background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:14px;box-shadow:var(--panel-inset),var(--panel-shadow);padding:32px;max-width:400px;width:90%;text-align:center; }
 .download-prompt-modal h3 { font-size:18px;font-weight:700;margin-bottom:8px;color:var(--t1); }
 .download-prompt-modal p { font-size:14px;color:var(--t2);margin-bottom:24px;line-height:1.5; }

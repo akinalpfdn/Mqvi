@@ -2,7 +2,9 @@ import { isNativeApp } from "./constants";
 
 const RELEASE_BASE = "https://github.com/akinalpfdn/Mqvi/releases/latest/download";
 const RELEASES_PAGE = "https://github.com/akinalpfdn/Mqvi/releases/latest";
-export const APP_STORE_URL = "https://apps.apple.com/us/app/mqvi-voice-chat-communities/id6761312531";
+/** The app's App Store id; also opens its store page from inside the iOS app. */
+export const APP_STORE_ID = "6761312531";
+export const APP_STORE_URL = `https://apps.apple.com/us/app/mqvi-voice-chat-communities/id${APP_STORE_ID}`;
 export const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.akinalpfdn.mqvi";
 
 export type OSInfo = {

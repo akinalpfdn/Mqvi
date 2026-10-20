@@ -32,6 +32,7 @@ type Config struct {
 	CallGraceWindow time.Duration
 	Push            PushConfig
 	AppLinks        AppLinksConfig
+	ClientVersions  ClientVersionConfig
 	EncryptionKey   string // AES-256 key (64 hex chars = 32 bytes) for LiveKit credential encryption
 	HetznerAPIToken string // Hetzner Cloud API token (read-only) — optional
 	// PasswordBreachCheck queries Have I Been Pwned when a password is set. Needs no key or
@@ -92,6 +93,25 @@ type AppLinksConfig struct {
 	// IOSAppID drives /.well-known/apple-app-site-association (Universal Links).
 	// Format "<TeamID>.<BundleID>", e.g. "WQ54PPL5VQ.net.mqvi.app". Empty disables the endpoint.
 	IOSAppID string
+}
+
+// ClientVersionConfig sets the oldest mobile app version this server still serves. An app below
+// it shows a blocking "update to continue" screen; empty means no minimum. Raise it when an API
+// change would break older apps.
+type ClientVersionConfig struct {
+	MinAndroid string
+	MinIOS     string
+}
+
+// clientVersionPattern accepts "1", "1.2" or "1.2.3"; the app compares part by part.
+var clientVersionPattern = regexp.MustCompile(`^\d+(\.\d+){0,2}$`)
+
+func parseClientVersion(key string) (string, error) {
+	v := strings.TrimSpace(getEnv(key, ""))
+	if v != "" && !clientVersionPattern.MatchString(v) {
+		return "", fmt.Errorf("invalid %s %q: expected a version like 1.2.0", key, v)
+	}
+	return v, nil
 }
 
 // TURNConfig holds the STUN/TURN servers handed to P2P call clients.
@@ -401,6 +421,15 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	minAndroid, err := parseClientVersion("MIN_APP_VERSION_ANDROID")
+	if err != nil {
+		return nil, err
+	}
+	minIOS, err := parseClientVersion("MIN_APP_VERSION_IOS")
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &Config{
 		Server: ServerConfig{
 			Host:          getEnv("SERVER_HOST", "0.0.0.0"),
@@ -484,6 +513,10 @@ func Load() (*Config, error) {
 			AndroidPackage:      getEnv("ANDROID_APP_PACKAGE", "com.akinalpfdn.mqvi"),
 			AndroidFingerprints: androidFingerprints,
 			IOSAppID:            getEnv("IOS_APP_ID", ""),
+		},
+		ClientVersions: ClientVersionConfig{
+			MinAndroid: minAndroid,
+			MinIOS:     minIOS,
 		},
 		CallGraceWindow:     callGraceWindow,
 		EncryptionKey:       encKey,

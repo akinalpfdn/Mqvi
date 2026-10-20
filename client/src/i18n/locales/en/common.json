@@ -192,5 +192,11 @@
   "errorReloading": "Something went wrong. Reloading…",
   "errorTitle": "Something keeps going wrong",
   "errorPersistent": "Reloading did not help. Try again, and if it keeps happening, restart the app.",
-  "errorRetry": "Try again"
+  "errorRetry": "Try again",
+  "updateAvailableTitle": "A new version is available",
+  "updateAvailableDesc": "Update mqvi to get the latest fixes and features.",
+  "updateRequiredTitle": "Update required",
+  "updateRequiredDesc": "This version of mqvi is no longer supported. Update to keep using it.",
+  "updateNow": "Update",
+  "updateLater": "Later"
 }
