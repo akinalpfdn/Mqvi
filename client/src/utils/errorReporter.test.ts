@@ -11,6 +11,41 @@ describe("installErrorReporting in a production build", () => {
     vi.unstubAllGlobals();
   });
 
+  it("sends ordinary reports without keepalive", () => {
+    vi.useFakeTimers();
+    vi.stubEnv("DEV", false);
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const reporting = installErrorReporting();
+
+    window.dispatchEvent(new ErrorEvent("error", { error: new Error("plain"), message: "plain" }));
+    vi.advanceTimersByTime(FLUSH_DELAY_MS);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].keepalive).toBe(false);
+    reporting.dispose();
+    vi.useRealTimers();
+  });
+
+  it("sends a render crash again without keepalive when the engine refuses keepalive", async () => {
+    vi.stubEnv("DEV", false);
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("Preflight request for request with keepalive specified is currently not supported"))
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const reporting = installErrorReporting();
+
+    reporting.reportRenderCrash(new TypeError("x is undefined"));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    const [first, second] = fetchMock.mock.calls as unknown as [string, RequestInit][];
+    expect(first[1].keepalive).toBe(true);
+    expect(second[1].keepalive).toBe(false);
+    expect(second[1].body).toBe(first[1].body);
+    reporting.dispose();
+  });
+
   it("sends a render crash the root boundary caught at once, with its component stack", () => {
     vi.stubEnv("DEV", false);
     localStorage.setItem("access_token", "signed-in-token");

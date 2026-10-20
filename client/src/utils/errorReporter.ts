@@ -68,7 +68,8 @@ function currentRoute(): string {
   return protocol === "file:" ? "" : pathname;
 }
 
-type Sender = (reports: ClientErrorReport[]) => Promise<void>;
+/** `keepalive`: the request must outlive the page (a render crash, reloaded over in two seconds). */
+type Sender = (reports: ClientErrorReport[], options: { keepalive: boolean }) => Promise<void>;
 
 /** The batching and dedupe behind installErrorReporting, with the transport passed in. */
 export function createErrorReporter(send: Sender, version: () => string) {
@@ -82,7 +83,7 @@ export function createErrorReporter(send: Sender, version: () => string) {
     timer = undefined;
     const batch = queue.slice(0, BATCH_SIZE);
     queue = queue.slice(BATCH_SIZE);
-    if (batch.length) send(batch).catch(() => {}); // a report that cannot be delivered is dropped
+    if (batch.length) send(batch, { keepalive: false }).catch(() => {}); // undeliverable: dropped
     if (queue.length) timer = setTimeout(flush, FLUSH_DELAY_MS);
   };
 
@@ -104,7 +105,7 @@ export function createErrorReporter(send: Sender, version: () => string) {
       };
       // Alone and at once: the server gives a lone render crash its own budget.
       if (immediate) {
-        send([entry]).catch(() => {});
+        send([entry], { keepalive: true }).catch(() => {});
         return;
       }
       queue.push(entry);
@@ -156,15 +157,20 @@ export function installErrorReporting(): ErrorReporting {
       .catch(() => {}); // reports go without a version
   }
 
+  const post = (errors: ClientErrorReport[], keepalive: boolean) =>
+    fetch(`${API_BASE_URL}/client-errors`, {
+      method: "POST",
+      headers: authorizedHeaders(),
+      body: JSON.stringify({ errors }),
+      credentials: "omit",
+      keepalive,
+    }).then(() => undefined);
+
   const reporter = createErrorReporter(
-    (errors) =>
-      fetch(`${API_BASE_URL}/client-errors`, {
-        method: "POST",
-        headers: authorizedHeaders(),
-        body: JSON.stringify({ errors }),
-        credentials: "omit",
-        keepalive: true,
-      }).then(() => undefined),
+    // keepalive only where the page is about to go away. A cross-origin request with an
+    // Authorization header needs a CORS preflight, which older engines refuse together with
+    // keepalive; that refusal is immediate, so the plain request still goes before the reload.
+    (errors, { keepalive }) => (keepalive ? post(errors, true).catch(() => post(errors, false)) : post(errors, false)),
     () => version,
   );
 
