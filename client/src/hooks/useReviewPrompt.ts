@@ -1,6 +1,6 @@
 /**
  * useReviewPrompt — asks the iOS / Android app user for a store review on the 10th open of an
- * app version (utils/reviewPrompt.ts), a few seconds in, and never during a call or a voice
+ * app version (an open is defined in utils/reviewPrompt.ts), a few seconds in, and never during a call or a voice
  * channel; busy then, it tries on the next open. The OS decides whether its sheet actually
  * appears (iOS shows it at most three times a year) and does not say, so this asks once.
  */

@@ -1,6 +1,8 @@
 package services
 
 import (
+	"crypto/sha256"
+	"log"
 	"regexp"
 	"strings"
 	"sync"
@@ -30,8 +32,10 @@ const (
 
 	// The route is public, so the per-IP limit alone does not bound what is stored: every report
 	// is a 30-day app_logs row and shares the log writer's queue with every other category.
-	// ClientErrorsPerMinute caps them across all clients; past it, reports are dropped.
+	// These cap the total across all clients; past them, reports are dropped (and logged once).
+	// The per-day cap is what bounds the table: at most 30 days of it are ever kept.
 	ClientErrorsPerMinute = 20
+	ClientErrorsPerDay    = 1000
 	// The same error (message, first stack line, platform, version) is stored once per window.
 	clientErrorDedupeWindow = time.Hour
 	// Bounds the dedupe memory; reaching it starts the window over.
@@ -39,7 +43,7 @@ const (
 )
 
 var (
-	clientErrorKinds     = map[string]bool{"error": true, "unhandledrejection": true}
+	clientErrorKinds     = map[string]bool{"error": true, "unhandledrejection": true, "render": true}
 	clientErrorPlatforms = map[string]bool{"web": true, "electron": true, "ios": true, "android": true}
 
 	jwtPattern       = regexp.MustCompile(`eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}`)
@@ -58,15 +62,37 @@ type ClientErrorLogger interface {
 
 // ClientErrorService stores client error reports as app logs (category "client"), which the
 // platform admin panel lists and the log service purges after 30 days. Repeats are dropped and
-// the total is capped per minute, so the public route cannot flood the table or the log queue.
+// the total is capped per minute and per day, bounding the table at 30 × ClientErrorsPerDay rows.
 type ClientErrorService struct {
 	logger ClientErrorLogger
 	now    func() time.Time
 
-	mu          sync.Mutex
-	seen        map[string]time.Time
-	minuteStart time.Time
-	minuteCount int
+	mu     sync.Mutex
+	seen   map[[sha256.Size]byte]time.Time
+	minute window
+	day    window
+}
+
+// window counts admissions in a fixed period and remembers whether its cap was reported.
+type window struct {
+	start    time.Time
+	count    int
+	reported bool
+}
+
+// take admits one more if the window (restarted after `length`) is under `limit`. The first refusal
+// in a window returns refusedFirst, so the drop can be logged once rather than per report.
+func (w *window) take(now time.Time, length time.Duration, limit int) (ok, refusedFirst bool) {
+	if now.Sub(w.start) >= length {
+		*w = window{start: now}
+	}
+	if w.count >= limit {
+		first := !w.reported
+		w.reported = true
+		return false, first
+	}
+	w.count++
+	return true, false
 }
 
 func NewClientErrorService(logger ClientErrorLogger) *ClientErrorService {
@@ -74,7 +100,7 @@ func NewClientErrorService(logger ClientErrorLogger) *ClientErrorService {
 }
 
 func newClientErrorService(logger ClientErrorLogger, now func() time.Time) *ClientErrorService {
-	return &ClientErrorService{logger: logger, now: now, seen: make(map[string]time.Time)}
+	return &ClientErrorService{logger: logger, now: now, seen: make(map[[sha256.Size]byte]time.Time)}
 }
 
 // Record scrubs and stores each report; empty, repeated and over-cap reports are skipped.
@@ -105,7 +131,8 @@ func (s *ClientErrorService) admit(r ClientErrorReport) bool {
 	if lines := strings.SplitN(r.Stack, "\n", 3); len(lines) > 1 {
 		firstFrame = lines[1]
 	}
-	key := r.Platform + "|" + r.AppVersion + "|" + r.Message + "|" + firstFrame
+	// Hashed: the raw text can run to kilobytes, and the map holds up to maxClientErrorKeys of them.
+	key := sha256.Sum256([]byte(r.Platform + "\x00" + r.AppVersion + "\x00" + r.Message + "\x00" + firstFrame))
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -113,13 +140,20 @@ func (s *ClientErrorService) admit(r ClientErrorReport) bool {
 	if at, ok := s.seen[key]; ok && now.Sub(at) < clientErrorDedupeWindow {
 		return false
 	}
-	if now.Sub(s.minuteStart) >= time.Minute {
-		s.minuteStart, s.minuteCount = now, 0
-	}
-	if s.minuteCount >= ClientErrorsPerMinute {
+	// The day is checked first so a refused report does not spend the minute's budget.
+	if ok, first := s.day.take(now, 24*time.Hour, ClientErrorsPerDay); !ok {
+		if first {
+			log.Printf("[client_errors] daily cap of %d reached; dropping reports until the window resets", ClientErrorsPerDay)
+		}
 		return false
 	}
-	s.minuteCount++
+	if ok, first := s.minute.take(now, time.Minute, ClientErrorsPerMinute); !ok {
+		s.day.count-- // not stored after all
+		if first {
+			log.Printf("[client_errors] per-minute cap of %d reached; dropping reports", ClientErrorsPerMinute)
+		}
+		return false
+	}
 
 	if len(s.seen) >= maxClientErrorKeys {
 		for k, at := range s.seen {
@@ -128,7 +162,7 @@ func (s *ClientErrorService) admit(r ClientErrorReport) bool {
 			}
 		}
 		if len(s.seen) >= maxClientErrorKeys {
-			s.seen = make(map[string]time.Time)
+			s.seen = make(map[[sha256.Size]byte]time.Time)
 		}
 	}
 	s.seen[key] = now

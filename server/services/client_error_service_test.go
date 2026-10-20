@@ -208,3 +208,39 @@ func (l *lockedClientErrorLogger) count() int {
 	defer l.mu.Unlock()
 	return l.n
 }
+
+func TestClientError_CapsTheTotalPerDay(t *testing.T) {
+	logger := &fakeClientErrorLogger{}
+	now := time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)
+	svc := newClientErrorService(logger, func() time.Time { return now })
+	n := 0
+	send := func(count int) {
+		for i := 0; i < count; i++ {
+			svc.Record([]ClientErrorReport{{Message: fmt.Sprintf("e%d", n)}})
+			n++
+		}
+	}
+
+	// Under the per-minute cap every minute, until the day's budget is gone.
+	for minute := 0; minute*ClientErrorsPerMinute < ClientErrorsPerDay+100; minute++ {
+		send(ClientErrorsPerMinute)
+		now = now.Add(time.Minute)
+	}
+	if len(logger.logs) != ClientErrorsPerDay {
+		t.Fatalf("one day: %d logs, want %d", len(logger.logs), ClientErrorsPerDay)
+	}
+
+	now = now.Add(24 * time.Hour)
+	send(1)
+	if len(logger.logs) != ClientErrorsPerDay+1 {
+		t.Fatalf("next day: %d logs, want %d", len(logger.logs), ClientErrorsPerDay+1)
+	}
+}
+
+func TestClientError_KeepsRenderCrashesAsTheirOwnKind(t *testing.T) {
+	logger := &fakeClientErrorLogger{}
+	NewClientErrorService(logger).Record([]ClientErrorReport{{Kind: "render", Message: "TypeError: x"}})
+	if len(logger.logs) != 1 || logger.logs[0].metadata["kind"] != "render" {
+		t.Fatalf("logs = %+v", logger.logs)
+	}
+}

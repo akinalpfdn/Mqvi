@@ -3,7 +3,32 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 vi.mock("@capacitor/app", () => ({ App: { getInfo: vi.fn() } }));
 
-import { FLUSH_DELAY_MS, createErrorReporter, errorEventDetails, scrubRoute, scrubText, type ClientErrorReport } from "./errorReporter";
+import { FLUSH_DELAY_MS, createErrorReporter, errorEventDetails, installErrorReporting, scrubRoute, scrubText, type ClientErrorReport } from "./errorReporter";
+
+describe("installErrorReporting in a production build", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("sends a render crash the root boundary caught at once, with its component stack", () => {
+    vi.stubEnv("DEV", false);
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const reporting = installErrorReporting();
+
+    reporting.reportRenderCrash(new TypeError("x is undefined"), "\n    at ChannelList");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toMatch(/\/client-errors$/);
+    expect(init.keepalive).toBe(true);
+    const sentReport = (JSON.parse(String(init.body)) as { errors: ClientErrorReport[] }).errors[0];
+    expect(sentReport).toMatchObject({ kind: "render", message: "TypeError: x is undefined" });
+    expect(sentReport.stack).toContain("at ChannelList");
+    reporting.dispose();
+  });
+});
 
 describe("error events", () => {
   it("reads a cross-origin script error by its message, not as \"null\"", () => {
@@ -55,6 +80,12 @@ describe("createErrorReporter", () => {
     vi.advanceTimersByTime(FLUSH_DELAY_MS);
     expect(sent).toHaveLength(1);
     expect(sent[0][0]).toMatchObject({ kind: "error", message: "failed for [email]", platform: "web", app_version: "1.1.0" });
+  });
+
+  it("sends a render crash at once, without waiting for the batch", () => {
+    reporter().report("render", "TypeError: x is undefined", "", true);
+    expect(sent).toHaveLength(1);
+    expect(sent[0][0].kind).toBe("render");
   });
 
   it("sends the same error once", () => {

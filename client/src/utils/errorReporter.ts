@@ -1,5 +1,6 @@
 /**
- * Sends unhandled client errors to the server (POST /api/client-errors), where they show in the
+ * Sends unhandled client errors and render crashes caught by the root error boundary to the server
+ * (POST /api/client-errors), where they show in the
  * platform admin logs under "client". Nothing identifies the user: no user id is sent, and
  * tokens, email addresses, URL query strings and ids in the route are scrubbed here (and again
  * on the server). Repeats are sent once per session, and a session sends at most a handful.
@@ -9,7 +10,8 @@ import { App } from "@capacitor/app";
 import { API_BASE_URL, getCapacitorPlatform, isCapacitor, isElectron } from "./constants";
 
 export type ClientErrorReport = {
-  kind: "error" | "unhandledrejection";
+  /** "render": a crash the root error boundary caught; React does not pass those to window. */
+  kind: "error" | "unhandledrejection" | "render";
   message: string;
   stack: string;
   route: string;
@@ -74,7 +76,8 @@ export function createErrorReporter(send: Sender, version: () => string) {
   };
 
   return {
-    report(kind: ClientErrorReport["kind"], message: string, stack: string) {
+    /** `immediate` skips the batching delay — for a crash the page is about to reload over. */
+    report(kind: ClientErrorReport["kind"], message: string, stack: string, immediate = false) {
       if (!message || IGNORED.some((re) => re.test(message)) || EXTENSION_FRAME.test(stack)) return;
       const key = `${kind}|${message}|${stack.split("\n")[1] ?? ""}`;
       if (seen.has(key) || sent >= MAX_REPORTS_PER_SESSION) return;
@@ -88,7 +91,7 @@ export function createErrorReporter(send: Sender, version: () => string) {
         platform: currentPlatform(),
         app_version: version(),
       });
-      if (queue.length >= BATCH_SIZE) flush();
+      if (immediate || queue.length >= BATCH_SIZE) flush();
       else timer ??= setTimeout(flush, FLUSH_DELAY_MS);
     },
   };
@@ -107,9 +110,15 @@ export function errorEventDetails(event: Pick<ErrorEvent, "error" | "message">):
   return event.error != null ? describe(event.error) : { message: event.message, stack: "" };
 }
 
+export type ErrorReporting = {
+  /** For createRoot's onCaughtError: a render crash, sent at once. */
+  reportRenderCrash: (error: unknown, componentStack?: string) => void;
+  dispose: () => void;
+};
+
 /** Starts reporting; a no-op in development, where the console already shows everything. */
-export function installErrorReporting(): () => void {
-  if (import.meta.env.DEV) return () => {};
+export function installErrorReporting(): ErrorReporting {
+  if (import.meta.env.DEV) return { reportRenderCrash: () => {}, dispose: () => {} };
 
   let version = typeof __APP_VERSION__ === "string" && !isCapacitor() ? __APP_VERSION__ : "";
   if (isCapacitor()) {
@@ -141,8 +150,15 @@ export function installErrorReporting(): () => void {
 
   window.addEventListener("error", onError);
   window.addEventListener("unhandledrejection", onRejection);
-  return () => {
-    window.removeEventListener("error", onError);
-    window.removeEventListener("unhandledrejection", onRejection);
+  return {
+    reportRenderCrash: (error, componentStack) => {
+      const { message, stack } = describe(error);
+      // The boundary reloads in two seconds; keepalive lets this request outlive the page.
+      reporter.report("render", message, componentStack ? `${stack}\n${componentStack}` : stack, true);
+    },
+    dispose: () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onRejection);
+    },
   };
 }

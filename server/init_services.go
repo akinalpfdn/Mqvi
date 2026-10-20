@@ -409,9 +409,10 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		SessionRevoke:   ratelimit.NewLoginRateLimiter(10, time.Minute),
 		// A real failure reports once per login attempt; a handful an hour is plenty.
 		CredentialStore: ratelimit.NewMessageRateLimiter(5, time.Hour, time.Hour),
-		// Five batches a minute per IP; a client sends one batch at a time and dedupes repeats.
-		// The service also caps the total across all IPs.
-		ClientError: ratelimit.NewMessageRateLimiter(5, time.Minute, time.Minute),
+		// One batch (up to five reports) a minute per IP: well under the service's global cap of 20
+		// a minute, so a single client cannot spend everyone's budget. A real session rarely has
+		// more than one batch to send; a second one inside the minute is dropped.
+		ClientError: ratelimit.NewMessageRateLimiter(1, time.Minute, time.Minute),
 	}
 
 	return svcs, limiters, metricsCollector

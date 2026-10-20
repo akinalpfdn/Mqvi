@@ -13,7 +13,7 @@ import { initAppFocus } from "./utils/appFocus";
 import { installErrorReporting } from "./utils/errorReporter";
 
 // First, so errors during start-up are reported too.
-installErrorReporting();
+const errorReporting = installErrorReporting();
 
 // Native shells (Electron file://, Capacitor capacitor://) don't support HTML5 History API.
 // Web uses BrowserRouter for clean URLs.
@@ -43,7 +43,12 @@ useP2PCallStore.setState({
 // "Is the user in front of the app?" — every platform. The DM read loop depends on it.
 initAppFocus();
 
-createRoot(document.getElementById("root")!).render(
+// The root boundary catches every render crash, and React passes caught errors only to this
+// callback (its default just logs) — never to window, where the reporter listens. The boundary
+// logs to the console itself.
+createRoot(document.getElementById("root")!, {
+  onCaughtError: (error, info) => errorReporting.reportRenderCrash(error, info.componentStack),
+}).render(
   <StrictMode>
     <ErrorBoundary>
       <Router>

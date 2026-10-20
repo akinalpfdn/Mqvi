@@ -1,6 +1,8 @@
 /**
  * When to ask for a store review: on the 10th open of an app version, at most once per version.
- * An open is a launch, or coming back after at least 30 minutes away — a quick app switch is not one.
+ * An open is arriving in the foreground — by a launch or a return — at least 30 minutes after the
+ * app was last seen there. A quick app switch is not one, and neither is a relaunch soon after
+ * leaving. The very first arrival of a version always counts.
  */
 
 export const REVIEW_AFTER_OPENS = 10;
