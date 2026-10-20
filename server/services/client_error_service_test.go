@@ -66,6 +66,16 @@ func TestClientError_ScrubsWhatCouldIdentifySomeone(t *testing.T) {
 			},
 		},
 		{
+			name: "home folders in desktop file paths",
+			in:   ClientErrorReport{Message: "x", Stack: "at f (file:///C:/Users/Ali Veli/AppData/Local/Programs/mqvi/resources/app.asar/dist/assets/index-x.js:1:2)\nat g (/home/ali/mqvi/x.js:3:4)"},
+			check: func(t *testing.T, got clientErrorLog) {
+				want := "at f (file:///C:/Users/[user]/AppData/Local/Programs/mqvi/resources/app.asar/dist/assets/index-x.js:1:2)\nat g (/home/[user]/mqvi/x.js:3:4)"
+				if got.metadata["stack"] != want {
+					t.Fatalf("stack = %q", got.metadata["stack"])
+				}
+			},
+		},
+		{
 			name: "ids written into the message",
 			in:   ClientErrorReport{Message: "No session found for 9f3a1c2b4d5e6f70:0193f1e2-7a4b-4c3d-8e9f-001122334455"},
 			check: func(t *testing.T, got clientErrorLog) {
@@ -106,7 +116,7 @@ func TestClientError_ScrubsWhatCouldIdentifySomeone(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			logger := &fakeClientErrorLogger{}
-			NewClientErrorService(logger).Record([]ClientErrorReport{tt.in})
+			NewClientErrorService(logger).Record([]ClientErrorReport{tt.in}, nil)
 			if len(logger.logs) != 1 {
 				t.Fatalf("logs = %d, want 1", len(logger.logs))
 			}
@@ -125,7 +135,7 @@ func TestClientError_SkipsEmptyAndCapsTheBatch(t *testing.T) {
 	for i := 0; i < MaxClientErrorsPerBatch+3; i++ {
 		reports = append(reports, ClientErrorReport{Message: fmt.Sprintf("boom %d", i)})
 	}
-	NewClientErrorService(logger).Record(reports)
+	NewClientErrorService(logger).Record(reports, nil)
 	// The batch is cut first, then the blank one is skipped.
 	if len(logger.logs) != MaxClientErrorsPerBatch-1 {
 		t.Fatalf("logs = %d, want %d", len(logger.logs), MaxClientErrorsPerBatch-1)
@@ -138,22 +148,22 @@ func TestClientError_StoresTheSameErrorOncePerWindow(t *testing.T) {
 	svc := newClientErrorService(logger, func() time.Time { return now })
 	report := ClientErrorReport{Message: "boom", Stack: "Error: boom\n    at a (app.js:1:1)", Platform: "android", AppVersion: "1.1.0"}
 
-	svc.Record([]ClientErrorReport{report, report})
+	svc.Record([]ClientErrorReport{report, report}, nil)
 	now = now.Add(30 * time.Minute)
-	svc.Record([]ClientErrorReport{report})
+	svc.Record([]ClientErrorReport{report}, nil)
 	if len(logger.logs) != 1 {
 		t.Fatalf("within the window: %d logs, want 1", len(logger.logs))
 	}
 
 	other := report
 	other.Platform = "ios"
-	svc.Record([]ClientErrorReport{other})
+	svc.Record([]ClientErrorReport{other}, nil)
 	if len(logger.logs) != 2 {
 		t.Fatalf("same error on another platform: %d logs, want 2", len(logger.logs))
 	}
 
 	now = now.Add(clientErrorDedupeWindow)
-	svc.Record([]ClientErrorReport{report})
+	svc.Record([]ClientErrorReport{report}, nil)
 	if len(logger.logs) != 3 {
 		t.Fatalf("after the window: %d logs, want 3", len(logger.logs))
 	}
@@ -165,7 +175,7 @@ func TestClientError_CapsTheTotalPerMinute(t *testing.T) {
 	svc := newClientErrorService(logger, func() time.Time { return now })
 	flood := func(prefix string, n int) {
 		for i := 0; i < n; i++ {
-			svc.Record([]ClientErrorReport{{Message: fmt.Sprintf("%s %d", prefix, i)}})
+			svc.Record([]ClientErrorReport{{Message: fmt.Sprintf("%s %d", prefix, i)}}, nil)
 		}
 	}
 
@@ -188,7 +198,7 @@ func TestClientError_ConcurrentReportsStayWithinTheCap(t *testing.T) {
 	for g := 0; g < 8; g++ {
 		go func(g int) {
 			for i := 0; i < 20; i++ {
-				svc.Record([]ClientErrorReport{{Message: fmt.Sprintf("g%d-%d", g, i)}})
+				svc.Record([]ClientErrorReport{{Message: fmt.Sprintf("g%d-%d", g, i)}}, nil)
 			}
 			done <- struct{}{}
 		}(g)
@@ -225,7 +235,7 @@ func TestClientError_CapsTheTotalPerDay(t *testing.T) {
 	n := 0
 	send := func(count int) {
 		for i := 0; i < count; i++ {
-			svc.Record([]ClientErrorReport{{Message: fmt.Sprintf("e%d", n)}})
+			svc.Record([]ClientErrorReport{{Message: fmt.Sprintf("e%d", n)}}, nil)
 			n++
 		}
 	}
@@ -248,7 +258,7 @@ func TestClientError_CapsTheTotalPerDay(t *testing.T) {
 
 func TestClientError_KeepsRenderCrashesAsTheirOwnKind(t *testing.T) {
 	logger := &fakeClientErrorLogger{}
-	NewClientErrorService(logger).Record([]ClientErrorReport{{Kind: "render", Message: "TypeError: x"}})
+	NewClientErrorService(logger).Record([]ClientErrorReport{{Kind: "render", Message: "TypeError: x"}}, nil)
 	if len(logger.logs) != 1 || logger.logs[0].metadata["kind"] != "render" {
 		t.Fatalf("logs = %+v", logger.logs)
 	}
@@ -259,10 +269,19 @@ func TestClientError_RenderCrashesKeepTheirOwnMinuteBudget(t *testing.T) {
 	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 	svc := newClientErrorService(logger, func() time.Time { return now })
 	for i := 0; i < ClientErrorsPerMinute+5; i++ {
-		svc.Record([]ClientErrorReport{{Kind: "error", Message: fmt.Sprintf("flood %d", i)}})
+		svc.Record([]ClientErrorReport{{Kind: "error", Message: fmt.Sprintf("flood %d", i)}}, nil)
 	}
-	svc.Record([]ClientErrorReport{{Kind: "render", Message: "TypeError: x"}})
+	svc.Record([]ClientErrorReport{{Kind: "render", Message: "TypeError: x"}}, nil)
 	if n := len(logger.logs); n != ClientErrorsPerMinute+1 || logger.logs[n-1].metadata["kind"] != "render" {
 		t.Fatalf("%d logs, last %v: want the render crash stored past the ordinary cap", n, logger.logs[n-1].metadata)
+	}
+}
+
+func TestClientError_StoresTheSignedInUser(t *testing.T) {
+	logger := &fakeClientErrorLogger{}
+	user := "u1"
+	NewClientErrorService(logger).Record([]ClientErrorReport{{Message: "boom"}}, &user)
+	if len(logger.logs) != 1 || logger.logs[0].userID == nil || *logger.logs[0].userID != "u1" {
+		t.Fatalf("logs = %+v", logger.logs)
 	}
 }

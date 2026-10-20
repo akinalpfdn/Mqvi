@@ -1,12 +1,14 @@
 /**
  * Sends unhandled client errors and render crashes caught by the root error boundary to the server
- * (POST /api/client-errors), where they show in the
- * platform admin logs under "client". Nothing identifies the user: no user id is sent, and
- * tokens, email addresses, URL query strings and ids in the route are scrubbed here (and again
- * on the server). Repeats are sent once per session, and a session sends at most a handful.
+ * (POST /api/client-errors), where they show in the platform admin logs under "client". A
+ * signed-in client sends its session token, so the server can tell who hit the error. What
+ * nobody needs to debug it is scrubbed here (and again on the server): tokens, email addresses,
+ * URL query strings, ids, and home-folder names in file paths. Repeats are sent once per session,
+ * and a session sends at most a handful.
  */
 
 import { App } from "@capacitor/app";
+import { getAccessToken } from "../api/client";
 import { API_BASE_URL, getCapacitorPlatform, isCapacitor, isElectron } from "./constants";
 
 export type ClientErrorReport = {
@@ -35,6 +37,8 @@ export function scrubText(text: string): string {
     .replace(/bearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [token]")
     .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[email]")
     .replace(/(https?:\/\/[^\s?#"'<>]+)\?[^\s#"'<>]*/g, "$1?[query]")
+    // The OS account name in a file path (the Windows desktop app lives under C:/Users/<name>/).
+    .replace(/([\\/](?:Users|home)[\\/])[^\\/:)'"\r\n]+/gi, "$1[user]")
     // Ids written into messages: uuids, and the 16-hex ids the database generates.
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[id]")
     .replace(/\b[0-9a-f]{16,}\b/gi, "[id]");
@@ -54,10 +58,14 @@ function currentPlatform(): string {
   return isElectron() ? "electron" : "web";
 }
 
-/** The route the user is on; native shells route in the hash. */
+/**
+ * The route the user is on. Native shells route in the hash; a file:// page's path is where the
+ * app is installed (C:/Users/<name>/...), never a route, so it is not used.
+ */
 function currentRoute(): string {
-  const { pathname, hash } = window.location;
-  return hash.startsWith("#/") ? hash.slice(1) : pathname;
+  const { pathname, hash, protocol } = window.location;
+  if (hash.startsWith("#/")) return hash.slice(1);
+  return protocol === "file:" ? "" : pathname;
 }
 
 type Sender = (reports: ClientErrorReport[]) => Promise<void>;
@@ -106,6 +114,18 @@ export function createErrorReporter(send: Sender, version: () => string) {
   };
 }
 
+/** The session token when signed in; an expired one only means the report arrives without a user. */
+function authorizedHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  try {
+    const token = getAccessToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  } catch {
+    // storage blocked: the report goes without a user
+  }
+  return headers;
+}
+
 function describe(reason: unknown): { message: string; stack: string } {
   if (reason instanceof Error) return { message: `${reason.name}: ${reason.message}`, stack: reason.stack ?? "" };
   return { message: typeof reason === "string" ? reason : String(reason), stack: "" };
@@ -140,7 +160,7 @@ export function installErrorReporting(): ErrorReporting {
     (errors) =>
       fetch(`${API_BASE_URL}/client-errors`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authorizedHeaders(),
         body: JSON.stringify({ errors }),
         credentials: "omit",
         keepalive: true,

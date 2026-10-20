@@ -10,6 +10,7 @@ const env = vi.hoisted(() => ({
   policyOk: true,
   store: null as null | Record<string, unknown>,
   resume: null as null | (() => void),
+  osVersion: "18.0",
 }));
 
 vi.mock("../utils/constants", () => ({
@@ -24,6 +25,9 @@ vi.mock("@capacitor/app", () => ({
       return { remove: vi.fn() };
     }),
   },
+}));
+vi.mock("@capacitor/device", () => ({
+  Device: { getInfo: vi.fn(async () => ({ osVersion: env.osVersion })) },
 }));
 vi.mock("@capawesome/capacitor-app-update", () => ({
   AppUpdateAvailability: { UNKNOWN: 0, UPDATE_NOT_AVAILABLE: 1, UPDATE_AVAILABLE: 2, UPDATE_IN_PROGRESS: 3 },
@@ -61,6 +65,7 @@ beforeEach(() => {
     policyOk: true,
     store: null,
     resume: null,
+    osVersion: "18.0",
   });
   localStorage.clear();
   vi.clearAllMocks();
@@ -76,10 +81,28 @@ describe("useMobileUpdate", () => {
     expect(result.current.state).toEqual({ kind: "none" });
   });
 
-  it("blocks below the server's minimum for this platform", async () => {
+  it("blocks below the server's minimum when Play has an update", async () => {
     env.minimum = { android: "1.2.0", ios: "" };
+    env.store = newer;
     const { result } = renderHook(() => useMobileUpdate());
     await waitFor(() => expect(result.current.state).toEqual({ kind: "required" }));
+  });
+
+  it("does not lock out below the minimum when the store has nothing to install", async () => {
+    env.minimum = { android: "9.0.0", ios: "" };
+    const { result } = renderHook(() => useMobileUpdate());
+    await settle();
+    expect(result.current.state).toEqual({ kind: "none" });
+  });
+
+  it("offers nothing to an iPhone too old for the new version, and does not lock it out", async () => {
+    env.platform = "ios";
+    env.osVersion = "15.8";
+    env.minimum = { android: "", ios: "1.2.0" };
+    env.store = { updateAvailability: 2, availableVersionName: "1.2.0", minimumOsVersion: "16.0" };
+    const { result } = renderHook(() => useMobileUpdate());
+    await settle();
+    expect(result.current.state).toEqual({ kind: "none" });
   });
 
   it("uses the iOS minimum on iOS", async () => {
@@ -90,6 +113,7 @@ describe("useMobileUpdate", () => {
     expect(lenient.result.current.state).toEqual({ kind: "none" });
 
     env.minimum = { android: "", ios: "1.2.0" };
+    env.store = { updateAvailability: 2, availableVersionName: "1.2.0", minimumOsVersion: "16.0" };
     const strict = renderHook(() => useMobileUpdate());
     await waitFor(() => expect(strict.result.current.state).toEqual({ kind: "required" }));
   });
@@ -121,6 +145,7 @@ describe("useMobileUpdate", () => {
     expect(result.current.state).toEqual({ kind: "none" });
 
     env.minimum = { android: "1.2.0", ios: "" }; // raised on the server meanwhile
+    env.store = newer;
     await act(async () => env.resume?.());
     await waitFor(() => expect(result.current.state).toEqual({ kind: "required" }));
   });
@@ -148,6 +173,7 @@ describe("useMobileUpdate", () => {
 
   it("holds a required update back during a call and shows it when the call ends", async () => {
     env.minimum = { android: "1.2.0", ios: "" };
+    env.store = newer;
     useP2PCallStore.setState({ activeCall: { id: "c1" } as never });
     const { result } = renderHook(() => useMobileUpdate());
     await settle();

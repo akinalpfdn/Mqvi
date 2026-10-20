@@ -84,7 +84,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Avatar:            handlers.NewAvatarHandler(repos.User, svcs.Member, svcs.Server, fileLocator, svcs.UploadPipeline, urlSigner),
 		Stats:             handlers.NewStatsHandler(repos.User),
 		ClientPolicy:      handlers.NewClientPolicyHandler(cfg.ClientVersions.MinAndroid, cfg.ClientVersions.MinIOS),
-		ClientError:       handlers.NewClientErrorHandler(svcs.ClientError, limiters.ClientError, limiters.ClientRenderCrash),
+		ClientError:       handlers.NewClientErrorHandler(svcs.ClientError, limiters.ClientError, limiters.ClientRenderCrash, limiters.ClientErrorDaily),
 		Admin:             handlers.NewAdminHandler(svcs.LiveKitAdmin, svcs.MetricsHistory, svcs.AdminUser, svcs.AdminServer, svcs.Report, svcs.ReportModeration, svcs.AppLog, svcs.SettingsBadge, svcs.Voice),
 		ServerMute:        handlers.NewServerMuteHandler(svcs.ServerMute),
 		ChannelMute:       handlers.NewChannelMuteHandler(svcs.ChannelMute),

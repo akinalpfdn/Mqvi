@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/pkg/ratelimit"
 	"github.com/akinalp/mqvi/services"
 )
@@ -12,23 +14,27 @@ import (
 // maxClientErrorBody fits a full batch of truncated reports with room for JSON overhead.
 const maxClientErrorBody = 32 << 10
 
-// ClientErrorRecorder stores scrubbed client error reports.
+// ClientErrorRecorder stores scrubbed client error reports against a user (nil when signed out).
 type ClientErrorRecorder interface {
-	Record(reports []services.ClientErrorReport)
+	Record(reports []services.ClientErrorReport, userID *string)
 }
 
-// ClientErrorHandler serves POST /api/client-errors. Public on purpose — errors on the sign-in
-// screen matter too — so it is bounded per IP and by body size, and stores no user or IP.
+// ClientErrorHandler serves POST /api/client-errors behind the optional auth middleware: a signed-in
+// client's reports carry its user, and errors on the sign-in screen still get in without one. Being
+// public, it is bounded per IP (per minute and per day) and by body size; no IP is stored.
 type ClientErrorHandler struct {
 	recorder ClientErrorRecorder
 	limiter  *ratelimit.MessageRateLimiter
 	// A render crash comes alone (the client sends it at once, as the app reloads over it) and has
 	// its own per-IP budget, so earlier ordinary reports cannot use up the slot it needs.
 	renderLimiter *ratelimit.MessageRateLimiter
+	// Every request, per IP per day: without it one address could fill the service's daily cap
+	// in about an hour and silence reporting for everyone until it resets.
+	dailyLimiter *ratelimit.MessageRateLimiter
 }
 
-func NewClientErrorHandler(recorder ClientErrorRecorder, limiter, renderLimiter *ratelimit.MessageRateLimiter) *ClientErrorHandler {
-	return &ClientErrorHandler{recorder: recorder, limiter: limiter, renderLimiter: renderLimiter}
+func NewClientErrorHandler(recorder ClientErrorRecorder, limiter, renderLimiter, dailyLimiter *ratelimit.MessageRateLimiter) *ClientErrorHandler {
+	return &ClientErrorHandler{recorder: recorder, limiter: limiter, renderLimiter: renderLimiter, dailyLimiter: dailyLimiter}
 }
 
 func (h *ClientErrorHandler) Report(w http.ResponseWriter, r *http.Request) {
@@ -53,10 +59,20 @@ func (h *ClientErrorHandler) Report(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if limiter != nil && !limiter.Allow(ratelimit.ExtractIP(r)) {
+	ip := ratelimit.ExtractIP(r)
+	if limiter != nil && !limiter.Allow(ip) {
 		pkg.ErrorWithMessage(w, http.StatusTooManyRequests, "too many requests")
 		return
 	}
-	h.recorder.Record(body.Errors)
+	if h.dailyLimiter != nil && !h.dailyLimiter.Allow(ip) {
+		pkg.ErrorWithMessage(w, http.StatusTooManyRequests, "too many requests")
+		return
+	}
+
+	var userID *string
+	if user, ok := r.Context().Value(ctxkeys.User).(*models.User); ok && user != nil {
+		userID = &user.ID
+	}
+	h.recorder.Record(body.Errors, userID)
 	w.WriteHeader(http.StatusNoContent)
 }

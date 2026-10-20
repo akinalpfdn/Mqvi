@@ -299,7 +299,8 @@ func initRoutes(
 	// Stats — public
 	mux.HandleFunc("GET /api/stats", h.Stats.GetPublicStats)
 	mux.HandleFunc("GET /api/client-policy", h.ClientPolicy.Get)
-	mux.HandleFunc("POST /api/client-errors", h.ClientError.Report)
+	// Optional auth: a signed-in client's reports carry its user; signed-out ones are still taken.
+	mux.Handle("POST /api/client-errors", authMw.Optional(http.HandlerFunc(h.ClientError.Report)))
 
 	// Invite Preview — public (no auth)
 	mux.HandleFunc("GET /api/invites/{code}/preview", h.Invite.Preview)

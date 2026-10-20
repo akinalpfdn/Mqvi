@@ -198,5 +198,6 @@
   "updateRequiredTitle": "Güncelleme gerekli",
   "updateRequiredDesc": "mqvi'nin bu sürümü artık desteklenmiyor. Kullanmaya devam etmek için güncelle.",
   "updateNow": "Güncelle",
-  "updateLater": "Sonra"
+  "updateLater": "Sonra",
+  "updateChangeServer": "Sunucuyu değiştir"
 }

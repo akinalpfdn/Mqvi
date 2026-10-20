@@ -198,5 +198,6 @@
   "updateRequiredTitle": "Update required",
   "updateRequiredDesc": "This version of mqvi is no longer supported. Update to keep using it.",
   "updateNow": "Update",
-  "updateLater": "Later"
+  "updateLater": "Later",
+  "updateChangeServer": "Change server"
 }

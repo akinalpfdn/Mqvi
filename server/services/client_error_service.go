@@ -11,8 +11,9 @@ import (
 	"github.com/akinalp/mqvi/models"
 )
 
-// ClientErrorReport is one unhandled error a client caught. Nothing in it identifies the user,
-// and Record scrubs what could: tokens, email addresses, URL query strings, ids in the route.
+// ClientErrorReport is one unhandled error a client caught. Record scrubs what it carries that
+// nobody needs to debug it: tokens, email addresses, URL query strings, ids, home-folder names.
+// Who hit it is attached separately, from the session, when the client is signed in.
 type ClientErrorReport struct {
 	Kind       string `json:"kind"`
 	Message    string `json:"message"`
@@ -55,6 +56,10 @@ var (
 	urlQueryPattern = regexp.MustCompile(`(https?://[^\s?#"'<>]+)\?[^\s#"'<>]*`)
 	// Ids written into messages ("No session found for <user>:<device>"): uuids, and the 16-hex
 	// ids the database generates (lower(hex(randomblob(8)))) or longer hex runs.
+	// A home folder in a file path: the OS account name, often the person's real name (spaces
+	// included). The desktop app is installed per user on Windows, so every frame carries
+	// C:/Users/<name>/...
+	homeDirPattern   = regexp.MustCompile(`(?i)([\\/](?:Users|home)[\\/])[^\\/:)'"\r\n]+`)
 	uuidPattern      = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`)
 	hexIDPattern     = regexp.MustCompile(`(?i)\b[0-9a-f]{16,}\b`)
 	appVersionFormat = regexp.MustCompile(`^[0-9A-Za-z.+-]{1,32}$`)
@@ -111,8 +116,9 @@ func newClientErrorService(logger ClientErrorLogger, now func() time.Time) *Clie
 	return &ClientErrorService{logger: logger, now: now, seen: make(map[[sha256.Size]byte]time.Time)}
 }
 
-// Record scrubs and stores each report; empty, repeated and over-cap reports are skipped.
-func (s *ClientErrorService) Record(reports []ClientErrorReport) {
+// Record scrubs and stores each report against userID (nil when not signed in); empty, repeated
+// and over-cap reports are skipped.
+func (s *ClientErrorService) Record(reports []ClientErrorReport, userID *string) {
 	if len(reports) > MaxClientErrorsPerBatch {
 		reports = reports[:MaxClientErrorsPerBatch]
 	}
@@ -121,7 +127,7 @@ func (s *ClientErrorService) Record(reports []ClientErrorReport) {
 		if r.Message == "" || !s.admit(r) {
 			continue
 		}
-		s.logger.Log(models.LogLevelError, models.LogCategoryClient, nil, nil, "client error: "+r.Message, map[string]string{
+		s.logger.Log(models.LogLevelError, models.LogCategoryClient, userID, nil, "client error: "+r.Message, map[string]string{
 			"kind":        r.Kind,
 			"stack":       r.Stack,
 			"route":       r.Route,
@@ -209,6 +215,7 @@ func scrubSecrets(s string) string {
 	s = bearerPattern.ReplaceAllString(s, "Bearer [token]")
 	s = emailPattern.ReplaceAllString(s, "[email]")
 	s = urlQueryPattern.ReplaceAllString(s, "$1?[query]")
+	s = homeDirPattern.ReplaceAllString(s, "${1}[user]")
 	s = uuidPattern.ReplaceAllString(s, "[id]")
 	return hexIDPattern.ReplaceAllString(s, "[id]")
 }

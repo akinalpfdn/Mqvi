@@ -13,6 +13,7 @@ describe("installErrorReporting in a production build", () => {
 
   it("sends a render crash the root boundary caught at once, with its component stack", () => {
     vi.stubEnv("DEV", false);
+    localStorage.setItem("access_token", "signed-in-token");
     const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
     const reporting = installErrorReporting();
@@ -23,6 +24,7 @@ describe("installErrorReporting in a production build", () => {
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toMatch(/\/client-errors$/);
     expect(init.keepalive).toBe(true);
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer signed-in-token");
     const sentReport = (JSON.parse(String(init.body)) as { errors: ClientErrorReport[] }).errors[0];
     expect(sentReport).toMatchObject({ kind: "render", message: "TypeError: x is undefined" });
     expect(sentReport.stack).toContain("at ChannelList");
@@ -48,6 +50,11 @@ describe("scrubbing", () => {
     ["no user ali.veli@example.com", "no user [email]"],
     ["GET https://mqvi.net/f/a.png?token=s&exp=1 failed", "GET https://mqvi.net/f/a.png?[query] failed"],
     ["No session found for 9f3a1c2b4d5e6f70:0193f1e2-7a4b-4c3d-8e9f-001122334455", "No session found for [id]:[id]"],
+    [
+      "at f (file:///C:/Users/Ali Veli/AppData/Local/Programs/mqvi/dist/assets/index-x.js:1:2)",
+      "at f (file:///C:/Users/[user]/AppData/Local/Programs/mqvi/dist/assets/index-x.js:1:2)",
+    ],
+    ["at g (/home/ali/mqvi/x.js:3:4)", "at g (/home/[user]/mqvi/x.js:3:4)"],
   ])("%s", (input, expected) => {
     expect(scrubText(input)).toBe(expected);
   });

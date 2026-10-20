@@ -115,6 +115,7 @@ type RateLimiters struct {
 	// Render crashes have their own bucket (see ClientErrorHandler).
 	ClientError       *ratelimit.MessageRateLimiter
 	ClientRenderCrash *ratelimit.MessageRateLimiter
+	ClientErrorDaily  *ratelimit.MessageRateLimiter
 }
 
 // initServices creates all services. Order matters:
@@ -417,6 +418,9 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		// Five single-report render crashes a minute per IP: the error boundary reloads up to three
 		// times on a deterministic crash, and users behind one NAT share the bucket.
 		ClientRenderCrash: ratelimit.NewMessageRateLimiter(5, time.Minute, time.Minute),
+		// Thirty requests a day per IP (at most 150 reports): a real client sends a few, and four
+		// addresses would be needed to fill the service's daily cap of 1000.
+		ClientErrorDaily: ratelimit.NewMessageRateLimiter(30, 24*time.Hour, 24*time.Hour),
 	}
 
 	return svcs, limiters, metricsCollector

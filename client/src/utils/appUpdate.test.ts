@@ -15,33 +15,43 @@ describe("compareVersions", () => {
 });
 
 describe("decideUpdate", () => {
-  const facts = { current: "1.1.0", minimum: "", storeVersionId: null, dismissedId: null };
+  const facts = { current: "1.1.0", minimum: "", store: null, dismissedId: null };
+  const play = { id: "9", name: null };
+  const appStore = (name: string) => ({ id: name, name });
 
   it("asks nothing when up to date and no minimum", () => {
     expect(decideUpdate(facts)).toEqual({ kind: "none" });
   });
 
-  it("requires an update below the server's minimum, even with nothing new in the store", () => {
-    expect(decideUpdate({ ...facts, minimum: "1.2.0" })).toEqual({ kind: "required" });
+  it("requires an update below the minimum when Play offers one", () => {
+    expect(decideUpdate({ ...facts, minimum: "1.2.0", store: play })).toEqual({ kind: "required" });
+  });
+
+  it("requires an update below the minimum when the App Store version meets it", () => {
+    expect(decideUpdate({ ...facts, minimum: "1.2.0", store: appStore("1.2.0") })).toEqual({ kind: "required" });
+  });
+
+  it("does not lock out when the store has nothing that meets the minimum", () => {
+    expect(decideUpdate({ ...facts, minimum: "1.3.0", store: appStore("1.2.0") })).toEqual({ kind: "available", id: "1.2.0" });
+  });
+
+  it("does not lock out when the store has nothing new at all", () => {
+    expect(decideUpdate({ ...facts, minimum: "9.0.0" })).toEqual({ kind: "none" });
   });
 
   it("does not require one at or above the minimum", () => {
-    expect(decideUpdate({ ...facts, minimum: "1.1.0" })).toEqual({ kind: "none" });
-  });
-
-  it("offers a newer store version", () => {
-    expect(decideUpdate({ ...facts, storeVersionId: "9" })).toEqual({ kind: "available", id: "9" });
+    expect(decideUpdate({ ...facts, minimum: "1.1.0", store: play })).toEqual({ kind: "available", id: "9" });
   });
 
   it("does not offer the store version the user put off", () => {
-    expect(decideUpdate({ ...facts, storeVersionId: "9", dismissedId: "9" })).toEqual({ kind: "none" });
+    expect(decideUpdate({ ...facts, store: play, dismissedId: "9" })).toEqual({ kind: "none" });
   });
 
   it("offers the next store version after one was put off", () => {
-    expect(decideUpdate({ ...facts, storeVersionId: "10", dismissedId: "9" })).toEqual({ kind: "available", id: "10" });
+    expect(decideUpdate({ ...facts, store: { id: "10", name: null }, dismissedId: "9" })).toEqual({ kind: "available", id: "10" });
   });
 
   it("forces the update even when its store version was put off", () => {
-    expect(decideUpdate({ ...facts, minimum: "1.2.0", storeVersionId: "9", dismissedId: "9" })).toEqual({ kind: "required" });
+    expect(decideUpdate({ ...facts, minimum: "1.2.0", store: play, dismissedId: "9" })).toEqual({ kind: "required" });
   });
 });
