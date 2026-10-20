@@ -159,25 +159,60 @@ describe("iOS, where the app rises with the keyboard", () => {
   });
 });
 
-describe("Android, where the keyboard has finished when it reports", () => {
+/** Android: MainActivity reports the keyboard as its animation starts and ends. */
+function androidKeyboard(phase: "willShow" | "didShow" | "willHide" | "didHide", height = KEYBOARD, duration = 0) {
+  window.dispatchEvent(new CustomEvent("mqvikeyboard", { detail: { phase, height, duration } }));
+}
+
+/** Android: the keyboard starts moving now, and the inset follows it over `duration` ms. */
+function androidKeyboardStarts(height = KEYBOARD, duration = 300) {
+  const started = performance.now();
+  insetAt = () => height * cubicBezier(CURVE, Math.min(1, (performance.now() - started) / duration));
+  androidKeyboard("willShow", height, duration);
+}
+
+describe("Android, from MainActivity's keyboard events", () => {
   it("leaves a field above the keyboard where it is", async () => {
     const field = page(120);
     await start("android");
-    insetAt = () => KEYBOARD;
-    fire("keyboardDidShow", KEYBOARD);
-    vi.advanceTimersByTime(300);
+    androidKeyboardStarts();
+    vi.advanceTimersByTime(320);
+    androidKeyboard("didShow");
 
     expect(field.onScreenBottom()).toBe(120);
   });
 
-  it("scrolls a field under the keyboard just into view", async () => {
+  it("moves a field the keyboard would cover while the keyboard is still rising", async () => {
     const field = page(650);
     await start("android");
-    insetAt = () => KEYBOARD;
-    fire("keyboardDidShow", KEYBOARD);
-    vi.advanceTimersByTime(300);
+    androidKeyboardStarts();
 
+    vi.advanceTimersByTime(150);
+    expect(field.onScreenBottom()).toBeLessThan(650);
+    expect(field.onScreenBottom()).toBeGreaterThan(ABOVE_KEYBOARD);
+
+    vi.advanceTimersByTime(170);
     expect(field.onScreenBottom()).toBe(ABOVE_KEYBOARD);
+  });
+
+  it("brings a short form up as the page gains room, before the keyboard has finished", async () => {
+    const field = page(580, 600);
+    await start("android");
+    androidKeyboardStarts();
+
+    vi.advanceTimersByTime(316);
+    expect(field.onScreenBottom()).toBe(ABOVE_KEYBOARD);
+  });
+
+  it("stops listening once stopped", async () => {
+    const field = page(650);
+    await start("android");
+    stop?.();
+    stop = undefined;
+    androidKeyboardStarts();
+    vi.advanceTimersByTime(320);
+
+    expect(field.onScreenBottom()).toBe(650);
   });
 });
 

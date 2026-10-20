@@ -3,6 +3,7 @@ package net.mqvi.app;
 import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.View;
 import android.view.WindowManager;
 import android.webkit.WebView;
 import androidx.core.graphics.Insets;
@@ -43,27 +44,33 @@ public class MainActivity extends BridgeActivity {
         // stream is being watched full-screen, and puts it back on the way out.
         OrientationPlugin.applyDefault(this);
 
-        installSafeAreaFallback();
+        installInsetHandling();
         installKeyboardInsetTracking();
     }
 
-    // Capacitor's SystemBars plugin owns safe areas. With viewport-fit=cover and WebView 140+ it
-    // stops padding the WebView's container and hands the insets to the page instead — but it
-    // only injects --safe-area-inset-* when SDK >= 35, and env(safe-area-inset-*) still reads 0
-    // in the Android WebView (measured on Chromium 143). So on Android < 15 with a current
-    // WebView the page is edge-to-edge with no insets at all and the header lands behind the
-    // status bar. That gap is the only thing this fills. On 15+ Capacitor does it and we stay out
-    // of the way — two writers on the same custom properties is what made this flaky before.
-    private void installSafeAreaFallback() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-            return;
-        }
-
+    // The page owns every inset: the WebView is edge-to-edge and never resizes, the system bars
+    // reach CSS as --safe-area-inset-*, the keyboard as --keyboard-inset (below). Same model as iOS.
+    //
+    // Capacitor's SystemBars plugin listens on the WebView's container and pads its bottom by the
+    // keyboard height whenever the keyboard is up, adjustNothing or not. That shrank the WebView
+    // on top of --keyboard-inset, and keyboardScroll.ts (which measures the visible bottom as
+    // innerHeight minus the keyboard) then subtracted the keyboard twice and scrolled fields that
+    // were in plain view. Replacing that listener drops the padding; it also took Capacitor's
+    // safe-area injection with it, so the WebView listener below writes the safe areas on every
+    // SDK — one writer. Runs after super.onCreate, which is where SystemBars installs its own.
+    private void installInsetHandling() {
         final WebView webView = getBridge().getWebView();
 
-        // Downstream of Capacitor's listener, which sits on the parent: it passes the real insets
-        // through when it leaves the WebView edge-to-edge, and zeroes them when it padded the
-        // container itself. Either way, what arrives here is what the page actually needs.
+        ViewCompat.setOnApplyWindowInsetsListener(
+            (View) webView.getParent(),
+            (container, windowInsets) -> {
+                container.setPadding(0, 0, 0, 0);
+                return windowInsets;
+            }
+        );
+
+        // Also replaces the WebView's own inset handling, so nothing in Chromium resizes its
+        // viewport for the keyboard either.
         ViewCompat.setOnApplyWindowInsetsListener(
             webView,
             (view, windowInsets) -> {
@@ -123,17 +130,37 @@ public class MainActivity extends BridgeActivity {
 
     // The soft keyboard is tracked separately from the safe-area insets. adjustNothing means the
     // window never resizes when the IME opens, so the web layer lifts itself against
-    // --keyboard-inset instead. The animation callback is a different slot from
-    // setOnApplyWindowInsetsListener, so it disturbs neither the safe-area listener nor
-    // Capacitor's own inset handling on API 35+.
+    // --keyboard-inset, set every frame of the keyboard animation, and keyboardScroll.ts brings the
+    // focused field up from the `mqvikeyboard` events sent as the animation starts and ends.
+    //
+    // The callback sits on the root view and replaces the Keyboard plugin's: the plugin's root
+    // callback is DISPATCH_MODE_STOP, and a STOP callback keeps the animation from every view
+    // below it (ViewGroup#dispatchWindowInsetsAnimation*), so one on the WebView never ran. That
+    // also ends the plugin's keyboard events on Android; nothing here listens to them any more.
+    // Runs after super.onCreate, where the plugin installs its own.
     private void installKeyboardInsetTracking() {
         final WebView webView = getBridge().getWebView();
+        final View root = findViewById(android.R.id.content).getRootView();
 
         ViewCompat.setWindowInsetsAnimationCallback(
-            webView,
+            root,
             new WindowInsetsAnimationCompat.Callback(
-                WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_STOP
+                WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE
             ) {
+                @Override
+                public WindowInsetsAnimationCompat.BoundsCompat onStart(
+                    WindowInsetsAnimationCompat animation,
+                    WindowInsetsAnimationCompat.BoundsCompat bounds
+                ) {
+                    // onStart sees the insets the animation ends on.
+                    WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(root);
+                    if (isKeyboard(animation) && insets != null) {
+                        boolean showing = insets.isVisible(WindowInsetsCompat.Type.ime());
+                        emitKeyboardEvent(webView, showing ? "willShow" : "willHide", insets, animation.getDurationMillis());
+                    }
+                    return bounds;
+                }
+
                 @Override
                 public WindowInsetsCompat onProgress(
                     WindowInsetsCompat insets,
@@ -146,13 +173,38 @@ public class MainActivity extends BridgeActivity {
                 @Override
                 public void onEnd(WindowInsetsAnimationCompat animation) {
                     // Authoritative resting value, in case the per-frame progress was choppy.
-                    WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(webView);
-                    if (insets != null) {
-                        emitKeyboardInset(webView, insets);
+                    WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(root);
+                    if (insets == null) {
+                        return;
+                    }
+                    emitKeyboardInset(webView, insets);
+                    if (isKeyboard(animation)) {
+                        boolean showing = insets.isVisible(WindowInsetsCompat.Type.ime());
+                        emitKeyboardEvent(webView, showing ? "didShow" : "didHide", insets, 0);
                     }
                 }
             }
         );
+    }
+
+    private static boolean isKeyboard(WindowInsetsAnimationCompat animation) {
+        return (animation.getTypeMask() & WindowInsetsCompat.Type.ime()) != 0;
+    }
+
+    /** `height` is the whole keyboard from the screen's bottom edge, as keyboardScroll.ts expects. */
+    private void emitKeyboardEvent(WebView webView, String phase, WindowInsetsCompat insets, long durationMs) {
+        float density = getResources().getDisplayMetrics().density;
+        float height = insets.isVisible(WindowInsetsCompat.Type.ime())
+            ? insets.getInsets(WindowInsetsCompat.Type.ime()).bottom / density
+            : 0f;
+        String js = String.format(
+            Locale.US,
+            "window.dispatchEvent(new CustomEvent('mqvikeyboard',{detail:{phase:'%s',height:%.1f,duration:%d}}));",
+            phase,
+            height,
+            durationMs
+        );
+        webView.evaluateJavascript(js, null);
     }
 
     private void emitKeyboardInset(WebView webView, WindowInsetsCompat insets) {

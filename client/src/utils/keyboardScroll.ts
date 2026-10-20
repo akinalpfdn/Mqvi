@@ -6,7 +6,9 @@
  * on the keyboard's curve). The field's own scroll container moves by exactly the hidden
  * amount, and only when the field is genuinely hidden; a field above the keyboard is left alone.
  *
- * iOS starts at keyboardWillShow and scrolls on the keyboard's duration and curve, so the field
+ * Both platforms start as the keyboard starts (iOS: the Keyboard plugin's keyboardWillShow;
+ * Android: MainActivity's `mqvikeyboard` events, since its keyboard animation callback replaces
+ * the plugin's) and scroll over the keyboard's duration, so the field
  * rises with the keyboard. The page gains its scroll room on that same curve as the inset
  * grows, so a field near the end of the page follows it up in one movement. A page that cannot
  * scroll yet (a short form) is looked at again every frame of the rise, and its scroll joins the
@@ -19,6 +21,15 @@ import { Keyboard } from "@capacitor/keyboard";
 const CLEARANCE = 12;
 /** The iOS keyboard animation; globals.css `.keyboard-animated` uses the same values. */
 const KEYBOARD_ANIMATION_MS = 250;
+
+/** Sent by MainActivity (Android) as the keyboard animation starts and ends. */
+type NativeKeyboardEvent = CustomEvent<{
+  phase: "willShow" | "didShow" | "willHide" | "didHide";
+  /** The whole keyboard from the screen's bottom edge, in CSS px; 0 while hidden. */
+  height: number;
+  /** The animation's length (willShow / willHide); 0 when it has ended. */
+  duration: number;
+}>;
 const KEYBOARD_CURVE = [0.38, 0.7, 0.125, 1] as const;
 
 /** One `initKeyboardScroll` call's state. */
@@ -78,14 +89,20 @@ function cancelAnimation(r: Revealer): void {
  * stops; joining late, it covers the rest of the curve. The browser clamps each step to the
  * room the page has then.
  */
-function animateScroll(r: Revealer, scroller: HTMLElement, top: number, startedAt = performance.now()): void {
+function animateScroll(
+  r: Revealer,
+  scroller: HTMLElement,
+  top: number,
+  startedAt = performance.now(),
+  durationMs = KEYBOARD_ANIMATION_MS,
+): void {
   if (r.animation) cancelAnimationFrame(r.animation.frame);
   const from = scroller.scrollTop;
-  const progress = (now: number) => cubicBezier(KEYBOARD_CURVE, Math.min(1, Math.max(0, (now - startedAt) / KEYBOARD_ANIMATION_MS)));
+  const progress = (now: number) => cubicBezier(KEYBOARD_CURVE, Math.min(1, Math.max(0, (now - startedAt) / durationMs)));
   const joined = progress(performance.now());
 
   const step = (now: number) => {
-    const t = Math.min(1, (now - startedAt) / KEYBOARD_ANIMATION_MS);
+    const t = Math.min(1, (now - startedAt) / durationMs);
     scroller.scrollTop = from + (top - from) * (joined >= 1 ? 1 : (progress(now) - joined) / (1 - joined));
     if (t < 1) {
       r.animation = { scroller, top, frame: requestAnimationFrame(step) };
@@ -96,7 +113,7 @@ function animateScroll(r: Revealer, scroller: HTMLElement, top: number, startedA
   r.animation = { scroller, top, frame: requestAnimationFrame(step) };
 }
 
-function revealFocusedField(r: Revealer, startedAt?: number): void {
+function revealFocusedField(r: Revealer, startedAt?: number, durationMs?: number): void {
   if (r.keyboardHeight === 0) return;
 
   const element = document.activeElement;
@@ -114,16 +131,16 @@ function revealFocusedField(r: Revealer, startedAt?: number): void {
   if (r.animation?.scroller === scroller && r.animation.top === target) return;
   if (target <= scroller.scrollTop) return;
 
-  animateScroll(r, scroller, target, startedAt);
+  animateScroll(r, scroller, target, startedAt, durationMs);
 }
 
-/** iOS: looks for the field's scroller every frame of the rise until it can scroll. */
-function revealWhileRising(r: Revealer): void {
+/** Looks for the field's scroller every frame of the keyboard's rise until it can scroll. */
+function revealWhileRising(r: Revealer, durationMs = KEYBOARD_ANIMATION_MS): void {
   const startedAt = performance.now();
   const tick = () => {
     r.riseFrame = null;
-    revealFocusedField(r, startedAt);
-    if (!r.animation && performance.now() - startedAt < KEYBOARD_ANIMATION_MS) r.riseFrame = requestAnimationFrame(tick);
+    revealFocusedField(r, startedAt, durationMs);
+    if (!r.animation && performance.now() - startedAt < durationMs) r.riseFrame = requestAnimationFrame(tick);
   };
   if (r.riseFrame !== null) cancelAnimationFrame(r.riseFrame);
   r.riseFrame = requestAnimationFrame(tick);
@@ -138,27 +155,35 @@ function clearHeight(r: Revealer): void {
 export async function initKeyboardScroll(platform: "android" | "ios"): Promise<() => void> {
   const r: Revealer = { keyboardHeight: 0, animation: null, riseFrame: null };
   const clear = () => clearHeight(r);
-  const handles =
-    platform === "ios"
-      ? [
-          // The height the WebView will lose (adjusted for iPad windows), as the keyboard starts.
-          await Keyboard.addListener("keyboardWillShow", (info) => {
-            r.keyboardHeight = info.keyboardHeight;
-            revealWhileRising(r);
-          }),
-          // Whatever the page could not reach while its room was still growing.
-          await Keyboard.addListener("keyboardDidShow", () => revealFocusedField(r)),
-        ]
-      : [
-          await Keyboard.addListener("keyboardDidShow", (info) => {
-            r.keyboardHeight = info.keyboardHeight;
-            revealFocusedField(r);
-          }),
-        ];
-  handles.push(
-    await Keyboard.addListener("keyboardWillHide", clear),
-    await Keyboard.addListener("keyboardDidHide", clear),
-  );
+  const handles: { remove: () => Promise<void> }[] = [];
+  if (platform === "ios") {
+    handles.push(
+      // The height the WebView will lose (adjusted for iPad windows), as the keyboard starts.
+      await Keyboard.addListener("keyboardWillShow", (info) => {
+        r.keyboardHeight = info.keyboardHeight;
+        revealWhileRising(r);
+      }),
+      // Whatever the page could not reach while its room was still growing.
+      await Keyboard.addListener("keyboardDidShow", () => revealFocusedField(r)),
+      await Keyboard.addListener("keyboardWillHide", clear),
+      await Keyboard.addListener("keyboardDidHide", clear),
+    );
+  }
+
+  const onNativeKeyboard = (event: Event) => {
+    // Dispatched by native code; the window event map has no entry for it.
+    const { phase, height, duration } = (event as NativeKeyboardEvent).detail;
+    if (phase === "willShow") {
+      r.keyboardHeight = height;
+      revealWhileRising(r, duration > 0 ? duration : KEYBOARD_ANIMATION_MS);
+    } else if (phase === "didShow") {
+      r.keyboardHeight = height;
+      revealFocusedField(r);
+    } else {
+      clear();
+    }
+  };
+  if (platform === "android") window.addEventListener("mqvikeyboard", onNativeKeyboard);
 
   // A resize is a rotation; the keyboard reports its new height, the field may need moving.
   const onResize = () => revealFocusedField(r);
@@ -171,6 +196,7 @@ export async function initKeyboardScroll(platform: "android" | "ios"): Promise<(
 
   return () => {
     handles.forEach((handle) => void handle.remove());
+    window.removeEventListener("mqvikeyboard", onNativeKeyboard);
     window.removeEventListener("resize", onResize);
     document.removeEventListener("focusin", onFocusIn);
     clear();
