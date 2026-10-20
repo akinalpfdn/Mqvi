@@ -62,6 +62,7 @@ type Services struct {
 	Badge              services.BadgeService
 	Preferences        services.PreferencesService
 	AppLog             services.AppLogService
+	ClientError        *services.ClientErrorService
 	Feedback           services.FeedbackService
 	FeedbackUpload     services.FeedbackUploadService
 	Soundboard         services.SoundboardService
@@ -110,6 +111,8 @@ type RateLimiters struct {
 	SessionRevoke *ratelimit.LoginRateLimiter
 	// CredentialStore caps "remember me" failure reports per user.
 	CredentialStore *ratelimit.MessageRateLimiter
+	// Client error reports, per IP: the route is public, so the IP is all there is to limit by.
+	ClientError *ratelimit.MessageRateLimiter
 }
 
 // initServices creates all services. Order matters:
@@ -371,6 +374,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		Badge:              badgeService,
 		Preferences:        preferencesService,
 		AppLog:             appLogService,
+		ClientError:        services.NewClientErrorService(appLogService),
 		Feedback:           feedbackService,
 		FeedbackUpload:     feedbackUploadService,
 		Soundboard:         soundboardService,
@@ -405,6 +409,8 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		SessionRevoke:   ratelimit.NewLoginRateLimiter(10, time.Minute),
 		// A real failure reports once per login attempt; a handful an hour is plenty.
 		CredentialStore: ratelimit.NewMessageRateLimiter(5, time.Hour, time.Hour),
+		// Ten batches a minute per IP; a client sends one batch at a time and dedupes repeats.
+		ClientError: ratelimit.NewMessageRateLimiter(10, time.Minute, time.Minute),
 	}
 
 	return svcs, limiters, metricsCollector

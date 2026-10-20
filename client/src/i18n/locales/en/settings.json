@@ -650,6 +650,7 @@
   "platformLogsCategoryFeedback": "Feedback",
   "platformLogsCategoryLiveKit": "LiveKit",
   "platformLogsCategoryCleaner": "Cleaner",
+  "platformLogsCategoryClient": "App errors",
   "platformLogsPage": "Page {{current}} of {{total}}",
   "feedback": "Feedback",
   "help": "Help",

@@ -650,6 +650,7 @@
   "platformLogsCategoryFeedback": "Geri Bildirim",
   "platformLogsCategoryLiveKit": "LiveKit",
   "platformLogsCategoryCleaner": "Temizleyici",
+  "platformLogsCategoryClient": "Uygulama hataları",
   "platformLogsPage": "Sayfa {{current}} / {{total}}",
   "feedback": "Geri Bildirim",
   "help": "Yardım",

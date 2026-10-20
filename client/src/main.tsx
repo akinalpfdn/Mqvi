@@ -10,6 +10,10 @@ import { configureMobileUI, initAppLifecycle } from "./utils/nativePlugins";
 import { discardOrphanedNativeCall, findAdoptableNativeCall } from "./native/nativeP2PCall";
 import { useP2PCallStore } from "./stores/p2pCallStore";
 import { initAppFocus } from "./utils/appFocus";
+import { installErrorReporting } from "./utils/errorReporter";
+
+// First, so errors during start-up are reported too.
+installErrorReporting();
 
 // Native shells (Electron file://, Capacitor capacitor://) don't support HTML5 History API.
 // Web uses BrowserRouter for clean URLs.

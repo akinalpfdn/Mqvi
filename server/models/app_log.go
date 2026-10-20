@@ -25,6 +25,8 @@ const (
 	LogCategoryFeedback    LogCategory = "feedback"
 	LogCategoryLiveKit     LogCategory = "livekit"
 	LogCategoryCleaner     LogCategory = "cleaner"
+	// LogCategoryClient is an unhandled error a client reported (POST /api/client-errors).
+	LogCategoryClient LogCategory = "client"
 )
 
 // AppLog represents a structured log entry stored in SQLite.

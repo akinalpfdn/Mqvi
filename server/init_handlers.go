@@ -31,6 +31,7 @@ type Handlers struct {
 	Avatar            *handlers.AvatarHandler
 	Stats             *handlers.StatsHandler
 	ClientPolicy      *handlers.ClientPolicyHandler
+	ClientError       *handlers.ClientErrorHandler
 	Admin             *handlers.AdminHandler
 	ServerMute        *handlers.ServerMuteHandler
 	ChannelMute       *handlers.ChannelMuteHandler
@@ -83,6 +84,7 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Avatar:            handlers.NewAvatarHandler(repos.User, svcs.Member, svcs.Server, fileLocator, svcs.UploadPipeline, urlSigner),
 		Stats:             handlers.NewStatsHandler(repos.User),
 		ClientPolicy:      handlers.NewClientPolicyHandler(cfg.ClientVersions.MinAndroid, cfg.ClientVersions.MinIOS),
+		ClientError:       handlers.NewClientErrorHandler(svcs.ClientError, limiters.ClientError),
 		Admin:             handlers.NewAdminHandler(svcs.LiveKitAdmin, svcs.MetricsHistory, svcs.AdminUser, svcs.AdminServer, svcs.Report, svcs.ReportModeration, svcs.AppLog, svcs.SettingsBadge, svcs.Voice),
 		ServerMute:        handlers.NewServerMuteHandler(svcs.ServerMute),
 		ChannelMute:       handlers.NewChannelMuteHandler(svcs.ChannelMute),

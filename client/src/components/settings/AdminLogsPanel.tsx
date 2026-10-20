@@ -32,6 +32,7 @@ const CATEGORY_OPTIONS: { value: string; labelKey: string }[] = [
   { value: "general", labelKey: "platformLogsCategoryGeneral" },
   { value: "feedback", labelKey: "platformLogsCategoryFeedback" },
   { value: "cleaner", labelKey: "platformLogsCategoryCleaner" },
+  { value: "client", labelKey: "platformLogsCategoryClient" },
 ];
 
 function levelBadgeClass(level: AppLogLevel): string {
