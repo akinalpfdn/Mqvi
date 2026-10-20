@@ -6,16 +6,18 @@
  *
  * A tour may then introduce a few controls (the voice panel) with Next / Skip, clicking nothing.
  * The tour ends on its last control (or last introduction), the step getting done before that,
- * a tap on the dim, Skip, or Escape.
+ * a tap on the dim, Skip, Escape, or Android back.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
+import { useBackHandler } from "../../hooks/useBackHandler";
 import { useGuideStore } from "../../stores/guideStore";
 import { useSpotlightStore } from "../../stores/spotlightStore";
 import { useVoiceStore } from "../../stores/voiceStore";
+import { BackPriority } from "../../utils/backStack";
 import { SIDEBAR, currentStage, isTargetRendered, type TourStage } from "../../utils/guideTours";
 
 /** How long the tour may have nothing on screen (a drawer sliding, a dialog opening). */
@@ -63,6 +65,9 @@ function GuideSpotlight() {
   const [shown, setShown] = useState<Shown | null>(null);
   /** Which introduction is up; null while still walking to the control. */
   const [explainAt, setExplainAt] = useState<number | null>(null);
+
+  // Android back ends the tour first, even past a drawer or settings opened during it.
+  useBackHandler(close, !!tour, BackPriority.Overlay);
 
   const explain = tour?.explain;
   useEffect(() => {
