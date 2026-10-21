@@ -14,6 +14,7 @@ import { useChannelStore } from "../../stores/channelStore";
 import { useIsTouch } from "../../hooks/useMediaQuery";
 import { useUploadProgress } from "../../hooks/useUploadProgress";
 import { validateFiles } from "../../utils/fileValidation";
+import { textLeftAfterSend } from "../../utils/composerText";
 import { pickNative, supportsNativePicker, type PickKind } from "../../utils/nativePicker";
 import { useFileRejectionNotice } from "../../hooks/useFileRejectionNotice";
 import { useServerStore, selectServerE2EE } from "../../stores/serverStore";
@@ -235,10 +236,10 @@ function MessageInput({ openSearch }: MessageInputProps) {
   }
 
   function clearInput(sentContent?: string) {
-    // If the user typed something new during the send (e.g. a slow file upload), keep it instead
-    // of wiping it — only clear when the box still holds exactly what we sent. Height follows from
+    // Typing often carries on past Enter: keep only what was typed after the send, never the sent
+    // text again (keeping the whole box re-sent it with the next message). Height follows from
     // the content change via the sizing layout effect.
-    setContent((current) => (sentContent !== undefined && current !== sentContent ? current : ""));
+    setContent((current) => (sentContent === undefined ? "" : textLeftAfterSend(current, sentContent)));
     setFiles([]);
     setReplyingTo(null);
     setCommandQuery(null);
