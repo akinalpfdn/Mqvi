@@ -31,7 +31,7 @@ import {
 } from "./outboxStore";
 import type { Message, MessageReference, ReactionGroup } from "../types";
 import { DEFAULT_MESSAGE_LIMIT } from "../utils/constants";
-import { mergeLatestPage } from "../utils/messageSync";
+import { mergeLatestPage, resyncLimit, withFlag } from "../utils/messageSync";
 import {
   encryptFilesForE2EE,
   encryptedEditPayload,
@@ -48,8 +48,12 @@ type MessageState = {
   /** channelId -> Message[] */
   messagesByChannel: Record<string, Message[]>;
   hasMoreByChannel: Record<string, boolean>;
-  isLoading: boolean;
-  isLoadingMore: boolean;
+  /**
+   * Conversations whose first page is in flight, and those loading an older page. Per conversation:
+   * one shared flag put the skeleton over every open conversation while any one of them loaded.
+   */
+  loadingByChannel: Record<string, true>;
+  loadingMoreByChannel: Record<string, true>;
   /** channelId -> username[] */
   typingUsers: Record<string, string[]>;
 
@@ -234,8 +238,8 @@ function referenceFor(messages: Message[] | undefined, replyToId: string | undef
 export const useMessageStore = create<MessageState>((set, get) => ({
   messagesByChannel: {},
   hasMoreByChannel: {},
-  isLoading: false,
-  isLoadingMore: false,
+  loadingByChannel: {},
+  loadingMoreByChannel: {},
   typingUsers: {},
   replyingTo: null,
   scrollToMessageId: null,
@@ -251,7 +255,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
     if (!serverId) return;
 
-    const res = await messageApi.getMessages(serverId, channelId, undefined, DEFAULT_MESSAGE_LIMIT);
+    const held = get().messagesByChannel[channelId]?.length ?? 0;
+    const res = await messageApi.getMessages(serverId, channelId, undefined, resyncLimit(held));
     if (!res.success || !res.data) return;
     const data = res.data;
 
@@ -300,55 +305,52 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   fetchMessages: async (channelId, explicitServerId?) => {
     if (fetchedChannels.has(channelId) || inFlightChannels.has(channelId)) return;
 
-    set({ isLoading: true });
-
     const generation = cacheGeneration;
     const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
-    if (!serverId) { set({ isLoading: false }); return; }
+    if (!serverId) return;
 
     inFlightChannels.add(channelId);
+    set((state) => ({ loadingByChannel: withFlag(state.loadingByChannel, channelId, true) }));
     try {
       const res = await messageApi.getMessages(serverId, channelId, undefined, DEFAULT_MESSAGE_LIMIT);
-      if (res.success && res.data) {
-        // Go nil slice -> JSON null; fallback to empty array
-        const apiMessages = await decryptChannelMessages(res.data.messages ?? []);
+      if (!res.success || !res.data) return;
+      const data = res.data;
+      // Go nil slice -> JSON null; fallback to empty array
+      const apiMessages = await decryptChannelMessages(data.messages ?? []);
 
-        // The cache was invalidated while this was in flight — E2EE keys arrived, and this page was
-        // decrypted before they did. Dropping it leaves the refill's own fetch to fill the channel.
-        if (generation !== cacheGeneration) { set({ isLoading: false }); return; }
-        fetchedChannels.add(channelId);
+      // The cache was invalidated while this was in flight — E2EE keys arrived, and this page was
+      // decrypted before they did. Dropping it leaves the refill's own fetch to fill the channel.
+      if (generation !== cacheGeneration) return;
+      fetchedChannels.add(channelId);
 
-        set((state) => {
-          // Merge WS-buffered messages that arrived during fetch
-          const buffered = state.messagesByChannel[channelId] ?? [];
-          const apiIds = new Set(apiMessages.map((m) => m.id));
-          const newFromWS = buffered.filter((m) => !apiIds.has(m.id));
+      set((state) => {
+        // Merge WS-buffered messages that arrived during fetch
+        const buffered = state.messagesByChannel[channelId] ?? [];
+        const apiIds = new Set(apiMessages.map((m) => m.id));
+        const newFromWS = buffered.filter((m) => !apiIds.has(m.id));
 
-          return {
-            messagesByChannel: {
-              ...state.messagesByChannel,
-              [channelId]: [...apiMessages, ...newFromWS],
-            },
-            hasMoreByChannel: {
-              ...state.hasMoreByChannel,
-              [channelId]: res.data!.has_more,
-            },
-            isLoading: false,
-          };
-        });
+        return {
+          messagesByChannel: {
+            ...state.messagesByChannel,
+            [channelId]: [...apiMessages, ...newFromWS],
+          },
+          hasMoreByChannel: {
+            ...state.hasMoreByChannel,
+            [channelId]: data.has_more,
+          },
+        };
+      });
 
-        // Auto-mark-read after messages load
-        const allMessages = get().messagesByChannel[channelId];
-        if (allMessages && allMessages.length > 0) {
-          const lastMsg = allMessages[allMessages.length - 1];
-          useReadStateStore.getState().markAsRead(channelId, lastMsg.id);
-        }
-      } else {
-        set({ isLoading: false });
+      // Auto-mark-read after messages load
+      const allMessages = get().messagesByChannel[channelId];
+      if (allMessages && allMessages.length > 0) {
+        const lastMsg = allMessages[allMessages.length - 1];
+        useReadStateStore.getState().markAsRead(channelId, lastMsg.id);
       }
     } finally {
       // Released on every exit path, or the channel could never be fetched again this session.
       inFlightChannels.delete(channelId);
+      set((state) => ({ loadingByChannel: withFlag(state.loadingByChannel, channelId, false) }));
     }
   },
 
@@ -356,17 +358,18 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     const messages = get().messagesByChannel[channelId];
     if (!messages || messages.length === 0) return;
     if (!get().hasMoreByChannel[channelId]) return;
-
-    set({ isLoadingMore: true });
+    if (get().loadingMoreByChannel[channelId]) return;
 
     const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
-    if (!serverId) { set({ isLoadingMore: false }); return; }
+    if (!serverId) return;
 
-    const beforeId = messages[0].id;
-    const res = await messageApi.getMessages(serverId, channelId, beforeId, DEFAULT_MESSAGE_LIMIT);
-
-    if (res.success && res.data) {
-      const decrypted = await decryptChannelMessages(res.data.messages ?? []);
+    set((state) => ({ loadingMoreByChannel: withFlag(state.loadingMoreByChannel, channelId, true) }));
+    try {
+      const beforeId = messages[0].id;
+      const res = await messageApi.getMessages(serverId, channelId, beforeId, DEFAULT_MESSAGE_LIMIT);
+      if (!res.success || !res.data) return;
+      const data = res.data;
+      const decrypted = await decryptChannelMessages(data.messages ?? []);
 
       set((state) => ({
         messagesByChannel: {
@@ -375,12 +378,11 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         },
         hasMoreByChannel: {
           ...state.hasMoreByChannel,
-          [channelId]: res.data!.has_more,
+          [channelId]: data.has_more,
         },
-        isLoadingMore: false,
       }));
-    } else {
-      set({ isLoadingMore: false });
+    } finally {
+      set((state) => ({ loadingMoreByChannel: withFlag(state.loadingMoreByChannel, channelId, false) }));
     }
   },
 

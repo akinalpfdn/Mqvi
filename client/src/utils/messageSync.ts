@@ -1,3 +1,23 @@
+import { DEFAULT_MESSAGE_LIMIT, MAX_MESSAGE_PAGE } from "./constants";
+
+/**
+ * How many newest messages a resync asks for: the whole window held, so a delete or edit anywhere
+ * in it is reconciled, within what the server serves. Never above MAX_MESSAGE_PAGE — the server
+ * answers a larger limit with its default of 50, not with 100.
+ */
+export function resyncLimit(heldCount: number): number {
+  return Math.min(Math.max(heldCount, DEFAULT_MESSAGE_LIMIT), MAX_MESSAGE_PAGE);
+}
+
+/** A per-conversation flag record with `id` set or cleared. Cleared keys are removed, not false. */
+export function withFlag(flags: Record<string, true>, id: string, on: boolean): Record<string, true> {
+  if (on) return flags[id] ? flags : { ...flags, [id]: true };
+  if (!flags[id]) return flags;
+  const next = { ...flags };
+  delete next[id];
+  return next;
+}
+
 export type MergedPage<T> = {
   messages: T[];
   /** The page replaced the held window, so has_more has to be taken from the server. */

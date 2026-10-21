@@ -29,7 +29,8 @@ function DMChatProvider({
   const messages = useDMStore(
     (s) => (channelId ? s.messagesByChannel[channelId] : undefined) as ChatMessage[] | undefined
   ) ?? EMPTY_MESSAGES;
-  const isLoadingMessages = useDMStore((s) => s.isLoadingMessages);
+  const isLoading = useDMStore((s) => !!s.loadingByChannel[channelId]);
+  const isLoadingMore = useDMStore((s) => !!s.loadingMoreByChannel[channelId]);
   const hasMore = useDMStore((s) =>
     channelId ? s.hasMoreByChannel[channelId] ?? false : false
   );
@@ -158,8 +159,8 @@ function DMChatProvider({
       channelId,
       channelName,
       messages,
-      isLoading: isLoadingMessages,
-      isLoadingMore: false, // DM store has no separate isLoadingMore state
+      isLoading,
+      isLoadingMore,
       hasMore,
       replyingTo,
       scrollToMessageId,
@@ -185,7 +186,7 @@ function DMChatProvider({
       addFilesRef,
     }),
     [
-      channelId, channelName, messages, isLoadingMessages, hasMore,
+      channelId, channelName, messages, isLoading, isLoadingMore, hasMore,
       replyingTo, scrollToMessageId,
       sendMessage, retryPending, discardPending, editMessage, deleteMessage, fetchMessages, fetchOlderMessages,
       toggleReaction, setReplyingTo, setScrollToMessageId, sendTyping,

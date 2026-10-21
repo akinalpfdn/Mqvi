@@ -18,7 +18,7 @@ import {
   cacheEditPlaintext,
 } from "../crypto/dmEncryption";
 import { encodePayload } from "../crypto/e2eePayload";
-import { mergeLatestPage } from "../utils/messageSync";
+import { mergeLatestPage, resyncLimit, withFlag } from "../utils/messageSync";
 import { randomId } from "../utils/randomId";
 import {
   useOutboxStore,
@@ -63,7 +63,9 @@ type DMCoreState = {
   messagesByChannel: Record<string, DMMessage[]>;
   hasMoreByChannel: Record<string, boolean>;
   isLoading: boolean;
-  isLoadingMessages: boolean;
+  /** Per conversation, like messageStore: first page in flight, and an older page in flight. */
+  loadingByChannel: Record<string, true>;
+  loadingMoreByChannel: Record<string, true>;
 
   replyingTo: DMMessage | null;
   scrollToMessageId: string | null;
@@ -261,7 +263,8 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
   messagesByChannel: {},
   hasMoreByChannel: {},
   isLoading: false,
-  isLoadingMessages: false,
+  loadingByChannel: {},
+  loadingMoreByChannel: {},
   replyingTo: null,
   scrollToMessageId: null,
   typingUsers: {},
@@ -310,21 +313,23 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
   },
 
   fetchMessages: async (channelId) => {
-    if (get().messagesByChannel[channelId]) return;
+    // In flight counts too: two mounts racing each fetched and the slower one overwrote the other.
+    if (get().messagesByChannel[channelId] || get().loadingByChannel[channelId]) return;
 
     // No E2EE gate. Blocking the whole fetch until init was ready meant a plaintext conversation
     // rendered empty for as long as E2EE was still starting — and forever if init ended in error.
     // decryptDMMessages leaves placeholders for what it cannot read yet, and refillAfterKeysReady
     // refetches once the keys land. Matches messageStore.fetchMessages.
-    set({ isLoadingMessages: true });
-
-    const generation = cacheGeneration;
-    const res = await dmApi.getDMMessages(channelId, undefined, 50);
-    if (res.success && res.data) {
-      const messages = await decryptDMMessages(res.data!.messages ?? []);
+    set((state) => ({ loadingByChannel: withFlag(state.loadingByChannel, channelId, true) }));
+    try {
+      const generation = cacheGeneration;
+      const res = await dmApi.getDMMessages(channelId, undefined, 50);
+      if (!res.success || !res.data) return;
+      const data = res.data;
+      const messages = await decryptDMMessages(data.messages ?? []);
 
       // Invalidated while in flight — this page predates the keys. Let the refill's fetch win.
-      if (generation !== cacheGeneration) { set({ isLoadingMessages: false }); return; }
+      if (generation !== cacheGeneration) return;
 
       set((state) => ({
         messagesByChannel: {
@@ -333,18 +338,18 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
         },
         hasMoreByChannel: {
           ...state.hasMoreByChannel,
-          [channelId]: res.data!.has_more,
+          [channelId]: data.has_more,
         },
-        isLoadingMessages: false,
       }));
-    } else {
-      set({ isLoadingMessages: false });
+    } finally {
+      set((state) => ({ loadingByChannel: withFlag(state.loadingByChannel, channelId, false) }));
     }
   },
 
   resyncChannel: async (channelId) => {
     const generation = cacheGeneration;
-    const res = await dmApi.getDMMessages(channelId, undefined, 50);
+    const held = get().messagesByChannel[channelId]?.length ?? 0;
+    const res = await dmApi.getDMMessages(channelId, undefined, resyncLimit(held));
     if (!res.success || !res.data) return;
     const data = res.data;
 
@@ -382,11 +387,18 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
     const messages = get().messagesByChannel[channelId];
     if (!messages || messages.length === 0) return;
     if (!get().hasMoreByChannel[channelId]) return;
+    // Every scroll event near the top calls this. Without the guard each one refetched the same
+    // page while the first was in flight: duplicates prepended, and an encrypted page decrypted
+    // twice fails — a received message's ratchet key is spent on the first decrypt.
+    if (get().loadingMoreByChannel[channelId]) return;
 
-    const beforeId = messages[0].id;
-    const res = await dmApi.getDMMessages(channelId, beforeId, 50);
-    if (res.success && res.data) {
-      const decrypted = await decryptDMMessages(res.data!.messages);
+    set((state) => ({ loadingMoreByChannel: withFlag(state.loadingMoreByChannel, channelId, true) }));
+    try {
+      const beforeId = messages[0].id;
+      const res = await dmApi.getDMMessages(channelId, beforeId, 50);
+      if (!res.success || !res.data) return;
+      const data = res.data;
+      const decrypted = await decryptDMMessages(data.messages);
 
       set((state) => ({
         messagesByChannel: {
@@ -395,9 +407,11 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
         },
         hasMoreByChannel: {
           ...state.hasMoreByChannel,
-          [channelId]: res.data!.has_more,
+          [channelId]: data.has_more,
         },
       }));
+    } finally {
+      set((state) => ({ loadingMoreByChannel: withFlag(state.loadingMoreByChannel, channelId, false) }));
     }
   },
 

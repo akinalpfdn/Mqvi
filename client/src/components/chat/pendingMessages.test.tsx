@@ -27,11 +27,11 @@ const me = { id: "me", username: "me" } as User;
 const retryPending = vi.fn();
 const discardPending = vi.fn();
 
-function contextValue(messages: ChatMessage[]): ChatContextValue {
+function contextValue(messages: ChatMessage[], isLoading = false): ChatContextValue {
   // Only the fields MessageList and PendingMessageStatus read; the rest is never touched.
   return {
     mode: "channel", channelId: "c1", channelName: "general", messages,
-    isLoading: false, isLoadingMore: false, hasMore: false, scrollToMessageId: null,
+    isLoading, isLoadingMore: false, hasMore: false, scrollToMessageId: null,
     fetchMessages: vi.fn(async () => {}), fetchOlderMessages: vi.fn(async () => {}),
     setScrollToMessageId: vi.fn(), retryPending, discardPending,
   } as unknown as ChatContextValue;
@@ -64,6 +64,31 @@ describe("MessageList with pending sends", () => {
     const rows = screen.getAllByTestId("row");
     expect(rows.map((r) => r.textContent)).toEqual(["stored", "on its way"]);
     expect(rows.map((r) => r.dataset.pending)).toEqual(["", "sending"]);
+  });
+});
+
+describe("MessageList while loading", () => {
+  const storedMsg = { id: "m1", user_id: "bob", content: "held", created_at: "2026-10-21T09:00:00Z", author: { id: "bob" } } as ChatMessage;
+
+  it("should keep the messages a conversation holds on screen instead of a skeleton", () => {
+    render(
+      <ChatContext.Provider value={contextValue([storedMsg], true)}>
+        <MessageList />
+      </ChatContext.Provider>
+    );
+
+    expect(screen.getAllByTestId("row").map((r) => r.textContent)).toEqual(["held"]);
+  });
+
+  it("should show the skeleton for a conversation with nothing to show yet", () => {
+    render(
+      <ChatContext.Provider value={contextValue([], true)}>
+        <MessageList />
+      </ChatContext.Provider>
+    );
+
+    expect(screen.queryAllByTestId("row")).toEqual([]);
+    expect(screen.queryByText("welcomeChannel")).toBeNull();
   });
 });
 

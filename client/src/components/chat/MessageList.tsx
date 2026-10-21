@@ -353,7 +353,8 @@ function MessageList() {
     return <div className="no-channel">{t("noChannel")}</div>;
   }
 
-  if (isLoading) {
+  // Only with nothing to show: a conversation already holding messages keeps them on screen.
+  if (isLoading && rows.length === 0) {
     return (
       <div className="messages-scroll">
         <MessageSkeleton count={6} />
