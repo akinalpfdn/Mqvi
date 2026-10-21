@@ -120,6 +120,14 @@ describe("PendingMessageStatus", () => {
     expect(discardPending).toHaveBeenCalledWith("n1");
   });
 
+  it("should say the attachments were not kept, and offer no retry with no text to send", () => {
+    renderStatus({ ...pendingEntry("n1", "", "failed"), filesLost: true });
+
+    expect(screen.getByText("messageAttachmentsLost")).toBeTruthy();
+    expect(screen.queryByText("retrySend")).toBeNull();
+    expect(screen.getByText("discardMessage")).toBeTruthy();
+  });
+
   it("should say it is sending when there is no upload", () => {
     renderStatus(pendingEntry("n1", "x"));
 

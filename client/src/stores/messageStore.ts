@@ -73,6 +73,13 @@ type MessageState = {
   /** Clear fetch cache — forces re-fetch + re-decrypt (E2EE restore) */
   invalidateFetchCache: () => void;
   /**
+   * Puts a conversation read from the device cache in place, unverified: the first fetch for it
+   * resyncs against the server instead of loading a first page on top of it.
+   */
+  hydrateConversation: (channelId: string, messages: Message[], hasMore: boolean) => void;
+  /** Resyncs a conversation still showing unverified cached messages; no-op otherwise. */
+  resyncIfStale: (channelId: string, serverId?: string) => Promise<void>;
+  /**
    * Checks the message can go out, puts it in the outbox and starts delivering it. True once it is
    * queued — delivery reports through the outbox. False only when it was refused up front.
    */
@@ -123,6 +130,14 @@ let cacheGeneration = 0;
  * overlap with a mounting MessageList easy to hit.
  */
 const inFlightChannels = new Set<string>();
+
+/**
+ * Conversations showing what the device cache held, not yet checked against the server. A first
+ * page loaded on top would be wrong: fetchMessages appends held messages the page lacks, so a
+ * message deleted since, or one older than the page, would land after the newest. The resync's
+ * merge is built for exactly this.
+ */
+const staleChannels = new Set<string>();
 
 /**
  * Whether a message to this server goes out encrypted, or why it cannot go out at all.
@@ -247,7 +262,23 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   invalidateFetchCache: () => {
     cacheGeneration++;
     fetchedChannels.clear();
+    staleChannels.clear();
     set({ messagesByChannel: {}, hasMoreByChannel: {} });
+  },
+
+  hydrateConversation: (channelId, messages, hasMore) => {
+    // Whatever arrived first is newer than the cache.
+    if (get().messagesByChannel[channelId]) return;
+    fetchedChannels.add(channelId);
+    staleChannels.add(channelId);
+    set((state) => ({
+      messagesByChannel: { ...state.messagesByChannel, [channelId]: messages },
+      hasMoreByChannel: { ...state.hasMoreByChannel, [channelId]: hasMore },
+    }));
+  },
+
+  resyncIfStale: async (channelId, serverId?) => {
+    if (staleChannels.has(channelId)) await get().resyncChannel(channelId, serverId);
   },
 
   resyncChannel: async (channelId, explicitServerId?, opts?) => {
@@ -279,6 +310,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     if (generation !== cacheGeneration) return;
 
     fetchedChannels.add(channelId);
+    // Checked against the server now — only here, so a resync that bailed out above (keys not
+    // ready) leaves the conversation marked for the next one.
+    staleChannels.delete(channelId);
 
     set((state) => {
       const held = state.messagesByChannel[channelId] ?? [];
@@ -303,6 +337,11 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   },
 
   fetchMessages: async (channelId, explicitServerId?) => {
+    // Opened from the cache: verify what is shown, and read it as fetchMessages would.
+    if (staleChannels.has(channelId)) {
+      await get().resyncChannel(channelId, explicitServerId, { markRead: true });
+      return;
+    }
     if (fetchedChannels.has(channelId) || inFlightChannels.has(channelId)) return;
 
     const generation = cacheGeneration;

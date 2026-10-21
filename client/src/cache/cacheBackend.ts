@@ -8,6 +8,7 @@
  */
 
 import { openDB, type IDBPDatabase } from "idb";
+import type { LayoutNode, Panel } from "../stores/uiStore";
 import type {
   CategoryWithChannels,
   MessageReference,
@@ -44,7 +45,17 @@ export type CachedShell = {
   categoriesByServer: Record<string, CategoryWithChannels[]>;
   dmChannels: DMChannelWithUser[];
   unreadCounts: Record<string, number>;
+  /** channel → server, which the per-server unread totals are summed by. */
+  channelServerMap: Record<string, string>;
   dmUnreadCounts: Record<string, number>;
+  /** Open conversation tabs and the split layout; only channel and DM tabs are kept. */
+  ui: CachedLayout;
+};
+
+export type CachedLayout = {
+  panels: Record<string, Panel>;
+  layout: LayoutNode;
+  activePanelId: string;
 };
 
 /** An unsent message, kept so it survives a restart and goes out under the nonce it already has. */

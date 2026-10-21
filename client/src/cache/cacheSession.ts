@@ -19,6 +19,26 @@ export function partitionFor(userId: string): string {
   return `${SERVER_URL || window.location.origin}|${userId}`;
 }
 
+/**
+ * Who the cache belongs to, readable before the server has said who is signed in — the cold start
+ * needs the partition before GET /users/me answers. Cleared with the cache.
+ */
+const CACHED_USER_KEY = "mqvi_cache_user";
+
+export function rememberCachedUser(userId: string): void {
+  localStorage.setItem(CACHED_USER_KEY, JSON.stringify({ server: SERVER_URL, userId }));
+}
+
+/** The user the cache was written for on this backend, or null. */
+export function cachedUserId(): string | null {
+  try {
+    const hint = JSON.parse(localStorage.getItem(CACHED_USER_KEY) ?? "null") as { server: string; userId: string } | null;
+    return hint && hint.server === SERVER_URL ? hint.userId : null;
+  } catch {
+    return null;
+  }
+}
+
 type Session = { partition: string; stop: () => void };
 
 let current: Session | null = null;
@@ -50,6 +70,7 @@ const WIPE_PENDING_KEY = "mqvi_cache_wipe_pending";
 export async function wipeConversationCache(backend: CacheBackend = indexedDBBackend): Promise<void> {
   current?.stop();
   current = null;
+  localStorage.removeItem(CACHED_USER_KEY);
   if (!cacheEnabled()) return;
   localStorage.setItem(WIPE_PENDING_KEY, "1");
   try {

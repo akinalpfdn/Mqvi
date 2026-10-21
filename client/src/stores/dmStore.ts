@@ -53,6 +53,9 @@ import {
  */
 let cacheGeneration = 0;
 
+/** DMs showing what the device cache held, not yet checked against the server — see messageStore. */
+const staleChannels = new Set<string>();
+
 const EMPTY_CHANNELS: DMChannelWithUser[] = [];
 const EMPTY_MESSAGES: DMMessage[] = [];
 const EMPTY_STRINGS: string[] = [];
@@ -112,6 +115,9 @@ type DMCoreState = {
   getTypingUsers: (channelId: string) => string[];
   invalidateMessages: (channelId: string) => void;
   invalidateFetchCache: () => void;
+  /** Same as messageStore.hydrateConversation. */
+  hydrateConversation: (channelId: string, messages: DMMessage[], hasMore: boolean) => void;
+  resyncIfStale: (channelId: string) => Promise<void>;
 };
 
 export type DMStore = DMCoreState & DMSettingsSlice & DMWsSlice;
@@ -313,6 +319,10 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
   },
 
   fetchMessages: async (channelId) => {
+    if (staleChannels.has(channelId)) {
+      await get().resyncChannel(channelId);
+      return;
+    }
     // In flight counts too: two mounts racing each fetched and the slower one overwrote the other.
     if (get().messagesByChannel[channelId] || get().loadingByChannel[channelId]) return;
 
@@ -369,6 +379,7 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
     // Keys changed mid-flight — the page would win on id and undo the refill. Same guard as
     // messageStore.resyncChannel.
     if (generation !== cacheGeneration) return;
+    staleChannels.delete(channelId);
 
     set((state) => {
       const held = state.messagesByChannel[channelId] ?? [];
@@ -624,6 +635,20 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
 
   invalidateFetchCache: () => {
     cacheGeneration++;
+    staleChannels.clear();
     set({ messagesByChannel: {}, hasMoreByChannel: {} });
+  },
+
+  hydrateConversation: (channelId, messages, hasMore) => {
+    if (get().messagesByChannel[channelId]) return;
+    staleChannels.add(channelId);
+    set((state) => ({
+      messagesByChannel: { ...state.messagesByChannel, [channelId]: messages },
+      hasMoreByChannel: { ...state.hasMoreByChannel, [channelId]: hasMore },
+    }));
+  },
+
+  resyncIfStale: async (channelId) => {
+    if (staleChannels.has(channelId)) await get().resyncChannel(channelId);
   },
 }));

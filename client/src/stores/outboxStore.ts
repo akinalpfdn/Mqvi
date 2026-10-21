@@ -42,6 +42,8 @@ export type PendingMessage = {
   createdAt: string;
   status: "sending" | "failed";
   failure: PendingFailure | null;
+  /** Came back from the device cache without its files (there was no room for them). */
+  filesLost?: boolean;
 };
 
 export type PendingProgress = { loaded: number; total: number | null };

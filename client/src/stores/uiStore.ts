@@ -59,6 +59,15 @@ type UIState = {
   quickSwitcherOpen: boolean;
   discoveryOpen: boolean;
 
+  /**
+   * Puts back the tabs and split layout saved before a restart. Only channel and DM tabs that
+   * `canOpen` accepts come back; panels left empty collapse out of the layout.
+   */
+  restoreLayout: (
+    saved: { panels: Record<string, Panel>; layout: LayoutNode; activePanelId: string },
+    canOpen: (tab: Tab) => boolean
+  ) => void;
+
   // Tab actions
   openTab: (channelId: string, type: TabType, label: string, serverInfo?: TabServerInfo) => void;
   closeTab: (panelId: string, tabId: string) => void;
@@ -113,6 +122,9 @@ function nextTabId(): string {
   tabIdCounter += 1;
   return `tab-${tabIdCounter}`;
 }
+
+/** Tabs a restart can bring back. A voice, screen or call tab stands for a join a restart does not make. */
+export const RESTORABLE_TAB_TYPES: readonly TabType[] = ["text", "dm"];
 
 /** A text channel or DM the user currently has open in a tab. */
 export type OpenConversation = {
@@ -244,6 +256,50 @@ export const useUIStore = create<UIState>((set, get) => ({
   membersOpen: true,
   quickSwitcherOpen: false,
   discoveryOpen: false,
+
+  restoreLayout(saved, canOpen) {
+    // Fresh ids: the saved ones come from a previous run's counters and would collide with the
+    // next panel or tab this run creates.
+    const panelIds = new Map<string, string>();
+    const panels: Record<string, Panel> = {};
+    for (const [savedId, panel] of Object.entries(saved.panels)) {
+      const activeChannel = panel.tabs.find((t) => t.id === panel.activeTabId)?.channelId;
+      const tabs = panel.tabs
+        .filter((t) => RESTORABLE_TAB_TYPES.includes(t.type) && canOpen(t))
+        .map((t) => ({ ...t, id: nextTabId(), hasUnread: false }));
+      if (tabs.length === 0) continue;
+      const id = nextPanelId();
+      panelIds.set(savedId, id);
+      panels[id] = { id, tabs, activeTabId: (tabs.find((t) => t.channelId === activeChannel) ?? tabs[0]).id };
+    }
+
+    const remap = (node: LayoutNode): LayoutNode | null => {
+      if (node.type === "leaf") {
+        const id = panelIds.get(node.panelId);
+        return id ? { type: "leaf", panelId: id } : null;
+      }
+      const first = remap(node.children[0]);
+      const second = remap(node.children[1]);
+      if (first && second) return { ...node, children: [first, second] };
+      return first ?? second;
+    };
+    const layout = remap(saved.layout);
+    if (!layout) return; // nothing left to open: keep the empty start
+
+    const inLayout = new Set<string>();
+    const collect = (node: LayoutNode) => {
+      if (node.type === "leaf") inLayout.add(node.panelId);
+      else node.children.forEach(collect);
+    };
+    collect(layout);
+    const kept = Object.fromEntries(Object.entries(panels).filter(([id]) => inLayout.has(id)));
+    const activePanel = panelIds.get(saved.activePanelId);
+    set({
+      panels: kept,
+      layout,
+      activePanelId: activePanel && inLayout.has(activePanel) ? activePanel : [...inLayout][0],
+    });
+  },
 
   openTab(channelId, type, label, serverInfo) {
     const state = get();

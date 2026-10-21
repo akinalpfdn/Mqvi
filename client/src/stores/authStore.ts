@@ -125,9 +125,16 @@ type AuthState = {
   isInitialized: boolean;
   /** A session is stored but the server could not be reached to resume it. Not signed out. */
   isServerUnreachable: boolean;
+  /**
+   * False while the user shown came from the device cache and GET /users/me has not confirmed the
+   * session yet. The next socket `ready` asks again.
+   */
+  isSessionConfirmed: boolean;
   accountDeleted: AccountDeletedInfo | null;
 
   // ─── Actions ───
+  /** Cold start from the device cache: show the app for this cached user, confirm it afterwards. */
+  openFromCache: (user: User) => void;
   register: (username: string, password: string, displayName?: string, email?: string) => Promise<boolean>;
   login: (username: string, password: string) => Promise<boolean>;
   /** Restore a soft-deleted account using captured username + password. Returns true on success. */
@@ -161,12 +168,28 @@ type AuthState = {
   setManualStatus: (status: UserStatus) => void;
 };
 
+/**
+ * Wires the API layer's auth-rejection signal (refresh 401/403) to a forced logout, so a token
+ * revoked mid-session routes to login instead of a zombie logged-in UI whose every request 401s
+ * (F5). Called at boot, before any authenticated request — not at module scope: a module-load
+ * side effect would run during the authStore↔voiceStore circular import and break partial mocks.
+ * Idempotent.
+ */
+function armAuthRejection(): void {
+  setAuthRejectedHandler(() => {
+    useAuthStore.getState().forceLogout().catch((err) => {
+      console.error("[authStore] forceLogout failed", err);
+    });
+  });
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isLoading: false,
   error: null,
   isInitialized: false,
   isServerUnreachable: false,
+  isSessionConfirmed: true,
   accountDeleted: null,
   manualStatus: (localStorage.getItem(MANUAL_STATUS_KEY) as UserStatus) || "online",
 
@@ -186,7 +209,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       setTokens(res.data.access_token, res.data.refresh_token, res.data.file_token);
       rememberSignIn();
       syncLanguageFromUser(res.data.user);
-      set({ user: res.data.user, isLoading: false });
+      set({ user: res.data.user, isSessionConfirmed: true, isLoading: false });
       usePreferencesStore.getState().fetchAndApply();
       return true;
     }
@@ -204,7 +227,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       setTokens(res.data.access_token, res.data.refresh_token, res.data.file_token);
       rememberSignIn();
       syncLanguageFromUser(res.data.user);
-      set({ user: res.data.user, isLoading: false });
+      set({ user: res.data.user, isSessionConfirmed: true, isLoading: false });
       // Fetch server-side preferences and apply to stores
       usePreferencesStore.getState().fetchAndApply();
       void flushPendingLogout();
@@ -247,7 +270,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       setTokens(res.data.access_token, res.data.refresh_token, res.data.file_token);
       rememberSignIn();
       syncLanguageFromUser(res.data.user);
-      set({ user: res.data.user, isLoading: false, accountDeleted: null });
+      set({ user: res.data.user, isSessionConfirmed: true, isLoading: false, accountDeleted: null });
       usePreferencesStore.getState().fetchAndApply();
       return true;
     }
@@ -257,6 +280,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   cancelAccountDeleted: () => set({ accountDeleted: null }),
+
+  openFromCache: (user) => {
+    // Before the app shows: its first requests can already meet a revoked session.
+    armAuthRejection();
+    set({ user, isInitialized: true, isServerUnreachable: false, isSessionConfirmed: false });
+  },
 
   logout: async () => {
     // End any call: its screen goes with the session, and nothing else would stop the
@@ -366,16 +395,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   initialize: async () => {
     if (initializeInFlight) return initializeInFlight;
     initializeInFlight = (async () => {
-      // Wire the API layer's auth-rejection signal (refresh 401/403) → forced logout, so a
-      // mid-session token revocation routes to login instead of a zombie logged-in UI whose
-      // every request 401s (F5). Registered here (app boot, before any authenticated request,
-      // even a no-token → login flow) rather than at module scope — a module-load side-effect
-      // would run during the authStore↔voiceStore circular import and break partial mocks.
-      setAuthRejectedHandler(() => {
-        useAuthStore.getState().forceLogout().catch((err) => {
-          console.error("[authStore] forceLogout failed", err);
-        });
-      });
+      armAuthRejection();
 
       void flushPendingLogout();
       // Before anything can read the cache: a wipe an earlier sign-out could not finish.
@@ -395,16 +415,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (res.success && res.data) {
         rememberSignIn(); // an existing session from before this flag existed
         syncLanguageFromUser(res.data);
-        set({ user: res.data, isInitialized: true, isServerUnreachable: false });
+        set({ user: res.data, isInitialized: true, isServerUnreachable: false, isSessionConfirmed: true });
         usePreferencesStore.getState().fetchAndApply();
         return;
       }
 
       // The API layer clears tokens ONLY on a genuine 401/403 refresh rejection, so tokens still
       // present plus a transient status means the server, not the session, is the problem (F4):
-      // keep everything and let the connecting screen retry.
+      // keep everything and let the connecting screen retry. Opened from the cache, the app itself
+      // stays up instead, offline with its connection banner, and the next socket `ready` asks again.
       if (getAccessToken() && getRefreshToken() && isTransientStatus(res.httpStatus)) {
-        set({ isInitialized: true, isServerUnreachable: true });
+        set({ isInitialized: true, isServerUnreachable: !get().user });
         return;
       }
 
@@ -412,6 +433,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // gone (a real rejection); a non-auth failure keeps them for the next launch, as before.
       if (!getAccessToken()) {
         clearCachedPushToken();
+      }
+      // A rejected refresh already signed out through forceLogout. Any other refusal of a session
+      // shown from the cache (a 403 on /users/me) must not leave it on screen either: back to the
+      // login a normal start would have shown, with the device cache gone.
+      if (get().user && !get().isSessionConfirmed) {
+        resetOutbox();
+        void wipeConversationCache();
+        set({ user: null });
       }
       set({ isInitialized: true, isServerUnreachable: false });
     })();

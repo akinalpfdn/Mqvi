@@ -25,7 +25,8 @@ const conversation = (partition: string, id: string): CachedConversation => ({
 });
 const shell = (partition: string): CachedShell => ({
   partition, schema: 1, user: { id: "u" } as User, servers: [], categoriesByServer: {}, dmChannels: [],
-  unreadCounts: {}, dmUnreadCounts: {},
+  unreadCounts: {}, channelServerMap: {}, dmUnreadCounts: {},
+  ui: { panels: {}, layout: { type: "leaf", panelId: "p" }, activePanelId: "p" },
 });
 const pending = (partition: string, nonce: string, files: File[] = []): CachedPending => ({
   key: `${partition}|${nonce}`, partition, schema: 1, nonce, kind: "dm", conversationId: "d1", content: "hi",

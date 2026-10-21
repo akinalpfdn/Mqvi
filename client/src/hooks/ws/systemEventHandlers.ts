@@ -123,6 +123,10 @@ export async function handleSystemEvent(
 
       setConnectionStatus("connected");
 
+      // Opened from the device cache while /users/me could not be reached: the server is back, so
+      // confirm the session now — a rejection signs out, a success refreshes the cached user.
+      if (!useAuthStore.getState().isSessionConfirmed) void useAuthStore.getState().initialize();
+
       // Voice re-registration on WS reconnect.
       // LiveKit (WebRTC/UDP) is independent from WS (TCP). A WS blip doesn't
       // take LiveKit down, but the backend's orphan cleanup tracks presence via

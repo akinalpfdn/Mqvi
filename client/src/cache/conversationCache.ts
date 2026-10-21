@@ -15,6 +15,7 @@ import { useServerStore } from "../stores/serverStore";
 import { useChannelStore } from "../stores/channelStore";
 import { useReadStateStore } from "../stores/readStateStore";
 import { useOutboxStore, type PendingMessage } from "../stores/outboxStore";
+import { useUIStore, RESTORABLE_TAB_TYPES } from "../stores/uiStore";
 import {
   CACHE_SCHEMA,
   indexedDBBackend,
@@ -29,6 +30,7 @@ import {
   endCacheSession,
   isCurrentPartition,
   partitionFor,
+  rememberCachedUser,
 } from "./cacheSession";
 
 export const MAX_CACHED_CONVERSATIONS = 20;
@@ -68,6 +70,14 @@ function markConversation(w: Writer, key: string): void {
   scheduleFlush(w);
 }
 
+/**
+ * An encrypted message this device could not read yet. Left out of the cache: shown after a restart
+ * it would make the keys-ready refill drop and refetch every conversation, blanking what the cache
+ * just put on screen. The resync brings it back with whatever the keys can read by then.
+ */
+const isPlaceholder = (m: { encryption_version?: number; content: string | null }) =>
+  m.encryption_version === 1 && m.content == null;
+
 /** What the stores hold for a cached conversation, cut to its newest messages. Null until loaded. */
 function snapshotConversation(w: Writer, key: string, ref: ConversationRef): CachedConversation | null {
   const base = { key, partition: w.partition, id: ref.id, openedAt: ref.openedAt, schema: CACHE_SCHEMA };
@@ -79,7 +89,7 @@ function snapshotConversation(w: Writer, key: string, ref: ConversationRef): Cac
       ...base,
       kind: "channel",
       serverId: ref.serverId,
-      messages: messages.slice(-MAX_CACHED_MESSAGES),
+      messages: messages.slice(-MAX_CACHED_MESSAGES).filter((m) => !isPlaceholder(m)),
       hasMore: messages.length > MAX_CACHED_MESSAGES || (state.hasMoreByChannel[ref.id] ?? false),
     };
   }
@@ -89,7 +99,7 @@ function snapshotConversation(w: Writer, key: string, ref: ConversationRef): Cac
   return {
     ...base,
     kind: "dm",
-    messages: messages.slice(-MAX_CACHED_MESSAGES),
+    messages: messages.slice(-MAX_CACHED_MESSAGES).filter((m) => !isPlaceholder(m)),
     hasMore: messages.length > MAX_CACHED_MESSAGES || (state.hasMoreByChannel[ref.id] ?? false),
   };
 }
@@ -97,6 +107,13 @@ function snapshotConversation(w: Writer, key: string, ref: ConversationRef): Cac
 function snapshotShell(w: Writer): CachedShell | null {
   const user = useAuthStore.getState().user;
   if (!user) return null;
+  const ui = useUIStore.getState();
+  const panels = Object.fromEntries(
+    Object.entries(ui.panels).map(([id, panel]) => [
+      id,
+      { ...panel, tabs: panel.tabs.filter((t) => RESTORABLE_TAB_TYPES.includes(t.type)) },
+    ])
+  );
   return {
     partition: w.partition,
     schema: CACHE_SCHEMA,
@@ -105,7 +122,9 @@ function snapshotShell(w: Writer): CachedShell | null {
     categoriesByServer: useChannelStore.getState().categoriesByServer,
     dmChannels: useDMStore.getState().channels,
     unreadCounts: useReadStateStore.getState().unreadCounts,
+    channelServerMap: useReadStateStore.getState().channelServerMap,
     dmUnreadCounts: useDMStore.getState().dmUnreadCounts,
+    ui: { panels, layout: ui.layout, activePanelId: ui.activePanelId },
   };
 }
 
@@ -161,7 +180,12 @@ function watchShell(w: Writer): () => void {
     useServerStore.subscribe((s, p) => { if (s.servers !== p.servers) mark(); }),
     useChannelStore.subscribe((s, p) => { if (s.categoriesByServer !== p.categoriesByServer) mark(); }),
     useDMStore.subscribe((s, p) => { if (s.channels !== p.channels || s.dmUnreadCounts !== p.dmUnreadCounts) mark(); }),
-    useReadStateStore.subscribe((s, p) => { if (s.unreadCounts !== p.unreadCounts) mark(); }),
+    useReadStateStore.subscribe((s, p) => {
+      if (s.unreadCounts !== p.unreadCounts || s.channelServerMap !== p.channelServerMap) mark();
+    }),
+    useUIStore.subscribe((s, p) => {
+      if (s.panels !== p.panels || s.layout !== p.layout || s.activePanelId !== p.activePanelId) mark();
+    }),
   ];
   return () => stops.forEach((stop) => stop());
 }
@@ -264,6 +288,7 @@ export function startConversationCache(userId: string, backend: CacheBackend = i
     endCacheSession(w.partition);
   };
   beginCacheSession(w.partition, stop);
+  rememberCachedUser(userId);
   writer = w;
   unwatch.push(watchMessages(w), watchShell(w), watchOutbox(w), watchLifecycle(w));
   scheduleFlush(w);

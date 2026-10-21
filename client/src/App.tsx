@@ -23,6 +23,7 @@ import { useUpdateChecker } from "./hooks/useUpdateChecker";
 import { useDeepLinks } from "./hooks/useDeepLinks";
 import { useFileTokenFreshness } from "./hooks/useFileTokenFreshness";
 import { isElectron, isNativeApp, publicAsset } from "./utils/constants";
+import { restoreFromCache } from "./cache/cacheBoot";
 
 /**
  * App — Root component. Handles routing and auth initialization.
@@ -43,7 +44,9 @@ function App() {
   useDeepLinks();
 
   useEffect(() => {
-    initialize();
+    // On a native app with a warm cache this opens the app before any network response;
+    // initialize then confirms the session in the background.
+    void restoreFromCache().then(() => initialize());
   }, [initialize]);
 
   useFileTokenFreshness(user !== null);

@@ -3,7 +3,7 @@
  * stores make to them, belongs to one backend + account, and is gone after sign-out.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import type { CacheBackend, CachedConversation, CachedPending, CachedShell } from "./cacheBackend";
+import { memoryBackend } from "../test/memoryCacheBackend";
 import type { DMMessage, Message, User } from "../types";
 
 const platform = vi.hoisted(() => ({ native: true }));
@@ -21,47 +21,6 @@ const { useMessageStore } = await import("../stores/messageStore");
 const { useDMStore } = await import("../stores/dmStore");
 const { useAuthStore } = await import("../stores/authStore");
 const { useOutboxStore, resetOutbox } = await import("../stores/outboxStore");
-
-/** IndexedDB stand-in with the same contract, including the stillCurrent check before writing. */
-function memoryBackend() {
-  const conversations = new Map<string, CachedConversation>();
-  const shells = new Map<string, CachedShell>();
-  const outbox = new Map<string, CachedPending>();
-  const backend: CacheBackend & { failClear: boolean; failFiles: boolean; putDelay: number } = {
-    failClear: false,
-    failFiles: false,
-    putDelay: 0,
-    async listPending(partition) {
-      return [...outbox.values()].filter((p) => p.partition === partition);
-    },
-    async putPending(p, stillCurrent) {
-      await new Promise((r) => setTimeout(r, backend.putDelay));
-      if (backend.failFiles && p.files.length > 0) throw new DOMException("full", "QuotaExceededError");
-      if (stillCurrent()) outbox.set(p.key, p);
-    },
-    async deletePending(key) { outbox.delete(key); },
-    async listConversations(partition) {
-      return [...conversations.values()].filter((c) => c.partition === partition);
-    },
-    async putConversation(c, stillCurrent) {
-      await Promise.resolve();
-      if (stillCurrent()) conversations.set(c.key, structuredClone(c));
-    },
-    async deleteConversations(keys) { keys.forEach((k) => conversations.delete(k)); },
-    async getShell(partition) { return shells.get(partition); },
-    async putShell(s, stillCurrent) {
-      await Promise.resolve();
-      if (stillCurrent()) shells.set(s.partition, structuredClone(s));
-    },
-    async clear(keep) {
-      if (backend.failClear) throw new Error("disk");
-      for (const [k, c] of conversations) if (c.partition !== keep) conversations.delete(k);
-      for (const [k, s] of shells) if (s.partition !== keep) shells.delete(k);
-      for (const [k, p] of outbox) if (p.partition !== keep) outbox.delete(k);
-    },
-  };
-  return { backend, conversations, shells, outbox };
-}
 
 const msg = (id: string, i: number, content = id) =>
   ({ id, channel_id: "c1", content, created_at: new Date(Date.UTC(2026, 9, 21, 10, 0, i)).toISOString() }) as Message;
@@ -98,6 +57,17 @@ describe("what is cached", () => {
     expect(cached.messages).toHaveLength(MAX_CACHED_MESSAGES);
     expect(cached.messages[0].id).toBe("m30");
     expect(cached.hasMore).toBe(true);
+  });
+
+  it("should leave out encrypted messages this device could not read yet", async () => {
+    const unreadable = { ...msg("m2", 2), content: null, encryption_version: 1 } as Message;
+    useMessageStore.setState({ messagesByChannel: { c1: [msg("m1", 1), unreadable] } });
+
+    noteConversationOpened({ kind: "channel", id: "c1", serverId: "s1" });
+    await flushConversationCache();
+
+    // Restored, it would make the keys-ready refill drop and refetch everything just shown.
+    expect(store.conversations.get(keyOf("channel", "c1"))!.messages.map((m) => m.id)).toEqual(["m1"]);
   });
 
   it("should not cache a conversation that was never opened", async () => {

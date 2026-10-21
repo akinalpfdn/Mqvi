@@ -16,12 +16,18 @@ function PendingMessageStatus({ pending }: PendingMessageStatusProps) {
   const progress = useOutboxStore((s) => s.progressByNonce[pending.nonce]);
 
   if (pending.status === "failed") {
+    // Without its files a retry sends the text alone — nothing to send when there is no text.
+    const canRetry = !pending.filesLost || pending.content.trim() !== "";
     return (
       <div className="msg-pending-failed" role="alert">
-        <span className="msg-pending-failed-text">{t("messageNotSent")}</span>
-        <button type="button" className="msg-pending-action" onClick={() => retryPending(pending.nonce)}>
-          {t("retrySend")}
-        </button>
+        <span className="msg-pending-failed-text">
+          {t(pending.filesLost ? "messageAttachmentsLost" : "messageNotSent")}
+        </span>
+        {canRetry && (
+          <button type="button" className="msg-pending-action" onClick={() => retryPending(pending.nonce)}>
+            {t("retrySend")}
+          </button>
+        )}
         <button type="button" className="msg-pending-action" onClick={() => discardPending(pending.nonce)}>
           {t("discardMessage")}
         </button>

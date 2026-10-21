@@ -138,5 +138,6 @@
   "messageSending": "Gönderiliyor…",
   "messageNotSent": "Gönderilemedi",
   "retrySend": "Tekrar dene",
-  "discardMessage": "Sil"
+  "discardMessage": "Sil",
+  "messageAttachmentsLost": "Gönderilemedi — ekler saklanamadı, yeniden ekleyin"
 }
