@@ -114,11 +114,14 @@ func (r *sqliteMessageRepo) GetByChannelID(ctx context.Context, channelID string
 			LEFT JOIN messages rm ON m.reply_to_id = rm.id
 			LEFT JOIN users ru ON rm.user_id = ru.id
 			WHERE m.channel_id = ?
-			ORDER BY m.created_at DESC
+			ORDER BY m.created_at DESC, m.rowid DESC
 			LIMIT ?`
 		args = []any{channelID, limit}
 	} else {
-		// Cursor pagination: fetch messages older than beforeID's created_at
+		// Cursor pagination: messages strictly before the cursor in (created_at, rowid) order.
+		// created_at is second-precision (CURRENT_TIMESTAMP), so comparing it alone skipped every
+		// message written in the cursor's own second — they were neither on this page nor the next.
+		// rowid breaks the tie in insertion order; dm_messages has done the same since 958a37b.
 		query = `
 			SELECT m.id, m.channel_id, m.user_id, m.content, m.edited_at, m.created_at, m.reply_to_id,
 			       m.encryption_version, m.ciphertext, m.sender_device_id, m.e2ee_metadata,
@@ -130,8 +133,9 @@ func (r *sqliteMessageRepo) GetByChannelID(ctx context.Context, channelID string
 			LEFT JOIN messages rm ON m.reply_to_id = rm.id
 			LEFT JOIN users ru ON rm.user_id = ru.id
 			WHERE m.channel_id = ?
-			  AND m.created_at < (SELECT created_at FROM messages WHERE id = ?)
-			ORDER BY m.created_at DESC
+			  AND (m.created_at, m.rowid) <
+			      (SELECT created_at, rowid FROM messages WHERE id = ?)
+			ORDER BY m.created_at DESC, m.rowid DESC
 			LIMIT ?`
 		args = []any{channelID, beforeID, limit}
 	}
