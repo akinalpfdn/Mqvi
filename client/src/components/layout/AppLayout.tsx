@@ -36,6 +36,7 @@ import { useP2PCall } from "../../hooks/useP2PCall";
 import { usePushNotifications } from "../../hooks/usePushNotifications";
 import { useCallKit } from "../../hooks/useCallKit";
 import { useE2EE } from "../../hooks/useE2EE";
+import { useConversationCache } from "../../hooks/useConversationCache";
 import { useE2EEStore } from "../../stores/e2eeStore";
 import RecoveryPasswordPrompt from "../shared/RecoveryPasswordPrompt";
 import IncomingCallOverlay from "../p2p/IncomingCallOverlay";
@@ -86,6 +87,8 @@ function AppLayout() {
 
   // E2EE device identity check + key init
   useE2EE();
+  // Recent conversations kept on the device (native apps only)
+  useConversationCache();
   const showRecoveryPrompt = useE2EEStore((s) => s.showRecoveryPrompt);
 
   // Blur + transparent classes are applied at App root level so they also

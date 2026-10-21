@@ -1,9 +1,10 @@
 /** DMChatProvider — Maps DM store to ChatContext (no roles/permissions in DMs). */
 
-import { useMemo, useCallback, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useCallback, useRef, type ReactNode } from "react";
 import { ChatContext, TypingProvider, type ChatContextValue, type ChatMessage } from "../../hooks/useChatContext";
 import { useDMStore } from "../../stores/dmStore";
 import type { UploadOptions } from "../../api/client";
+import { noteConversationOpened } from "../../cache/conversationCache";
 import type { DMMessage, MemberWithRoles, User } from "../../types";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
@@ -52,6 +53,11 @@ function DMChatProvider({
   const storeFetchOlderMessages = useDMStore((s) => s.fetchOlderMessages);
   const storePinMessage = useDMStore((s) => s.pinMessage);
   const storeUnpinMessage = useDMStore((s) => s.unpinMessage);
+
+  // Opening a DM makes it the most recent cached conversation.
+  useEffect(() => {
+    if (channelId) noteConversationOpened({ kind: "dm", id: channelId });
+  }, [channelId]);
 
   // ─── File drop ref — forwards files from drag-drop to MessageInput ───
   const addFilesRef = useRef<((files: File[]) => void) | null>(null);

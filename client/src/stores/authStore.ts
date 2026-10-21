@@ -29,6 +29,7 @@ import { useSessionStore } from "./sessionStore";
 import { unregisterCurrentPushToken, clearCachedPushToken, reassertPushTokens } from "../utils/pushToken";
 import { resetMarkReadTracking } from "./shared/markReadTracking";
 import { resetOutbox } from "./outboxStore";
+import { retryPendingWipe, wipeConversationCache } from "../cache/cacheSession";
 import type { User, UserStatus } from "../types";
 
 const MANUAL_STATUS_KEY = "mqvi_manual_status";
@@ -286,6 +287,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     resetMarkReadTracking();
     // Before the token goes: an unsent message left queued would go out under the next account.
     resetOutbox();
+    // Decrypted messages on the device go with the session. Not awaited: it never throws, and a
+    // wipe that fails is redone at the next launch.
+    void wipeConversationCache();
 
     // Unregister this device's push token while the access token is still valid.
     await unregisterCurrentPushToken();
@@ -317,6 +321,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ user: null });
     resetMarkReadTracking(); // cannot throw; belongs with the guaranteed teardown
     resetOutbox(); // same: an unsent message must not survive into the next account's session
+    void wipeConversationCache(); // never throws; a failed wipe is redone at the next launch
 
     // Best-effort local cleanup, each isolated so one failure can't skip the rest.
     try {
@@ -373,6 +378,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
 
       void flushPendingLogout();
+      // Before anything can read the cache: a wipe an earlier sign-out could not finish.
+      await retryPendingWipe();
 
       const token = localStorage.getItem("access_token");
       if (!token) {
@@ -423,6 +430,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     clearTokens();
     clearCachedPushToken();
+    resetOutbox();
+    void wipeConversationCache();
     set({ user: null, isServerUnreachable: false });
   },
 
