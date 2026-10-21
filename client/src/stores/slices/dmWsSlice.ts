@@ -9,6 +9,8 @@ import {
   updateAuthorInRecord,
 } from "../shared/messageUtils";
 import { sortChannelsByActivity } from "../shared/dmSort";
+import { useAuthStore } from "../authStore";
+import { useOutboxStore } from "../outboxStore";
 import type { DMStore } from "../dmStore";
 
 export type DMWsSlice = {
@@ -62,8 +64,20 @@ export const createDMWsSlice: StateCreator<
         return { channels: sortedChannels, typingUsers };
       }
 
-      if (channelMessages.some((m) => m.id === message.id)) {
-        return { channels: sortedChannels, typingUsers };
+      // The send response and the echo both land here, whichever comes first; a held copy that
+      // could not be decrypted takes the content the later one brings.
+      const heldIndex = channelMessages.findIndex((m) => m.id === message.id);
+      if (heldIndex !== -1) {
+        if (channelMessages[heldIndex].content !== null || message.content === null) {
+          return { channels: sortedChannels, typingUsers };
+        }
+        const next = [...channelMessages];
+        next[heldIndex] = message;
+        return {
+          channels: sortedChannels,
+          messagesByChannel: { ...state.messagesByChannel, [message.dm_channel_id]: next },
+          typingUsers,
+        };
       }
 
       return {
@@ -75,6 +89,11 @@ export const createDMWsSlice: StateCreator<
         typingUsers,
       };
     });
+
+    // Only the author's nonce: nobody else can confirm this device's outbox.
+    if (message.client_nonce && message.user_id === useAuthStore.getState().user?.id) {
+      useOutboxStore.getState().remove(message.client_nonce);
+    }
   },
 
   handleDMMessageUpdate: (message) => {

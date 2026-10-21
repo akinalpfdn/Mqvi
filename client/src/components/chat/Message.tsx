@@ -26,16 +26,23 @@ import MessageAttachments from "./MessageAttachments";
 import MessageHoverActions from "./MessageHoverActions";
 import MessageReactions from "./MessageReactions";
 import MobileMessageActions from "./MobileMessageActions";
+import PendingMessageStatus from "./PendingMessageStatus";
 import ReportModal from "../shared/ReportModal";
 import { REPORT_EXCERPT_MAX } from "../../api/report";
 import { useUserBadges } from "../../hooks/useUserBadges";
 import { useActiveRoles } from "../../stores/roleStore";
+import type { PendingMessage } from "../../stores/outboxStore";
 import type { MemberWithRoles, User } from "../../types";
 
 type MessageProps = {
   message: ChatMessage;
   /** Consecutive message from same author? (compact mode) */
   isCompact: boolean;
+  /**
+   * Set while the server has not confirmed this message. It has no server id yet, so every action
+   * that needs one (react, reply, edit, delete, pin, report) is off and a delivery line shows.
+   */
+  pending?: PendingMessage;
 };
 
 /** Returns role type based on member's highest-position role. */
@@ -69,7 +76,7 @@ function autoGrowEdit(el: HTMLTextAreaElement) {
   el.style.height = `${el.scrollHeight}px`;
 }
 
-function Message({ message, isCompact }: MessageProps) {
+function Message({ message, isCompact, pending }: MessageProps) {
   const { t, i18n } = useTranslation("chat");
   const currentUser = useAuthStore((s) => s.user);
 
@@ -510,13 +517,15 @@ function Message({ message, isCompact }: MessageProps) {
   }, [message.content]);
 
   const msgClass = `msg${!isCompact ? " first-of-group" : " grouped"}${pickerSource ? " picker-open" : ""}${isMentioned ? " msg-mentioned" : ""}${isEditing ? " editing" : ""}`;
+  const interactions = pending
+    ? {}
+    : {
+        ...(isMobile ? longPressHandlers : {}),
+        onContextMenu: isMobile ? longPressHandlers.onContextMenu : handleContextMenu,
+      };
 
   return (
-    <div
-      className={msgClass}
-      {...(isMobile ? longPressHandlers : {})}
-      onContextMenu={isMobile ? longPressHandlers.onContextMenu : handleContextMenu}
-    >
+    <div className={msgClass} {...interactions}>
       <div className="msg-row">
         {/* Both avatars are always rendered; the container query shows the one that fits the
             message column width — left gutter when wide, inline header avatar when narrow. */}
@@ -694,8 +703,10 @@ function Message({ message, isCompact }: MessageProps) {
           {/* Attachments */}
           <MessageAttachments message={message} />
 
+          {pending && <PendingMessageStatus pending={pending} />}
+
           {/* Reactions — voice chat MVP has no reactions */}
-          {mode !== "voice" && (
+          {mode !== "voice" && !pending && (
             <MessageReactions
               message={message}
               pickerSource={pickerSource}
@@ -706,7 +717,7 @@ function Message({ message, isCompact }: MessageProps) {
           )}
         </div>
 
-        {!isEditing && (
+        {!isEditing && !pending && (
           <MessageHoverActions
             isOwner={isOwner}
             isPinned={isPinned}
@@ -735,7 +746,7 @@ function Message({ message, isCompact }: MessageProps) {
       <ContextMenu state={menuState} onClose={closeMenu} />
 
       {/* Mobile message actions bottom sheet — opens on long-press */}
-      {isMobile && (
+      {isMobile && !pending && (
         <MobileMessageActions
           isOpen={mobileActionsOpen}
           onClose={() => setMobileActionsOpen(false)}

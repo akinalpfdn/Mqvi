@@ -140,6 +140,21 @@ describe("key backup", () => {
     expect(store.metadata.get("nextPrekeyId")).toBe(99);
   });
 
+  it("should carry the attachment keys of cached messages", async () => {
+    seedEverything();
+    const fileKeys = [{ key: "k", iv: "iv", filename: "a.png", mimeType: "image/png", originalSize: 3, digest: "d" }];
+    store.cachedMessages = [
+      { messageId: "m1", channelId: "", dmChannelId: "d1", content: "", timestamp: 1, fileKeys },
+    ];
+
+    const backup = await createBackup("correct horse battery staple");
+    Object.assign(store, emptyStore());
+    await restoreFromBackup(backup, "correct horse battery staple");
+
+    // Without them a restored attachment-only message is undecryptable bytes.
+    expect(store.cachedMessages).toEqual([expect.objectContaining({ messageId: "m1", fileKeys })]);
+  });
+
   it("should refuse a wrong password without destroying the keys already on the device", async () => {
     seedEverything();
     const backup = await createBackup("the real password");

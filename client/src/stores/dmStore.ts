@@ -6,7 +6,7 @@ import type { UploadOptions } from "../api/client";
 import { buildAttachmentPreview } from "../utils/attachmentPreview";
 import { mapWithConcurrency } from "../utils/concurrency";
 import { PREVIEW_CONCURRENCY } from "../utils/constants";
-import type { DMChannelWithUser, DMMessage } from "../types";
+import type { DMChannelWithUser, DMMessage, MessageReference } from "../types";
 import { useUIStore } from "./uiStore";
 import { useToastStore } from "./toastStore";
 import { useE2EEStore, canEncrypt } from "./e2eeStore";
@@ -14,16 +14,28 @@ import { useAuthStore } from "./authStore";
 import {
   encryptDMMessage,
   decryptDMMessages,
-  pushSentPlaintext,
-  discardLastSentPlaintext,
   persistSentPlaintext,
   cacheEditPlaintext,
 } from "../crypto/dmEncryption";
 import { encodePayload } from "../crypto/e2eePayload";
 import { mergeLatestPage } from "../utils/messageSync";
+import { randomId } from "../utils/randomId";
+import {
+  useOutboxStore,
+  startDelivery,
+  cancelDelivery,
+  previewAttachments,
+  autoRetryable,
+  getPrepared,
+  setPrepared,
+  type PreparedSend,
+  type SendAttempt,
+} from "./outboxStore";
 import {
   encryptFilesForE2EE,
-  handleSendError,
+  encryptedEditPayload,
+  sendFailureOutcome,
+  encryptionFailureOutcome,
 } from "./shared/messageUtils";
 import {
   createDMSettingsSlice,
@@ -65,7 +77,16 @@ type DMCoreState = {
   fetchOlderMessages: (channelId: string) => Promise<void>;
   /** Re-fetch the newest page and fold it in — recovers messages a dead socket never delivered */
   resyncChannel: (channelId: string) => Promise<void>;
+  /** Same contract as messageStore.sendMessage: true once queued, false only when refused up front. */
   sendMessage: (channelId: string, content: string, files?: File[], replyToId?: string, upload?: UploadOptions) => Promise<boolean>;
+  /**
+   * For a caller with no bubble to watch (inviting friends from a modal): resolves once delivery
+   * settled, true only if the server stored it. A failure stays in that conversation's outbox.
+   */
+  sendMessageAndWait: (channelId: string, content: string) => Promise<boolean>;
+  retryPending: (nonce: string) => void;
+  discardPending: (nonce: string) => void;
+  retryFailedSends: () => void;
   editMessage: (messageId: string, content: string) => Promise<boolean>;
   deleteMessage: (messageId: string) => Promise<boolean>;
 
@@ -92,6 +113,144 @@ type DMCoreState = {
 };
 
 export type DMStore = DMCoreState & DMSettingsSlice & DMWsSlice;
+
+/**
+ * Whether a DM goes out encrypted, or why it cannot go out. Fails closed like the channel path: an
+ * unknown state must not default to plaintext on a conversation that mandates encryption.
+ */
+function dmSendMode(channel: DMChannelWithUser | undefined): "plaintext" | "e2ee" | { refusal: string } {
+  if (typeof channel?.e2ee_enabled !== "boolean") return { refusal: "chat:encryptionStateUnknown" };
+  if (!channel.e2ee_enabled) return "plaintext";
+  if (!canEncrypt(useE2EEStore.getState()) || !useAuthStore.getState().user?.id) {
+    return { refusal: "chat:encryptionRequired" };
+  }
+  return "e2ee";
+}
+
+async function prepareDMSend(
+  mode: "plaintext" | "e2ee",
+  recipientUserId: string,
+  content: string,
+  files: File[],
+  signal: AbortSignal
+): Promise<PreparedSend> {
+  if (mode === "plaintext") {
+    const thumbs = files.length > 0
+      ? await mapWithConcurrency(files, PREVIEW_CONCURRENCY, (file) => buildAttachmentPreview(file, signal))
+      : undefined;
+    return { thumbs };
+  }
+
+  const { localDeviceId } = useE2EEStore.getState();
+  const userId = useAuthStore.getState().user?.id;
+  if (!localDeviceId || !userId) throw new Error("E2EE device not ready");
+
+  let encrypted: Awaited<ReturnType<typeof encryptFilesForE2EE>> | undefined;
+  if (files.length > 0) encrypted = await encryptFilesForE2EE(files, signal);
+
+  // No plaintext fallback on failure: the server refuses unencrypted messages on an encrypted DM.
+  const envelopes = await encryptDMMessage(userId, recipientUserId, localDeviceId, encodePayload(content, encrypted?.metas));
+  return {
+    thumbs: encrypted?.thumbs,
+    encrypted: {
+      ciphertext: JSON.stringify(envelopes),
+      metadata: JSON.stringify({}),
+      deviceId: localDeviceId,
+      files: encrypted?.files,
+      fileMetas: encrypted?.metas,
+    },
+  };
+}
+
+function dmAttempt(nonce: string): SendAttempt {
+  return async ({ signal, upload }) => {
+    const entry = useOutboxStore.getState().find(nonce);
+    if (!entry) return "rejected";
+    const channelId = entry.conversationId;
+
+    let prepared = getPrepared(nonce);
+    if (!prepared) {
+      const channel = useDMStore.getState().channels.find((ch) => ch.id === channelId);
+      const mode = dmSendMode(channel);
+      if (typeof mode === "object") {
+        useToastStore.getState().addToast("error", i18n.t(mode.refusal));
+        return "rejected";
+      }
+      try {
+        // dmSendMode answers "e2ee" only for a channel it found.
+        prepared = await prepareDMSend(mode, channel?.other_user.id ?? "", entry.content, entry.files, signal);
+      } catch (err) {
+        return encryptionFailureOutcome(err, "dmStore");
+      }
+      setPrepared(nonce, prepared);
+    }
+    if (signal.aborted) return "transient";
+
+    const replyToId = entry.replyToId ?? undefined;
+    const sealed = prepared.encrypted;
+    const res = sealed
+      ? await dmApi.sendEncryptedDMMessage(
+          channelId, sealed.ciphertext, sealed.deviceId, sealed.metadata,
+          sealed.files, replyToId, upload, prepared.thumbs, nonce
+        )
+      : await dmApi.sendDMMessage(channelId, entry.content, entry.files, replyToId, upload, prepared.thumbs, nonce);
+
+    if (!res.success) return sendFailureOutcome(res);
+    if (res.data) {
+      let stored: DMMessage = { ...res.data, client_nonce: nonce };
+      if (sealed) {
+        stored = { ...stored, content: entry.content, e2ee_file_keys: sealed.fileMetas };
+        // Before the pending copy goes: an echo landing after that finds neither the outbox entry
+        // nor, for a conversation that is not loaded, a stored copy — only this.
+        try {
+          await persistSentPlaintext(res.data.id, channelId, entry.content, sealed.fileMetas);
+        } catch {
+          /* IndexedDB optional */
+        }
+      }
+      useDMStore.getState().handleDMMessageCreate(stored);
+    }
+    useOutboxStore.getState().remove(nonce);
+    return "sent";
+  };
+}
+
+/** Puts a DM in the outbox; null when it was refused up front, so the composer keeps the text. */
+function queueDMSend(channelId: string, content: string, files: File[], replyToId: string | undefined): string | null {
+  const state = useDMStore.getState();
+  const mode = dmSendMode(state.channels.find((ch) => ch.id === channelId));
+  if (typeof mode === "object") {
+    useToastStore.getState().addToast("error", i18n.t(mode.refusal));
+    return null;
+  }
+
+  const nonce = randomId();
+  useOutboxStore.getState().add({
+    nonce,
+    kind: "dm",
+    conversationId: channelId,
+    content,
+    files,
+    attachments: previewAttachments(files),
+    replyToId: replyToId ?? null,
+    referencedMessage: referenceFor(state.messagesByChannel[channelId], replyToId),
+    createdAt: new Date().toISOString(),
+    status: "sending",
+    failure: null,
+  });
+  return nonce;
+}
+
+function deliverDM(nonce: string): Promise<void> {
+  return startDelivery(nonce, dmAttempt(nonce), () => useOutboxStore.getState().remove(nonce));
+}
+
+function referenceFor(messages: DMMessage[] | undefined, replyToId: string | undefined): MessageReference | null {
+  if (!replyToId) return null;
+  const target = messages?.find((m) => m.id === replyToId);
+  return target ? { id: target.id, author: target.author, content: target.content } : null;
+}
+
 
 export const useDMStore = create<DMStore>((set, get, store) => ({
   ...createDMSettingsSlice(set, get, store),
@@ -242,105 +401,30 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
     }
   },
 
-  sendMessage: async (channelId, content, files, replyToId, upload) => {
-    const e2eeState = useE2EEStore.getState();
+  sendMessage: async (channelId, content, files, replyToId) => {
+    const nonce = queueDMSend(channelId, content, files ?? [], replyToId);
+    if (!nonce) return false;
+    void deliverDM(nonce);
+    return true;
+  },
 
-    const dmChannel = get().channels.find((ch) => ch.id === channelId);
-    // Fail closed, same rule as the channel path: an unknown state must not default to plaintext on
-    // a conversation that turns out to mandate encryption.
-    if (typeof dmChannel?.e2ee_enabled !== "boolean") {
-      useToastStore.getState().addToast("error", i18n.t("chat:encryptionStateUnknown"));
-      return false;
-    }
-    if (dmChannel.e2ee_enabled && !canEncrypt(e2eeState)) {
-      useToastStore.getState().addToast("error", i18n.t("chat:encryptionRequired"));
-      return false;
-    }
-    if (dmChannel.e2ee_enabled && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
-      const channel = dmChannel;
-      const currentUserId = useAuthStore.getState().user?.id;
+  sendMessageAndWait: async (channelId, content) => {
+    const nonce = queueDMSend(channelId, content, [], undefined);
+    if (!nonce) return false;
+    await deliverDM(nonce);
+    return !useOutboxStore.getState().find(nonce);
+  },
 
-      if (channel && currentUserId) {
-        try {
-          let encryptedFiles: File[] | undefined;
-          let thumbs: (import("../utils/imageEncoding").GeneratedThumbnail | null)[] | undefined;
-          let fileMetas: import("../crypto/fileEncryption").EncryptedFileMeta[] | undefined;
+  retryPending: (nonce) => {
+    void deliverDM(nonce);
+  },
 
-          if (files && files.length > 0) {
-            const result = await encryptFilesForE2EE(files, upload?.signal);
-            encryptedFiles = result.files;
-            thumbs = result.thumbs;
-            fileMetas = result.metas;
-          }
+  discardPending: (nonce) => {
+    if (!cancelDelivery(nonce)) useOutboxStore.getState().remove(nonce);
+  },
 
-          const plaintext = encodePayload(content, fileMetas);
-
-          const envelopes = await encryptDMMessage(
-            currentUserId,
-            channel.other_user.id,
-            e2eeState.localDeviceId,
-            plaintext
-          );
-
-          const ciphertext = JSON.stringify(envelopes);
-          const metadata = JSON.stringify({});
-
-          pushSentPlaintext(channelId, { content, file_keys: fileMetas });
-
-          const res = await dmApi.sendEncryptedDMMessage(
-            channelId,
-            ciphertext,
-            e2eeState.localDeviceId,
-            metadata,
-            encryptedFiles,
-            replyToId,
-            upload,
-            thumbs
-          );
-
-          if (res.success && res.data) {
-            try {
-              await persistSentPlaintext(res.data.id, channelId, content);
-            } catch {
-              /* IndexedDB optional */
-            }
-          }
-
-          if (!res.success) {
-            discardLastSentPlaintext(channelId);
-            handleSendError(res);
-          }
-
-          return res.success;
-        } catch (err) {
-          discardLastSentPlaintext(channelId);
-          // A user-initiated cancel is not a failure — no toast and no red console entry.
-          if (err instanceof DOMException && err.name === "AbortError") return false;
-          console.error("[dmStore] E2EE encrypt failed:", err);
-
-          // No plaintext fallback: the server refuses unencrypted messages on an encrypted DM, so
-          // this only re-uploaded every attachment to earn a second rejection. The problem is the
-          // recipient having no device keys, which is what the user is told.
-          const errMsg = err instanceof Error ? err.message : "";
-          if (errMsg === "RECIPIENT_NO_KEYS") {
-            useToastStore.getState().addToast("error", i18n.t("e2ee:recipientNoKeys"));
-            return false;
-          }
-          useToastStore.getState().addToast("error", i18n.t("e2ee:encryptionFailed"));
-          return false;
-        }
-      }
-    }
-
-    // Same generation as the encrypted path, so both produce previews identically.
-    const plainThumbs = files
-      ? await mapWithConcurrency(files, PREVIEW_CONCURRENCY, (file) =>
-          buildAttachmentPreview(file, upload?.signal)
-        )
-      : undefined;
-    const res = await dmApi.sendDMMessage(channelId, content, files, replyToId, upload, plainThumbs);
-    handleSendError(res);
-    return res.success;
+  retryFailedSends: () => {
+    for (const entry of autoRetryable("dm")) get().retryPending(entry.nonce);
   },
 
   editMessage: async (messageId, content) => {
@@ -352,8 +436,12 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
     // pins) or the channel list may not have arrived. Defaulting to false attempted a plaintext
     // edit on an encrypted conversation, same fail-open sendMessage was hardened against.
     let editChannelE2EE: boolean | undefined;
+    let editChannelId: string | null = null;
+    let held: DMMessage | undefined;
     for (const [chId, msgs] of Object.entries(editState.messagesByChannel)) {
-      if (msgs.some((m) => m.id === messageId)) {
+      held = msgs.find((m) => m.id === messageId);
+      if (held) {
+        editChannelId = chId;
         const ch = editState.channels.find((c) => c.id === chId);
         if (ch) {
           recipientUserId = ch.other_user.id;
@@ -377,18 +465,23 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
       const currentUserId = useAuthStore.getState().user?.id;
 
       if (recipientUserId && currentUserId) {
+        const plaintext = encryptedEditPayload(content, held);
+        if (plaintext === null) {
+          useToastStore.getState().addToast("error", i18n.t("e2ee:editAttachmentKeysMissing"));
+          return false;
+        }
         try {
           const envelopes = await encryptDMMessage(
             currentUserId,
             recipientUserId,
             e2eeState.localDeviceId,
-            content
+            plaintext
           );
 
           const ciphertext = JSON.stringify(envelopes);
           const metadata = JSON.stringify({});
 
-          cacheEditPlaintext(messageId, { content });
+          cacheEditPlaintext(messageId, { content, file_keys: held?.e2ee_file_keys });
 
           const res = await dmApi.editEncryptedDMMessage(
             messageId,
@@ -398,7 +491,8 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
           );
 
           if (res.success) {
-            persistSentPlaintext(messageId, "", content).catch(() => {});
+            // Under its conversation, or DM search (which filters by it) stops finding it.
+            persistSentPlaintext(messageId, editChannelId ?? "", content, held?.e2ee_file_keys).catch(() => {});
           }
 
           return res.success;

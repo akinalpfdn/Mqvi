@@ -93,6 +93,8 @@ type BackupContents = {
     dmChannelId: string | null;
     content: string;
     timestamp: number;
+    /** Attachment keys; absent in backups made before they were kept. */
+    fileKeys?: import("./fileEncryption").EncryptedFileMeta[];
   }>;
 };
 
@@ -275,6 +277,7 @@ async function collectBackupContents(): Promise<BackupContents> {
       dmChannelId: m.dmChannelId,
       content: m.content,
       timestamp: m.timestamp,
+      fileKeys: m.fileKeys,
     })),
   };
 }
@@ -390,6 +393,7 @@ async function importBackupContents(contents: BackupContents): Promise<void> {
           dmChannelId: m.dmChannelId,
           content: m.content,
           timestamp: m.timestamp,
+          fileKeys: m.fileKeys,
         });
       }
     }

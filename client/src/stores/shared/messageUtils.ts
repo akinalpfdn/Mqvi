@@ -6,10 +6,12 @@
 import i18n from "../../i18n";
 import { UPLOAD_ABORTED } from "../../api/client";
 import { encryptFile, encryptThumbnail } from "../../crypto/fileEncryption";
+import { encodePayload } from "../../crypto/e2eePayload";
 import { useToastStore } from "../toastStore";
+import { classifyFailure, type SendOutcome } from "../outboxStore";
 import type { EncryptedFileMeta } from "../../crypto/fileEncryption";
 import type { GeneratedThumbnail } from "../../utils/imageEncoding";
-import type { ReactionGroup } from "../../types";
+import type { APIResponse, ReactionGroup } from "../../types";
 
 // ─── File Encryption ───
 
@@ -113,6 +115,54 @@ export function handleSendError(res: {
 
   useToastStore.getState().addToast("error", i18n.t(key));
   return true;
+}
+
+// ─── Encrypted Edits ───
+
+/**
+ * The plaintext an encrypted edit carries. An edit replaces the stored ciphertext, so it has to
+ * carry the attachment keys along with the text — the text alone erases them for every reader.
+ * Null when this device does not hold every key: the edit would then break files that the
+ * recipients can still open.
+ */
+export function encryptedEditPayload(
+  content: string,
+  held: { attachments?: unknown[]; e2ee_file_keys?: EncryptedFileMeta[] } | undefined
+): string | null {
+  const attached = held?.attachments?.length ?? 0;
+  if (attached === 0) return encodePayload(content);
+  const keys = held?.e2ee_file_keys;
+  if (!keys || keys.length !== attached) return null;
+  return encodePayload(content, keys);
+}
+
+// ─── Outbox Outcomes ───
+
+/**
+ * The outcome of a send the server did not accept. A rejection is explained to the user; a
+ * transient failure only marks the bubble, since it is retried and a toast per message would pile up.
+ */
+export function sendFailureOutcome(res: APIResponse<unknown>): Exclude<SendOutcome, "sent"> {
+  // Cancel and timeout both abort the request; the outbox knows which it was.
+  if (res.code === UPLOAD_ABORTED) return "transient";
+  const outcome = classifyFailure(res.httpStatus);
+  if (outcome === "rejected") handleSendError(res);
+  return outcome;
+}
+
+/**
+ * The outcome of a send that could not be encrypted. A recipient without keys stays that way until
+ * they set up E2EE; anything else may be the network the key fetch needed, so it may be retried.
+ */
+export function encryptionFailureOutcome(err: unknown, logTag: string): Exclude<SendOutcome, "sent"> {
+  if (err instanceof DOMException && err.name === "AbortError") return "transient";
+  console.error(`[${logTag}] E2EE encryption failed:`, err);
+  if (err instanceof Error && err.message === "RECIPIENT_NO_KEYS") {
+    useToastStore.getState().addToast("error", i18n.t("e2ee:recipientNoKeys"));
+    return "rejected";
+  }
+  useToastStore.getState().addToast("error", i18n.t("e2ee:encryptionFailed"));
+  return "transient";
 }
 
 // ─── Typing Indicator ───

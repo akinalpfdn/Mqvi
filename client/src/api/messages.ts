@@ -38,13 +38,17 @@ export async function sendMessage(
   files?: File[],
   replyToId?: string,
   upload?: UploadOptions,
-  thumbs?: (GeneratedThumbnail | null)[]
+  thumbs?: (GeneratedThumbnail | null)[],
+  clientNonce?: string
 ) {
   if (files && files.length > 0) {
     const formData = new FormData();
     formData.append("content", content);
     if (replyToId) {
       formData.append("reply_to_id", replyToId);
+    }
+    if (clientNonce) {
+      formData.append("client_nonce", clientNonce);
     }
     for (const file of files) {
       formData.append("files", file);
@@ -61,7 +65,8 @@ export async function sendMessage(
 
   return apiClient<Message>(`/servers/${serverId}/channels/${channelId}/messages`, {
     method: "POST",
-    body: { content, reply_to_id: replyToId },
+    body: { content, reply_to_id: replyToId, client_nonce: clientNonce },
+    signal: upload?.signal,
   });
 }
 
@@ -78,7 +83,8 @@ export async function sendEncryptedMessage(
   files?: File[],
   replyToId?: string,
   upload?: UploadOptions,
-  thumbs?: (GeneratedThumbnail | null)[]
+  thumbs?: (GeneratedThumbnail | null)[],
+  clientNonce?: string
 ) {
   if (files && files.length > 0) {
     const formData = new FormData();
@@ -88,6 +94,9 @@ export async function sendEncryptedMessage(
     formData.append("e2ee_metadata", metadata);
     if (replyToId) {
       formData.append("reply_to_id", replyToId);
+    }
+    if (clientNonce) {
+      formData.append("client_nonce", clientNonce);
     }
     for (const file of files) {
       formData.append("files", file);
@@ -110,7 +119,9 @@ export async function sendEncryptedMessage(
       sender_device_id: senderDeviceId,
       e2ee_metadata: metadata,
       ...(replyToId ? { reply_to_id: replyToId } : {}),
+      ...(clientNonce ? { client_nonce: clientNonce } : {}),
     },
+    signal: upload?.signal,
   });
 }
 

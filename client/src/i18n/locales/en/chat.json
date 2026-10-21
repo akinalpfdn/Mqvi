@@ -134,5 +134,9 @@
   "voiceInviteError": "Could not send voice invite",
   "statusOnlineDescription": "Appear as online",
   "statusIdleDescription": "Appear as idle",
-  "statusDndDescription": "Pause notifications"
+  "statusDndDescription": "Pause notifications",
+  "messageSending": "Sending…",
+  "messageNotSent": "Not sent",
+  "retrySend": "Retry",
+  "discardMessage": "Delete"
 }

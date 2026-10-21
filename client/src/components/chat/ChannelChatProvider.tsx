@@ -49,6 +49,8 @@ function ChannelChatProvider({
   const storeSetReplyingTo = useMessageStore((s) => s.setReplyingTo);
   const storeSetScrollToMessageId = useMessageStore((s) => s.setScrollToMessageId);
   const storeSendMessage = useMessageStore((s) => s.sendMessage);
+  const retryPending = useMessageStore((s) => s.retryPending);
+  const discardPending = useMessageStore((s) => s.discardPending);
   const storeEditMessage = useMessageStore((s) => s.editMessage);
   const storeDeleteMessage = useMessageStore((s) => s.deleteMessage);
   const storeToggleReaction = useMessageStore((s) => s.toggleReaction);
@@ -165,6 +167,9 @@ function ChannelChatProvider({
       replyingTo,
       scrollToMessageId,
       sendMessage,
+      sendsInBackground: true,
+      retryPending,
+      discardPending,
       editMessage,
       deleteMessage,
       fetchMessages,
@@ -185,7 +190,7 @@ function ChannelChatProvider({
     [
       channelId, channelName, explicitServerId, messages, isLoading, isLoadingMore, hasMore,
       replyingTo, scrollToMessageId,
-      sendMessage, editMessage, deleteMessage, fetchMessages, fetchOlderMessages,
+      sendMessage, retryPending, discardPending, editMessage, deleteMessage, fetchMessages, fetchOlderMessages,
       toggleReaction, setReplyingTo, setScrollToMessageId, sendTyping,
       pinMessage, unpinMessage, isMessagePinned,
       canSend, canManageMessages, members, addFilesRef,

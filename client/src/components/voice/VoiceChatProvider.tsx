@@ -100,6 +100,7 @@ function VoiceChatProvider({ channelId, channelName, children }: Props) {
   }, [channelId, setForChannel]);
 
   const noopAsync = useCallback(async () => {}, []);
+  const noop = useCallback(() => {}, []);
 
   const value: ChatContextValue = useMemo(
     () => ({
@@ -114,6 +115,10 @@ function VoiceChatProvider({ channelId, channelName, children }: Props) {
       replyingTo: null,
       scrollToMessageId: null,
       sendMessage,
+      // Voice chat has no idempotent send to retry under, so it keeps sending in the foreground.
+      sendsInBackground: false,
+      retryPending: noop,
+      discardPending: noop,
       editMessage,
       deleteMessage: deleteMessageAction,
       fetchMessages,
@@ -133,7 +138,7 @@ function VoiceChatProvider({ channelId, channelName, children }: Props) {
     }),
     [
       channelId, channelName, messages, isLoading,
-      sendMessage, editMessage, deleteMessageAction, fetchMessages, noopAsync,
+      sendMessage, editMessage, deleteMessageAction, fetchMessages, noopAsync, noop,
     ],
   );
 

@@ -6,7 +6,6 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("../../crypto/dmEncryption", () => ({
   decryptDMMessage: vi.fn(),
-  popSentPlaintext: vi.fn(),
   popEditPlaintext: vi.fn(),
 }));
 vi.mock("../../crypto/keyStorage", () => ({

@@ -8,7 +8,8 @@ import { useBlockStore } from "../../stores/blockStore";
 import { useAuthStore } from "../../stores/authStore";
 import { isAppInForeground } from "../../stores/appFocusStore";
 import { useE2EEStore } from "../../stores/e2eeStore";
-import { decryptDMMessage, popSentPlaintext, popEditPlaintext } from "../../crypto/dmEncryption";
+import { decryptDMMessage, popEditPlaintext, isCacheable } from "../../crypto/dmEncryption";
+import { sentPayload } from "../../stores/outboxStore";
 import * as keyStorage from "../../crypto/keyStorage";
 import { playNotificationSound } from "../../utils/sounds";
 import type { WSMessage, DMChannelWithUser, DMMessage, ReactionGroup } from "../../types";
@@ -38,18 +39,19 @@ export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
 
         if (isOwnMessage) {
           try {
-            const cached = popSentPlaintext(dmMsg.dm_channel_id);
+            const cached = sentPayload(dmMsg.client_nonce);
             if (cached) {
               dmMsg = { ...dmMsg, content: cached.content, e2ee_file_keys: cached.file_keys };
               decrypted = true;
               keyStorage.cacheDecryptedMessage({
                 messageId: dmMsg.id, channelId: "", dmChannelId: dmMsg.dm_channel_id,
                 content: cached.content, timestamp: new Date(dmMsg.created_at).getTime(),
+                fileKeys: cached.file_keys,
               }).catch(() => {});
             } else {
               const idbCached = await keyStorage.getCachedDecryptedMessage(dmMsg.id);
               if (idbCached) {
-                dmMsg = { ...dmMsg, content: idbCached.content };
+                dmMsg = { ...dmMsg, content: idbCached.content, e2ee_file_keys: idbCached.fileKeys };
                 decrypted = true;
               }
             }
@@ -68,10 +70,11 @@ export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
             const payload = await decryptDMMessage(dmMsg.user_id, dmMsg.ciphertext!, dmMsg.sender_device_id!);
             if (payload) {
               dmMsg = { ...dmMsg, content: payload.content, e2ee_file_keys: payload.file_keys };
-              if (payload.content) {
+              if (isCacheable(payload)) {
                 keyStorage.cacheDecryptedMessage({
                   messageId: dmMsg.id, channelId: "", dmChannelId: dmMsg.dm_channel_id,
                   content: payload.content, timestamp: new Date(dmMsg.created_at).getTime(),
+                  fileKeys: payload.file_keys,
                 }).catch(() => {});
               }
             } else {
@@ -137,7 +140,7 @@ export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
             } else {
               const idbCached = await keyStorage.getCachedDecryptedMessage(dmUpdateMsg.id);
               if (idbCached) {
-                dmUpdateMsg = { ...dmUpdateMsg, content: idbCached.content };
+                dmUpdateMsg = { ...dmUpdateMsg, content: idbCached.content, e2ee_file_keys: idbCached.fileKeys };
                 editDecrypted = true;
               }
             }
@@ -155,10 +158,15 @@ export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
             );
             dmUpdateMsg = { ...dmUpdateMsg, content: payload?.content ?? null, e2ee_file_keys: payload?.file_keys };
 
-            if (payload?.content) {
+            if (payload && isCacheable(payload)) {
+              // An edit's payload carries no file keys of its own; overwriting the entry without
+              // the ones this device holds would lose the attachments on the next load.
+              const held = useDMStore.getState().messagesByChannel[dmUpdateMsg.dm_channel_id]
+                ?.find((m) => m.id === dmUpdateMsg.id);
               keyStorage.cacheDecryptedMessage({
                 messageId: dmUpdateMsg.id, channelId: "", dmChannelId: dmUpdateMsg.dm_channel_id,
                 content: payload.content, timestamp: new Date(dmUpdateMsg.created_at).getTime(),
+                fileKeys: payload.file_keys ?? held?.e2ee_file_keys,
               }).catch(() => {});
             }
           } catch (err) {

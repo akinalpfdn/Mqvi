@@ -138,6 +138,8 @@ export type Message = {
   e2ee_metadata?: string | null;
   /** Client-only: decrypted file keys */
   e2ee_file_keys?: import("../crypto/fileEncryption").EncryptedFileMeta[];
+  /** The sender's idempotency key. Present on the create echo and the send response only. */
+  client_nonce?: string;
 };
 
 export type Attachment = {
@@ -380,6 +382,8 @@ export type DMMessage = {
   e2ee_metadata?: string | null;
   /** Client-only: decrypted file keys */
   e2ee_file_keys?: import("../crypto/fileEncryption").EncryptedFileMeta[];
+  /** The sender's idempotency key. Present on the create echo and the send response only. */
+  client_nonce?: string;
 };
 
 export type DMAttachment = {

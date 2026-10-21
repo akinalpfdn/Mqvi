@@ -28,6 +28,7 @@ import { useSettingsStore } from "./settingsStore";
 import { useSessionStore } from "./sessionStore";
 import { unregisterCurrentPushToken, clearCachedPushToken, reassertPushTokens } from "../utils/pushToken";
 import { resetMarkReadTracking } from "./shared/markReadTracking";
+import { resetOutbox } from "./outboxStore";
 import type { User, UserStatus } from "../types";
 
 const MANUAL_STATUS_KEY = "mqvi_manual_status";
@@ -283,6 +284,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // The SPA does not reload between logout and login: without this the next user inherits
     // this one's mark-read dedupe state and their DM badges never clear.
     resetMarkReadTracking();
+    // Before the token goes: an unsent message left queued would go out under the next account.
+    resetOutbox();
 
     // Unregister this device's push token while the access token is still valid.
     await unregisterCurrentPushToken();
@@ -313,6 +316,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     clearTokens(); // idempotent — the refresh flow already cleared them
     set({ user: null });
     resetMarkReadTracking(); // cannot throw; belongs with the guaranteed teardown
+    resetOutbox(); // same: an unsent message must not survive into the next account's session
 
     // Best-effort local cleanup, each isolated so one failure can't skip the rest.
     try {

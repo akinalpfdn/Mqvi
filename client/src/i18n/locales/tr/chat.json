@@ -134,5 +134,9 @@
   "voiceInviteError": "Ses daveti gönderilemedi",
   "statusOnlineDescription": "Çevrimiçi görün",
   "statusIdleDescription": "Boşta görün",
-  "statusDndDescription": "Bildirimleri duraklat"
+  "statusDndDescription": "Bildirimleri duraklat",
+  "messageSending": "Gönderiliyor…",
+  "messageNotSent": "Gönderilemedi",
+  "retrySend": "Tekrar dene",
+  "discardMessage": "Sil"
 }

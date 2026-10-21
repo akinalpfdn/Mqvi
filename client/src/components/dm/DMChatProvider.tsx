@@ -42,6 +42,8 @@ function DMChatProvider({
   const storeSetReplyingTo = useDMStore((s) => s.setReplyingTo);
   const storeSetScrollToMessageId = useDMStore((s) => s.setScrollToMessageId);
   const storeSendMessage = useDMStore((s) => s.sendMessage);
+  const retryPending = useDMStore((s) => s.retryPending);
+  const discardPending = useDMStore((s) => s.discardPending);
   const storeEditMessage = useDMStore((s) => s.editMessage);
   const storeDeleteMessage = useDMStore((s) => s.deleteMessage);
   const storeToggleReaction = useDMStore((s) => s.toggleReaction);
@@ -162,6 +164,9 @@ function DMChatProvider({
       replyingTo,
       scrollToMessageId,
       sendMessage,
+      sendsInBackground: true,
+      retryPending,
+      discardPending,
       editMessage,
       deleteMessage,
       fetchMessages,
@@ -182,7 +187,7 @@ function DMChatProvider({
     [
       channelId, channelName, messages, isLoadingMessages, hasMore,
       replyingTo, scrollToMessageId,
-      sendMessage, editMessage, deleteMessage, fetchMessages, fetchOlderMessages,
+      sendMessage, retryPending, discardPending, editMessage, deleteMessage, fetchMessages, fetchOlderMessages,
       toggleReaction, setReplyingTo, setScrollToMessageId, sendTyping,
       pinMessage, unpinMessage, isMessagePinned, members, addFilesRef,
     ]

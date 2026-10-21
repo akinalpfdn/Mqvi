@@ -65,6 +65,7 @@ function MessageInput({ openSearch }: MessageInputProps) {
     serverId,
     canSend,
     sendMessage,
+    sendsInBackground,
     replyingTo,
     setReplyingTo,
     sendTyping,
@@ -378,10 +379,12 @@ function MessageInput({ openSearch }: MessageInputProps) {
     const sentContent = content;
     const replyToId = replyingTo?.id;
     // Only files need a progress/cancel channel; a text-only send is over before a bar could paint.
-    const upload = files.length > 0 ? beginUpload() : undefined;
+    // A background send reports progress on its own bubble instead.
+    const upload = files.length > 0 && !sendsInBackground ? beginUpload() : undefined;
     try {
       const success = await sendMessage(messageContent, files, replyToId, upload);
-      // Left intact on failure or cancel, so the same content and files can be re-sent.
+      // Left intact on failure or cancel, so the same content and files can be re-sent. A
+      // background send succeeds as soon as it is queued, so this clears at once.
       if (success) {
         clearInput(sentContent);
       }

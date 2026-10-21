@@ -110,6 +110,10 @@ export async function handleSystemEvent(
 
       useMemberStore.getState().handleReady(data.online_user_ids);
       void resyncOpenTabs();
+      // Text that failed while the connection was down goes out again under the nonce it had, so
+      // one that did land the first time is not stored twice. Files wait for the user to retry.
+      useMessageStore.getState().retryFailedSends();
+      useDMStore.getState().retryFailedSends();
       useReadStateStore.getState().fetchAllUnreadCounts();
       useDMStore.getState().fetchChannels();
       useDMStore.getState().fetchDMSettings();

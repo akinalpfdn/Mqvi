@@ -71,6 +71,15 @@ export type ChatContextValue = {
 
   // ─── Message Actions ───
   sendMessage: (content: string, files?: File[], replyToId?: string, upload?: UploadOptions) => Promise<boolean>;
+  /**
+   * True when sendMessage only queues the message and the bubble reports how delivery went — the
+   * composer clears at once and shows no upload bar of its own. False: sendMessage resolves when
+   * the send is done, and `upload` carries its progress.
+   */
+  sendsInBackground: boolean;
+  /** Pending (unconfirmed) messages: send again under the same nonce, or drop. */
+  retryPending: (nonce: string) => void;
+  discardPending: (nonce: string) => void;
   editMessage: (id: string, content: string) => Promise<boolean>;
   deleteMessage: (id: string) => Promise<boolean>;
   fetchMessages: () => Promise<void>;

@@ -25,7 +25,7 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
   const friends = useFriendStore((s) => s.friends);
   const getOrCreatePermanentInvite = useInviteStore((s) => s.getOrCreatePermanentInvite);
   const createOrGetChannel = useDMStore((s) => s.createOrGetChannel);
-  const sendMessage = useDMStore((s) => s.sendMessage);
+  const sendMessageAndWait = useDMStore((s) => s.sendMessageAndWait);
   const addToast = useToastStore((s) => s.addToast);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -114,8 +114,9 @@ function InviteFriendsModal({ serverId, serverName, onClose }: InviteFriendsModa
     // Send sequentially (rate limit protection)
     for (const userId of selected) {
       const channelId = await createOrGetChannel(userId);
-      if (channelId) {
-        await sendMessage(channelId, inviteContent);
+      // Waits for each delivery, or the sends would all go at once and trip the rate limit.
+      // Counted only when stored; one that failed stays in that conversation, retryable.
+      if (channelId && (await sendMessageAndWait(channelId, inviteContent))) {
         sentCount++;
         setProgress({ sent: sentCount, total: selected.size });
       }
