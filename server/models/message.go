@@ -43,6 +43,10 @@ type Message struct {
 	Ciphertext        *string `json:"ciphertext,omitempty"`
 	SenderDeviceID    *string `json:"sender_device_id,omitempty"`
 	E2EEMetadata      *string `json:"e2ee_metadata,omitempty"`
+
+	// ClientNonce is the sender's idempotency key, echoed on create so the sender can match the
+	// message to its pending copy. Not loaded by the read paths.
+	ClientNonce *string `json:"client_nonce,omitempty"`
 }
 
 type Attachment struct {
@@ -74,6 +78,9 @@ type CreateMessageRequest struct {
 	Content   string  `json:"content"`
 	ReplyToID *string `json:"reply_to_id,omitempty"`
 	HasFiles  bool    `json:"-"`
+	// ClientNonce makes the send idempotent: a repeat with the same nonce returns the stored
+	// message instead of creating a second one.
+	ClientNonce string `json:"client_nonce,omitempty"`
 
 	EncryptionVersion int     `json:"encryption_version"`
 	Ciphertext        *string `json:"ciphertext,omitempty"`
@@ -82,6 +89,9 @@ type CreateMessageRequest struct {
 }
 
 func (r *CreateMessageRequest) Validate() error {
+	if err := validateClientNonce(r.ClientNonce); err != nil {
+		return err
+	}
 	r.Content = strings.TrimSpace(r.Content)
 	contentLen := utf8.RuneCountInString(r.Content)
 

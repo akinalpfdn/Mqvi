@@ -30,7 +30,9 @@ type DMService interface {
 	MarkRead(ctx context.Context, userID, channelID, messageID string) (int, error)
 
 	GetMessages(ctx context.Context, userID, channelID string, beforeID string, limit int) (*models.DMMessagePage, error)
-	SendMessage(ctx context.Context, userID, channelID string, req *models.CreateDMMessageRequest) (*models.DMMessage, error)
+	// SendMessage stores a DM. With a client nonce already used by this author in this conversation
+	// it returns the stored message and repeat=true instead: nothing is created or broadcast.
+	SendMessage(ctx context.Context, userID, channelID string, req *models.CreateDMMessageRequest) (msg *models.DMMessage, repeat bool, err error)
 	BroadcastCreate(message *models.DMMessage)
 	CreateCallLog(ctx context.Context, callerID, receiverID string, meta models.CallMeta) error
 	EditMessage(ctx context.Context, userID, messageID string, req *models.UpdateDMMessageRequest) (*models.DMMessage, error)

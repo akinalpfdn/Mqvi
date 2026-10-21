@@ -109,7 +109,7 @@ func TestMessageCreate(t *testing.T) {
 			)
 
 			req := &models.CreateMessageRequest{Content: tt.content}
-			msg, err := svc.Create(context.Background(), "ch1", "u1", req)
+			msg, _, err := svc.Create(context.Background(), "ch1", "u1", req)
 
 			if tt.wantErr {
 				if err == nil {
@@ -168,7 +168,7 @@ func TestMessageCreate_MaxLength(t *testing.T) {
 	)
 
 	req := &models.CreateMessageRequest{Content: string(longContent)}
-	_, err := svc.Create(context.Background(), "ch1", "u1", req)
+	_, _, err := svc.Create(context.Background(), "ch1", "u1", req)
 	if err == nil {
 		t.Fatal("expected error for content exceeding max length")
 	}
@@ -440,7 +440,7 @@ func TestMessageCreate_E2EE(t *testing.T) {
 		Ciphertext:        &cipher,
 		SenderDeviceID:    &deviceID,
 	}
-	msg, err := svc.Create(context.Background(), "ch1", "u1", req)
+	msg, _, err := svc.Create(context.Background(), "ch1", "u1", req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -567,14 +567,14 @@ func TestCreate_RejectsPlaintextOnEncryptedServer(t *testing.T) {
 	}
 
 	t.Run("should reject a plaintext message when the server requires encryption", func(t *testing.T) {
-		_, err := newSvc(true).Create(context.Background(), "ch1", "u1", &models.CreateMessageRequest{Content: "hello"})
+		_, _, err := newSvc(true).Create(context.Background(), "ch1", "u1", &models.CreateMessageRequest{Content: "hello"})
 		if !errors.Is(err, pkg.ErrBadRequest) {
 			t.Fatalf("want ErrBadRequest, got %v", err)
 		}
 	})
 
 	t.Run("should accept a plaintext message when the server does not require encryption", func(t *testing.T) {
-		if _, err := newSvc(false).Create(context.Background(), "ch1", "u1", &models.CreateMessageRequest{Content: "hello"}); err != nil {
+		if _, _, err := newSvc(false).Create(context.Background(), "ch1", "u1", &models.CreateMessageRequest{Content: "hello"}); err != nil {
 			t.Fatalf("plaintext on an unencrypted server should be allowed: %v", err)
 		}
 	})
@@ -583,7 +583,7 @@ func TestCreate_RejectsPlaintextOnEncryptedServer(t *testing.T) {
 	// plaintext server: unreadable by every member, missing from search, beyond moderation.
 	t.Run("should reject an encrypted message when the server does not use encryption", func(t *testing.T) {
 		cipher, device := "blob", "dev1"
-		_, err := newSvc(false).Create(context.Background(), "ch1", "u1", &models.CreateMessageRequest{
+		_, _, err := newSvc(false).Create(context.Background(), "ch1", "u1", &models.CreateMessageRequest{
 			EncryptionVersion: 1,
 			Ciphertext:        &cipher,
 			SenderDeviceID:    &device,

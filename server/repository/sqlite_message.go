@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/akinalp/mqvi/database"
@@ -23,8 +24,8 @@ func NewSQLiteMessageRepo(db database.TxQuerier) MessageRepository {
 func (r *sqliteMessageRepo) Create(ctx context.Context, message *models.Message) error {
 	query := `
 		INSERT INTO messages (id, channel_id, user_id, content, reply_to_id,
-			encryption_version, ciphertext, sender_device_id, e2ee_metadata)
-		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?, ?, ?, ?)
+			encryption_version, ciphertext, sender_device_id, e2ee_metadata, client_nonce)
+		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id, created_at`
 
 	err := r.db.QueryRowContext(ctx, query,
@@ -36,13 +37,37 @@ func (r *sqliteMessageRepo) Create(ctx context.Context, message *models.Message)
 		message.Ciphertext,
 		message.SenderDeviceID,
 		message.E2EEMetadata,
+		message.ClientNonce,
 	).Scan(&message.ID, &message.CreatedAt)
 
 	if err != nil {
+		if isClientNonceViolation(err) {
+			return ErrDuplicateClientNonce
+		}
 		return fmt.Errorf("failed to create message: %w", err)
 	}
 
 	return nil
+}
+
+func (r *sqliteMessageRepo) GetByAuthorNonce(ctx context.Context, userID, nonce string) (string, string, error) {
+	var id, channelID string
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id, channel_id FROM messages WHERE user_id = ? AND client_nonce = ?`, userID, nonce,
+	).Scan(&id, &channelID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", pkg.ErrNotFound
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("failed to look up message by client nonce: %w", err)
+	}
+	return id, channelID, nil
+}
+
+// isClientNonceViolation tells a repeated client_nonce from any other constraint failure: only the
+// author+nonce index names the client_nonce column.
+func isClientNonceViolation(err error) bool {
+	return isUniqueViolation(err) && strings.Contains(err.Error(), "client_nonce")
 }
 
 func (r *sqliteMessageRepo) GetByID(ctx context.Context, id string) (*models.Message, error) {

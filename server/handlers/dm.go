@@ -206,6 +206,7 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		}
 
 		req.Content = r.FormValue("content")
+		req.ClientNonce = r.FormValue("client_nonce")
 		if replyTo := r.FormValue("reply_to_id"); replyTo != "" {
 			req.ReplyToID = &replyTo
 		}
@@ -249,10 +250,17 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	msg, err := h.dmService.SendMessage(r.Context(), user.ID, channelID, &req)
+	msg, repeat, err := h.dmService.SendMessage(r.Context(), user.ID, channelID, &req)
 	if err != nil {
 		releaseQuota(r.Context(), h.storageService, "dm", user.ID, reservedBytes)
 		pkg.Error(w, err)
+		return
+	}
+	// A retry of a send that went through: same answer as the first time, and nothing else — no
+	// upload, no broadcast, no push; the first request did all of it.
+	if repeat {
+		releaseQuota(r.Context(), h.storageService, "dm", user.ID, reservedBytes)
+		pkg.JSON(w, http.StatusCreated, msg)
 		return
 	}
 

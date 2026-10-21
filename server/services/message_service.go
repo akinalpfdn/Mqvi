@@ -19,7 +19,9 @@ var roleMentionRegex = regexp.MustCompile(`<@&([a-z0-9]+)>`)
 
 type MessageService interface {
 	GetByChannelID(ctx context.Context, channelID string, userID string, beforeID string, limit int) (*models.MessagePage, error)
-	Create(ctx context.Context, channelID string, userID string, req *models.CreateMessageRequest) (*models.Message, error)
+	// Create stores a message. With a client nonce already used by this author in this channel it
+	// returns the stored message and repeat=true instead: nothing is created, counted or broadcast.
+	Create(ctx context.Context, channelID string, userID string, req *models.CreateMessageRequest) (msg *models.Message, repeat bool, err error)
 	BroadcastCreate(message *models.Message)
 	Update(ctx context.Context, id string, userID string, req *models.UpdateMessageRequest) (*models.Message, error)
 	Delete(ctx context.Context, serverID string, id string, userID string, userPermissions models.Permission) error
@@ -154,58 +156,8 @@ func (s *messageService) GetByChannelID(ctx context.Context, channelID string, u
 		messages[i], messages[j] = messages[j], messages[i]
 	}
 
-	// Batch load attachments, mentions, reactions (avoid N+1)
-	if len(messages) > 0 {
-		messageIDs := make([]string, len(messages))
-		for i, m := range messages {
-			messageIDs[i] = m.ID
-		}
-
-		attachments, err := s.attachmentRepo.GetByMessageIDs(ctx, messageIDs)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get attachments: %w", err)
-		}
-
-		attachmentMap := make(map[string][]models.Attachment)
-		for _, a := range attachments {
-			SignAttachmentURLs(s.urlSigner, &a)
-			attachmentMap[a.MessageID] = append(attachmentMap[a.MessageID], a)
-		}
-
-		mentionMap, err := s.mentionRepo.GetByMessageIDs(ctx, messageIDs)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get mentions: %w", err)
-		}
-
-		reactionMap, err := s.reactionRepo.GetByMessageIDs(ctx, messageIDs)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get reactions: %w", err)
-		}
-
-		roleMentionMap, err := s.roleMentionRepo.GetByMessageIDs(ctx, messageIDs)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get role mentions: %w", err)
-		}
-
-		for i := range messages {
-			s.signMessageAvatars(&messages[i])
-			messages[i].Attachments = attachmentMap[messages[i].ID]
-			if messages[i].Attachments == nil {
-				messages[i].Attachments = []models.Attachment{}
-			}
-			messages[i].Mentions = mentionMap[messages[i].ID]
-			if messages[i].Mentions == nil {
-				messages[i].Mentions = []string{}
-			}
-			messages[i].RoleMentions = roleMentionMap[messages[i].ID]
-			if messages[i].RoleMentions == nil {
-				messages[i].RoleMentions = []string{}
-			}
-			messages[i].Reactions = reactionMap[messages[i].ID]
-			if messages[i].Reactions == nil {
-				messages[i].Reactions = []models.ReactionGroup{}
-			}
-		}
+	if err := s.enrichMessages(ctx, messages); err != nil {
+		return nil, err
 	}
 
 	// nil slice serializes as JSON null — ensure empty array
@@ -221,11 +173,59 @@ func (s *messageService) GetByChannelID(ctx context.Context, channelID string, u
 
 // Create creates a new message. Checks per-channel SendMessages permission.
 // WS broadcast is NOT done here — handler calls BroadcastCreate after file uploads.
-func (s *messageService) Create(ctx context.Context, channelID string, userID string, req *models.CreateMessageRequest) (*models.Message, error) {
+func (s *messageService) Create(ctx context.Context, channelID string, userID string, req *models.CreateMessageRequest) (*models.Message, bool, error) {
 	if err := req.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
+		return nil, false, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
 
+	// A retry of a send that already went through: answer with the stored message before anything
+	// else runs, so a check that has changed since (a permission removed, say) cannot turn a
+	// message the user did send into an error, and nothing is counted twice.
+	if req.ClientNonce != "" {
+		if stored, err := s.storedByNonce(ctx, channelID, userID, req.ClientNonce); err != nil || stored != nil {
+			return stored, stored != nil, err
+		}
+	}
+
+	msg, err := s.create(ctx, channelID, userID, req)
+	// Two copies of one send raced past the lookup; the index let one in. This is the other.
+	if errors.Is(err, repository.ErrDuplicateClientNonce) {
+		stored, lookupErr := s.storedByNonce(ctx, channelID, userID, req.ClientNonce)
+		if lookupErr != nil || stored == nil {
+			return nil, false, fmt.Errorf("failed to load the message stored under this client nonce: %w", lookupErr)
+		}
+		return stored, true, nil
+	}
+	return msg, false, err
+}
+
+// storedByNonce returns the author's message already stored under this nonce, or nil when there is
+// none. The nonce is per author, not per channel: reused for another channel it is a client bug,
+// refused rather than answered with a message from somewhere else.
+func (s *messageService) storedByNonce(ctx context.Context, channelID, userID, nonce string) (*models.Message, error) {
+	id, storedChannel, err := s.messageRepo.GetByAuthorNonce(ctx, userID, nonce)
+	if errors.Is(err, pkg.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if storedChannel != channelID {
+		return nil, fmt.Errorf("%w: client_nonce was already used for another channel", pkg.ErrConflict)
+	}
+	stored, err := s.messageRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load stored message: %w", err)
+	}
+	messages := []models.Message{*stored}
+	if err := s.enrichMessages(ctx, messages); err != nil {
+		return nil, err
+	}
+	messages[0].ClientNonce = &nonce
+	return &messages[0], nil
+}
+
+func (s *messageService) create(ctx context.Context, channelID string, userID string, req *models.CreateMessageRequest) (*models.Message, error) {
 	channel, err := s.channelRepo.GetByID(ctx, channelID)
 	if err != nil {
 		return nil, err
@@ -256,6 +256,9 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 		SenderDeviceID:    req.SenderDeviceID,
 		E2EEMetadata:      req.E2EEMetadata,
 	}
+	if req.ClientNonce != "" {
+		message.ClientNonce = &req.ClientNonce
+	}
 
 	// E2EE messages have nil Content — payload is in Ciphertext
 	if req.EncryptionVersion == 0 {
@@ -275,6 +278,9 @@ func (s *messageService) Create(ctx context.Context, channelID string, userID st
 	}
 
 	if err := s.messageRepo.Create(ctx, message); err != nil {
+		if errors.Is(err, repository.ErrDuplicateClientNonce) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("failed to create message: %w", err)
 	}
 
@@ -568,6 +574,66 @@ func (s *messageService) deleteMessage(ctx context.Context, message *models.Mess
 }
 
 // signMessageAvatars signs all avatar URLs embedded in a message (author + referenced message author).
+// enrichMessages loads attachments, mentions, role mentions and reactions for a page in one query
+// each (avoid N+1), signs avatar and attachment URLs, and turns nil lists into empty ones.
+func (s *messageService) enrichMessages(ctx context.Context, messages []models.Message) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	messageIDs := make([]string, len(messages))
+	for i, m := range messages {
+		messageIDs[i] = m.ID
+	}
+
+	attachments, err := s.attachmentRepo.GetByMessageIDs(ctx, messageIDs)
+	if err != nil {
+		return fmt.Errorf("failed to get attachments: %w", err)
+	}
+
+	attachmentMap := make(map[string][]models.Attachment)
+	for _, a := range attachments {
+		SignAttachmentURLs(s.urlSigner, &a)
+		attachmentMap[a.MessageID] = append(attachmentMap[a.MessageID], a)
+	}
+
+	mentionMap, err := s.mentionRepo.GetByMessageIDs(ctx, messageIDs)
+	if err != nil {
+		return fmt.Errorf("failed to get mentions: %w", err)
+	}
+
+	reactionMap, err := s.reactionRepo.GetByMessageIDs(ctx, messageIDs)
+	if err != nil {
+		return fmt.Errorf("failed to get reactions: %w", err)
+	}
+
+	roleMentionMap, err := s.roleMentionRepo.GetByMessageIDs(ctx, messageIDs)
+	if err != nil {
+		return fmt.Errorf("failed to get role mentions: %w", err)
+	}
+
+	for i := range messages {
+		s.signMessageAvatars(&messages[i])
+		messages[i].Attachments = attachmentMap[messages[i].ID]
+		if messages[i].Attachments == nil {
+			messages[i].Attachments = []models.Attachment{}
+		}
+		messages[i].Mentions = mentionMap[messages[i].ID]
+		if messages[i].Mentions == nil {
+			messages[i].Mentions = []string{}
+		}
+		messages[i].RoleMentions = roleMentionMap[messages[i].ID]
+		if messages[i].RoleMentions == nil {
+			messages[i].RoleMentions = []string{}
+		}
+		messages[i].Reactions = reactionMap[messages[i].ID]
+		if messages[i].Reactions == nil {
+			messages[i].Reactions = []models.ReactionGroup{}
+		}
+	}
+
+	return nil
+}
+
 func (s *messageService) signMessageAvatars(msg *models.Message) {
 	if msg.Author != nil {
 		msg.Author.AvatarURL = s.urlSigner.SignURLPtr(msg.Author.AvatarURL)

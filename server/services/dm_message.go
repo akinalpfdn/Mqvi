@@ -12,6 +12,7 @@ import (
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
+	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/ws"
 )
 
@@ -79,16 +80,63 @@ func enforceDMEncryptionPolicy(channel *models.DMChannel, encryptionVersion int)
 }
 
 // SendMessage creates a DM message. WS broadcast is done via BroadcastCreate after file uploads.
-func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, req *models.CreateDMMessageRequest) (*models.DMMessage, error) {
+func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, req *models.CreateDMMessageRequest) (*models.DMMessage, bool, error) {
 	if err := req.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
+		return nil, false, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
 
 	channel, err := s.verifyChannelMembership(ctx, userID, channelID)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
+	// A retry of a send that went through. Answered before the request/privacy rules, which the
+	// first send can change: a first message turns the conversation into a pending request, and
+	// "pending, initiator already sent" would refuse the retry of that very message.
+	if req.ClientNonce != "" {
+		if stored, err := s.storedByNonce(ctx, channelID, userID, req.ClientNonce); err != nil || stored != nil {
+			return stored, stored != nil, err
+		}
+	}
+
+	msg, err := s.sendMessage(ctx, userID, channelID, channel, req)
+	// Two copies of one send raced past the lookup; the index let one in. This is the other.
+	if errors.Is(err, repository.ErrDuplicateClientNonce) {
+		stored, lookupErr := s.storedByNonce(ctx, channelID, userID, req.ClientNonce)
+		if lookupErr != nil || stored == nil {
+			return nil, false, fmt.Errorf("failed to load the DM stored under this client nonce: %w", lookupErr)
+		}
+		return stored, true, nil
+	}
+	return msg, false, err
+}
+
+// storedByNonce returns the author's DM already stored under this nonce, or nil when there is none.
+// Reused for another conversation it is a client bug, refused rather than answered.
+func (s *dmService) storedByNonce(ctx context.Context, channelID, userID, nonce string) (*models.DMMessage, error) {
+	id, storedChannel, err := s.dmRepo.GetMessageByAuthorNonce(ctx, userID, nonce)
+	if errors.Is(err, pkg.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if storedChannel != channelID {
+		return nil, fmt.Errorf("%w: client_nonce was already used for another conversation", pkg.ErrConflict)
+	}
+	stored, err := s.dmRepo.GetMessageByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load stored DM: %w", err)
+	}
+	messages := []models.DMMessage{*stored}
+	if err := s.enrichMessages(ctx, messages); err != nil {
+		return nil, err
+	}
+	messages[0].ClientNonce = &nonce
+	return &messages[0], nil
+}
+
+func (s *dmService) sendMessage(ctx context.Context, userID, channelID string, channel *models.DMChannel, req *models.CreateDMMessageRequest) (*models.DMMessage, error) {
 	if err := enforceDMEncryptionPolicy(channel, req.EncryptionVersion); err != nil {
 		return nil, err
 	}
@@ -202,8 +250,14 @@ func (s *dmService) SendMessage(ctx context.Context, userID, channelID string, r
 		SenderDeviceID:    req.SenderDeviceID,
 		E2EEMetadata:      req.E2EEMetadata,
 	}
+	if req.ClientNonce != "" {
+		msg.ClientNonce = &req.ClientNonce
+	}
 
 	if err := s.dmRepo.CreateMessage(ctx, msg); err != nil {
+		if errors.Is(err, repository.ErrDuplicateClientNonce) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("failed to create DM message: %w", err)
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -524,6 +525,20 @@ func (r *sqliteDMRepo) GetMessageByID(ctx context.Context, id string) (*models.D
 	return &msg, nil
 }
 
+func (r *sqliteDMRepo) GetMessageByAuthorNonce(ctx context.Context, userID, nonce string) (string, string, error) {
+	var id, channelID string
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id, dm_channel_id FROM dm_messages WHERE user_id = ? AND client_nonce = ?`, userID, nonce,
+	).Scan(&id, &channelID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", pkg.ErrNotFound
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("failed to look up DM message by client nonce: %w", err)
+	}
+	return id, channelID, nil
+}
+
 func (r *sqliteDMRepo) CreateMessage(ctx context.Context, msg *models.DMMessage) error {
 	// Content can be nil (file-only message)
 	var contentPtr *string
@@ -545,13 +560,16 @@ func (r *sqliteDMRepo) CreateMessage(ctx context.Context, msg *models.DMMessage)
 
 	err := r.db.QueryRowContext(ctx,
 		`INSERT INTO dm_messages (dm_channel_id, user_id, content, reply_to_id,
-			encryption_version, ciphertext, sender_device_id, e2ee_metadata, message_type, call_meta)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at`,
+			encryption_version, ciphertext, sender_device_id, e2ee_metadata, message_type, call_meta, client_nonce)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, created_at`,
 		msg.DMChannelID, msg.UserID, contentPtr, msg.ReplyToID,
-		msg.EncryptionVersion, msg.Ciphertext, msg.SenderDeviceID, msg.E2EEMetadata, messageType, callMetaJSON,
+		msg.EncryptionVersion, msg.Ciphertext, msg.SenderDeviceID, msg.E2EEMetadata, messageType, callMetaJSON, msg.ClientNonce,
 	).Scan(&msg.ID, &msg.CreatedAt)
 
 	if err != nil {
+		if isClientNonceViolation(err) {
+			return ErrDuplicateClientNonce
+		}
 		return fmt.Errorf("failed to create DM message: %w", err)
 	}
 	msg.MessageType = messageType

@@ -45,7 +45,12 @@ type DMRepository interface {
 	// Message operations
 	GetMessages(ctx context.Context, channelID string, beforeID string, limit int) ([]models.DMMessage, error)
 	GetMessageByID(ctx context.Context, id string) (*models.DMMessage, error)
+	// CreateMessage stores the message; ErrDuplicateClientNonce when its author already used its
+	// nonce.
 	CreateMessage(ctx context.Context, msg *models.DMMessage) error
+	// GetMessageByAuthorNonce returns the id and DM channel of the author's message with that
+	// nonce, or pkg.ErrNotFound.
+	GetMessageByAuthorNonce(ctx context.Context, userID, nonce string) (id, channelID string, err error)
 	UpdateMessage(ctx context.Context, id string, req *models.UpdateDMMessageRequest) error
 	DeleteMessage(ctx context.Context, id string) error
 

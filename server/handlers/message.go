@@ -111,6 +111,7 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 
 		req.Content = r.FormValue("content")
+		req.ClientNonce = r.FormValue("client_nonce")
 		if replyTo := r.FormValue("reply_to_id"); replyTo != "" {
 			req.ReplyToID = &replyTo
 		}
@@ -155,10 +156,18 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	message, err := h.messageService.Create(r.Context(), channelID, user.ID, &req)
+	message, repeat, err := h.messageService.Create(r.Context(), channelID, user.ID, &req)
 	if err != nil {
 		releaseQuota(r.Context(), h.storageService, "message", user.ID, reservedBytes)
 		pkg.Error(w, err)
+		return
+	}
+	// A retry of a send that went through: same answer as the first time, and nothing else — its
+	// files were (or are being) stored by the first request, which also did the broadcast.
+	if repeat {
+		releaseQuota(r.Context(), h.storageService, "message", user.ID, reservedBytes)
+		message.ServerID = r.PathValue("serverId")
+		pkg.JSON(w, http.StatusCreated, message)
 		return
 	}
 
