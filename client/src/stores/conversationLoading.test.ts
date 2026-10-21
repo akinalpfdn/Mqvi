@@ -99,6 +99,36 @@ describe("older pages", () => {
   });
 });
 
+describe("older page against a changed conversation", () => {
+  it("should drop a channel's older page when the keys changed while it loaded", async () => {
+    useMessageStore.setState({ messagesByChannel: { c1: [chMsg("m10", 10)] }, hasMoreByChannel: { c1: true } });
+    const older = deferred<unknown>();
+    messageApi.getMessages.mockReturnValue(older.promise);
+
+    const loading = useMessageStore.getState().fetchOlderMessages("c1", "s1");
+    useMessageStore.getState().invalidateFetchCache();
+    older.resolve(page([chMsg("m1", 1)], true));
+
+    await expect(loading).resolves.toBeUndefined();
+    expect(useMessageStore.getState().messagesByChannel["c1"]).toBeUndefined();
+  });
+
+  it("should not prepend a DM's older page onto a list refetched meanwhile", async () => {
+    useDMStore.setState({ messagesByChannel: { d1: [dmMsg("m10", 10)] }, hasMoreByChannel: { d1: true } });
+    const older = deferred<unknown>();
+    dmApi.getDMMessages.mockReturnValue(older.promise);
+
+    const loading = useDMStore.getState().fetchOlderMessages("d1");
+    useDMStore.setState({ messagesByChannel: { d1: [dmMsg("m50", 50)] } });
+    older.resolve(page([dmMsg("m1", 1)], true));
+    await loading;
+
+    // m1..m9 would sit right above m50 with m10..m49 silently missing.
+    expect(useDMStore.getState().messagesByChannel["d1"].map((m) => m.id)).toEqual(["m50"]);
+    expect(useDMStore.getState().loadingMoreByChannel).toEqual({});
+  });
+});
+
 describe("resync window", () => {
   it.each([
     [0, 50], [10, 50], [80, 80], [100, 100], [300, 100],

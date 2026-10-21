@@ -365,22 +365,27 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
     set((state) => ({ loadingMoreByChannel: withFlag(state.loadingMoreByChannel, channelId, true) }));
     try {
+      const generation = cacheGeneration;
       const beforeId = messages[0].id;
       const res = await messageApi.getMessages(serverId, channelId, beforeId, DEFAULT_MESSAGE_LIMIT);
       if (!res.success || !res.data) return;
       const data = res.data;
       const decrypted = await decryptChannelMessages(data.messages ?? []);
 
-      set((state) => ({
-        messagesByChannel: {
-          ...state.messagesByChannel,
-          [channelId]: [...decrypted, ...state.messagesByChannel[channelId]],
-        },
-        hasMoreByChannel: {
-          ...state.hasMoreByChannel,
-          [channelId]: data.has_more,
-        },
-      }));
+      // The keys changed while this was in flight: the page was decrypted under the old ones, and
+      // the refill that followed already holds what the conversation shows now.
+      if (generation !== cacheGeneration) return;
+
+      set((state) => {
+        const held = state.messagesByChannel[channelId];
+        // The page continues the list it was requested from. Emptied or refetched meanwhile, the
+        // list no longer starts there, and prepending would throw or leave a hidden gap.
+        if (held?.[0]?.id !== beforeId) return state;
+        return {
+          messagesByChannel: { ...state.messagesByChannel, [channelId]: [...decrypted, ...held] },
+          hasMoreByChannel: { ...state.hasMoreByChannel, [channelId]: data.has_more },
+        };
+      });
     } finally {
       set((state) => ({ loadingMoreByChannel: withFlag(state.loadingMoreByChannel, channelId, false) }));
     }
