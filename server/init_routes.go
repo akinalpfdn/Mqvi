@@ -170,6 +170,8 @@ func initRoutes(
 	mux.Handle("GET /api/dms/{channelId}/search", auth(h.DM.SearchMessages))
 	mux.Handle("PATCH /api/dms/channels/{channelId}/e2ee", auth(h.DM.ToggleE2EE))
 	mux.Handle("POST /api/dms/channels/{channelId}/read", auth(h.DM.MarkRead))
+	mux.Handle("POST /api/dms/channels/{channelId}/delivered", auth(h.DM.MarkDelivered))
+	mux.Handle("POST /api/dms/delivered", auth(h.DM.MarkDeliveredLatest))
 
 	// Block — literal "blocked" before parametric {userId}
 	mux.Handle("GET /api/users/blocked", auth(h.Block.ListBlocked))
@@ -298,6 +300,9 @@ func initRoutes(
 
 	// Stats — public
 	mux.HandleFunc("GET /api/stats", h.Stats.GetPublicStats)
+	mux.HandleFunc("GET /api/client-policy", h.ClientPolicy.Get)
+	// Optional auth: a signed-in client's reports carry its user; signed-out ones are still taken.
+	mux.Handle("POST /api/client-errors", authMw.Optional(http.HandlerFunc(h.ClientError.Report)))
 
 	// Invite Preview — public (no auth)
 	mux.HandleFunc("GET /api/invites/{code}/preview", h.Invite.Preview)

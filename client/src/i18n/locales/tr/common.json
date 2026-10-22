@@ -192,5 +192,12 @@
   "errorReloading": "Bir şeyler ters gitti. Yeniden yükleniyor…",
   "errorTitle": "Bir şeyler sürekli ters gidiyor",
   "errorPersistent": "Yeniden yükleme işe yaramadı. Tekrar deneyin; sorun sürerse uygulamayı yeniden başlatın.",
-  "errorRetry": "Tekrar dene"
+  "errorRetry": "Tekrar dene",
+  "updateAvailableTitle": "Yeni bir sürüm var",
+  "updateAvailableDesc": "Son düzeltmeler ve yenilikler için mqvi'yi güncelle.",
+  "updateRequiredTitle": "Güncelleme gerekli",
+  "updateRequiredDesc": "mqvi'nin bu sürümü artık desteklenmiyor. Kullanmaya devam etmek için güncelle.",
+  "updateNow": "Güncelle",
+  "updateLater": "Sonra",
+  "updateChangeServer": "Sunucuyu değiştir"
 }

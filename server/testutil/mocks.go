@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/repository"
 	"github.com/akinalp/mqvi/ws"
 )
@@ -560,11 +561,12 @@ func (m *MockChannelRepo) UpdatePositions(ctx context.Context, items []models.Po
 // ─── MessageRepository mock ───
 
 type MockMessageRepo struct {
-	CreateFn         func(ctx context.Context, message *models.Message) error
-	GetByIDFn        func(ctx context.Context, id string) (*models.Message, error)
-	GetByChannelIDFn func(ctx context.Context, channelID string, beforeID string, limit int) ([]models.Message, error)
-	UpdateFn         func(ctx context.Context, message *models.Message) error
-	DeleteFn         func(ctx context.Context, id string) error
+	CreateFn           func(ctx context.Context, message *models.Message) error
+	GetByAuthorNonceFn func(ctx context.Context, userID, nonce string) (string, string, error)
+	GetByIDFn          func(ctx context.Context, id string) (*models.Message, error)
+	GetByChannelIDFn   func(ctx context.Context, channelID string, beforeID string, limit int) ([]models.Message, error)
+	UpdateFn           func(ctx context.Context, message *models.Message) error
+	DeleteFn           func(ctx context.Context, id string) error
 }
 
 func (m *MockMessageRepo) Create(ctx context.Context, message *models.Message) error {
@@ -572,6 +574,12 @@ func (m *MockMessageRepo) Create(ctx context.Context, message *models.Message) e
 		return m.CreateFn(ctx, message)
 	}
 	return nil
+}
+func (m *MockMessageRepo) GetByAuthorNonce(ctx context.Context, userID, nonce string) (string, string, error) {
+	if m.GetByAuthorNonceFn != nil {
+		return m.GetByAuthorNonceFn(ctx, userID, nonce)
+	}
+	return "", "", pkg.ErrNotFound
 }
 func (m *MockMessageRepo) GetByID(ctx context.Context, id string) (*models.Message, error) {
 	if m.GetByIDFn != nil {

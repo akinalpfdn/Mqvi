@@ -47,6 +47,10 @@ export type ChatMessage = {
   encryption_version?: number;
   /** E2EE: File encryption keys (index-matched to attachments) */
   e2ee_file_keys?: EncryptedFileMeta[];
+  /** This device's own send: the nonce it went out under. Keys its row from pending to stored. */
+  client_nonce?: string;
+  /** DM-only, own messages: the other participant's app has received it. */
+  delivered?: boolean;
   /** DM-only: "text" (default) or "call" — a system call-log entry. */
   message_type?: string;
   call_meta?: CallMeta | null;
@@ -71,6 +75,15 @@ export type ChatContextValue = {
 
   // ─── Message Actions ───
   sendMessage: (content: string, files?: File[], replyToId?: string, upload?: UploadOptions) => Promise<boolean>;
+  /**
+   * True when sendMessage only queues the message and the bubble reports how delivery went — the
+   * composer clears at once and shows no upload bar of its own. False: sendMessage resolves when
+   * the send is done, and `upload` carries its progress.
+   */
+  sendsInBackground: boolean;
+  /** Pending (unconfirmed) messages: send again under the same nonce, or drop. */
+  retryPending: (nonce: string) => void;
+  discardPending: (nonce: string) => void;
   editMessage: (id: string, content: string) => Promise<boolean>;
   deleteMessage: (id: string) => Promise<boolean>;
   fetchMessages: () => Promise<void>;

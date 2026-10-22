@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/akinalp/mqvi/database"
@@ -23,8 +24,8 @@ func NewSQLiteMessageRepo(db database.TxQuerier) MessageRepository {
 func (r *sqliteMessageRepo) Create(ctx context.Context, message *models.Message) error {
 	query := `
 		INSERT INTO messages (id, channel_id, user_id, content, reply_to_id,
-			encryption_version, ciphertext, sender_device_id, e2ee_metadata)
-		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?, ?, ?, ?)
+			encryption_version, ciphertext, sender_device_id, e2ee_metadata, client_nonce)
+		VALUES (lower(hex(randomblob(8))), ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id, created_at`
 
 	err := r.db.QueryRowContext(ctx, query,
@@ -36,13 +37,37 @@ func (r *sqliteMessageRepo) Create(ctx context.Context, message *models.Message)
 		message.Ciphertext,
 		message.SenderDeviceID,
 		message.E2EEMetadata,
+		message.ClientNonce,
 	).Scan(&message.ID, &message.CreatedAt)
 
 	if err != nil {
+		if isClientNonceViolation(err) {
+			return ErrDuplicateClientNonce
+		}
 		return fmt.Errorf("failed to create message: %w", err)
 	}
 
 	return nil
+}
+
+func (r *sqliteMessageRepo) GetByAuthorNonce(ctx context.Context, userID, nonce string) (string, string, error) {
+	var id, channelID string
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id, channel_id FROM messages WHERE user_id = ? AND client_nonce = ?`, userID, nonce,
+	).Scan(&id, &channelID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", pkg.ErrNotFound
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("failed to look up message by client nonce: %w", err)
+	}
+	return id, channelID, nil
+}
+
+// isClientNonceViolation tells a repeated client_nonce from any other constraint failure: only the
+// author+nonce index names the client_nonce column.
+func isClientNonceViolation(err error) bool {
+	return isUniqueViolation(err) && strings.Contains(err.Error(), "client_nonce")
 }
 
 func (r *sqliteMessageRepo) GetByID(ctx context.Context, id string) (*models.Message, error) {
@@ -114,11 +139,14 @@ func (r *sqliteMessageRepo) GetByChannelID(ctx context.Context, channelID string
 			LEFT JOIN messages rm ON m.reply_to_id = rm.id
 			LEFT JOIN users ru ON rm.user_id = ru.id
 			WHERE m.channel_id = ?
-			ORDER BY m.created_at DESC
+			ORDER BY m.created_at DESC, m.rowid DESC
 			LIMIT ?`
 		args = []any{channelID, limit}
 	} else {
-		// Cursor pagination: fetch messages older than beforeID's created_at
+		// Cursor pagination: messages strictly before the cursor in (created_at, rowid) order.
+		// created_at is second-precision (CURRENT_TIMESTAMP), so comparing it alone skipped every
+		// message written in the cursor's own second — they were neither on this page nor the next.
+		// rowid breaks the tie in insertion order; dm_messages has done the same since 958a37b.
 		query = `
 			SELECT m.id, m.channel_id, m.user_id, m.content, m.edited_at, m.created_at, m.reply_to_id,
 			       m.encryption_version, m.ciphertext, m.sender_device_id, m.e2ee_metadata,
@@ -130,8 +158,9 @@ func (r *sqliteMessageRepo) GetByChannelID(ctx context.Context, channelID string
 			LEFT JOIN messages rm ON m.reply_to_id = rm.id
 			LEFT JOIN users ru ON rm.user_id = ru.id
 			WHERE m.channel_id = ?
-			  AND m.created_at < (SELECT created_at FROM messages WHERE id = ?)
-			ORDER BY m.created_at DESC
+			  AND (m.created_at, m.rowid) <
+			      (SELECT created_at, rowid FROM messages WHERE id = ?)
+			ORDER BY m.created_at DESC, m.rowid DESC
 			LIMIT ?`
 		args = []any{channelID, beforeID, limit}
 	}

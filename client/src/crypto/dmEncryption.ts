@@ -19,66 +19,21 @@ import * as e2eeApi from "../api/e2ee";
 import * as keyStorage from "./keyStorage";
 import * as deviceManager from "./deviceManager";
 import { decodePayload, type E2EEPayload } from "./e2eePayload";
+import type { EncryptedFileMeta } from "./fileEncryption";
 import { useE2EEStore } from "../stores/e2eeStore";
 import type { EncryptedEnvelope, PreKeyBundleResponse, DMMessage } from "../types";
 import type { SignalWireMessage } from "./types";
 
 // ──────────────────────────────────
-// Sent Message Plaintext Cache
+// Own Message Plaintext Cache
 // ──────────────────────────────────
 
-/**
- * FIFO plaintext cache for sent DM messages.
- *
- * Signal Protocol cannot create an envelope for the sender's own device
- * (no Double Ratchet session to self). So on WS echo, the sender cannot
- * decrypt its own message.
- *
- * Solution (Signal Desktop / WhatsApp model):
- * Plaintext is pushed to an in-memory FIFO queue BEFORE the API call.
- * On WS echo, it's popped from the queue. After API response, it's
- * persisted to IndexedDB for historical message access.
- *
- * Two-phase cache:
- * 1. preSendQueue: channelId → E2EEPayload[] (FIFO) — pushed before API call
- * 2. IndexedDB messageCache: messageId → content — persisted after API response
- *
- * No race condition: preSendQueue is set synchronously before the API call,
- * and WS echo only arrives after the server processes the message.
- */
-const preSendQueue = new Map<string, E2EEPayload[]>();
+// The sender cannot decrypt its own echo (no Double Ratchet session to self). A send's own echo
+// reads its text from the outbox under the nonce it carries (outboxStore.sentPayload); the send
+// response persists it to IndexedDB for history.
 
 /** In-memory cache for edit operations. messageId is known, so a direct Map suffices. */
 const editCache = new Map<string, E2EEPayload>();
-
-/** Push plaintext to FIFO queue before API call, so WS echo can find it. */
-export function pushSentPlaintext(dmChannelId: string, payload: E2EEPayload): void {
-  const queue = preSendQueue.get(dmChannelId);
-  if (queue) {
-    queue.push(payload);
-  } else {
-    preSendQueue.set(dmChannelId, [payload]);
-  }
-}
-
-/** Pop own message plaintext from FIFO on WS echo. Order is preserved by server. */
-export function popSentPlaintext(dmChannelId: string): E2EEPayload | null {
-  const queue = preSendQueue.get(dmChannelId);
-  if (!queue || queue.length === 0) return null;
-
-  const payload = queue.shift()!;
-  if (queue.length === 0) preSendQueue.delete(dmChannelId);
-  return payload;
-}
-
-/** Remove last queued entry on send failure (LIFO — failed send's push is last). */
-export function discardLastSentPlaintext(dmChannelId: string): void {
-  const queue = preSendQueue.get(dmChannelId);
-  if (!queue || queue.length === 0) return;
-
-  queue.pop();
-  if (queue.length === 0) preSendQueue.delete(dmChannelId);
-}
 
 /** Cache plaintext before edit API call. */
 export function cacheEditPlaintext(messageId: string, payload: E2EEPayload): void {
@@ -96,7 +51,8 @@ export function popEditPlaintext(messageId: string): E2EEPayload | null {
 export async function persistSentPlaintext(
   messageId: string,
   dmChannelId: string,
-  content: string
+  content: string,
+  fileKeys: EncryptedFileMeta[] | undefined
 ): Promise<void> {
   await keyStorage.cacheDecryptedMessage({
     messageId,
@@ -104,7 +60,17 @@ export async function persistSentPlaintext(
     dmChannelId,
     content,
     timestamp: Date.now(),
+    fileKeys,
   });
+}
+
+/**
+ * Whether a decrypted payload is worth caching. An attachment-only message has empty text but
+ * must be cached all the same: a received message cannot be decrypted twice (the ratchet key is
+ * spent), so a message left out of the cache is unreadable on the next load.
+ */
+export function isCacheable(payload: E2EEPayload): boolean {
+  return !!payload.content || (payload.file_keys?.length ?? 0) > 0;
 }
 
 // ──────────────────────────────────
@@ -320,7 +286,7 @@ export async function decryptDMMessages(
       try {
         const cached = await keyStorage.getCachedDecryptedMessage(msg.id);
         if (cached) {
-          result.push({ ...msg, content: cached.content });
+          result.push({ ...msg, content: cached.content, e2ee_file_keys: cached.fileKeys });
           continue;
         }
       } catch {
@@ -342,13 +308,14 @@ export async function decryptDMMessages(
             e2ee_file_keys: payload.file_keys,
           });
 
-          if (payload.content) {
+          if (isCacheable(payload)) {
             toCache.push({
               messageId: msg.id,
               channelId: "",
               dmChannelId: msg.dm_channel_id,
               content: payload.content,
               timestamp: new Date(msg.created_at).getTime(),
+              fileKeys: payload.file_keys,
             });
           }
         } else {

@@ -86,6 +86,12 @@ type DMMessage struct {
 	Attachments       []DMAttachment    `json:"attachments"`
 	Reactions         []ReactionGroup   `json:"reactions"`
 	ReferencedMessage *MessageReference `json:"referenced_message,omitempty"`
+
+	// ClientNonce: see Message.ClientNonce.
+	ClientNonce *string `json:"client_nonce,omitempty"`
+	// Delivered is set on the requester's own messages in a page: the other participant's app has
+	// received it. Nil on everyone else's messages.
+	Delivered *bool `json:"delivered,omitempty"`
 }
 
 type DMAttachment struct {
@@ -111,6 +117,8 @@ type CreateDMMessageRequest struct {
 	Content   string  `json:"content"`
 	ReplyToID *string `json:"reply_to_id,omitempty"`
 	HasFiles  bool    `json:"-"`
+	// ClientNonce: see CreateMessageRequest.ClientNonce.
+	ClientNonce string `json:"client_nonce,omitempty"`
 
 	EncryptionVersion int     `json:"encryption_version"`
 	Ciphertext        *string `json:"ciphertext,omitempty"`
@@ -119,6 +127,9 @@ type CreateDMMessageRequest struct {
 }
 
 func (r *CreateDMMessageRequest) Validate() error {
+	if err := validateClientNonce(r.ClientNonce); err != nil {
+		return err
+	}
 	r.Content = strings.TrimSpace(r.Content)
 	contentLen := utf8.RuneCountInString(r.Content)
 
@@ -196,6 +207,13 @@ func (r *ToggleDMReactionRequest) Validate() error {
 		return fmt.Errorf("emoji is required")
 	}
 	return nil
+}
+
+// DMDeliveryMark is how far one participant has received a conversation: every message up to and
+// including MessageID. CreatedAt lets a client place it when it does not hold that message.
+type DMDeliveryMark struct {
+	MessageID string    `json:"message_id"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type DMMessagePage struct {

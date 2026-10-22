@@ -42,10 +42,30 @@ type DMRepository interface {
 	// by a client. A message id that isn't in the channel reads as unread.
 	HasRead(ctx context.Context, userID, channelID, messageID string) (bool, error)
 
+	// Delivery state — the double tick.
+	//
+	// MarkDelivered advances how far the user's app has received the conversation, with the same
+	// monotonic, "did it move" contract as MarkRead.
+	MarkDelivered(ctx context.Context, userID, channelID, messageID string) (moved bool, err error)
+	// MarkDeliveredLatest moves it to the newest message in the conversation — for an app that has
+	// just connected and learned of new messages it has not downloaded yet.
+	MarkDeliveredLatest(ctx context.Context, userID, channelID string) (moved bool, err error)
+	// DeliveryMark is how far the user's app has received the conversation; nil before any report.
+	// Reads deliberately play no part: a tick that followed reading would tell the sender when
+	// their message was read, which the double tick must not.
+	DeliveryMark(ctx context.Context, userID, channelID string) (*models.DMDeliveryMark, error)
+	// DeliveredMessageIDs returns which of messageIDs the user's app has received.
+	DeliveredMessageIDs(ctx context.Context, userID, channelID string, messageIDs []string) (map[string]bool, error)
+
 	// Message operations
 	GetMessages(ctx context.Context, channelID string, beforeID string, limit int) ([]models.DMMessage, error)
 	GetMessageByID(ctx context.Context, id string) (*models.DMMessage, error)
+	// CreateMessage stores the message; ErrDuplicateClientNonce when its author already used its
+	// nonce.
 	CreateMessage(ctx context.Context, msg *models.DMMessage) error
+	// GetMessageByAuthorNonce returns the id and DM channel of the author's message with that
+	// nonce, or pkg.ErrNotFound.
+	GetMessageByAuthorNonce(ctx context.Context, userID, nonce string) (id, channelID string, err error)
 	UpdateMessage(ctx context.Context, id string, req *models.UpdateDMMessageRequest) error
 	DeleteMessage(ctx context.Context, id string) error
 

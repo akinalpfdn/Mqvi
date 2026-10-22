@@ -423,7 +423,19 @@ function hasGatedContent(): boolean {
  * there the whole cache is stale by definition, whether or not it looks gated.
  */
 async function refillAfterKeysReady(force: boolean): Promise<void> {
-  if (!force && !hasGatedContent()) return;
+  if (!force && !hasGatedContent()) {
+    // Nothing unreadable held, but a conversation shown from the device cache may still be
+    // unverified: its resync skipped an encrypted page while the keys were not ready.
+    await mapWithConcurrency(getOpenConversations(), REFILL_CONCURRENCY, async (open) => {
+      try {
+        if (open.type === "text") await useMessageStore.getState().resyncIfStale(open.channelId, open.serverId);
+        else await useDMStore.getState().resyncIfStale(open.channelId);
+      } catch (err) {
+        console.warn("[e2ee] cached conversation resync failed", { channelId: open.channelId, err });
+      }
+    });
+    return;
+  }
 
   useMessageStore.getState().invalidateFetchCache();
   useDMStore.getState().invalidateFetchCache();

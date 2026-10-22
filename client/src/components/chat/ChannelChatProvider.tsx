@@ -1,6 +1,6 @@
 /** ChannelChatProvider — Maps channel stores (message, pin, member) to ChatContext. */
 
-import { useMemo, useCallback, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useCallback, useRef, type ReactNode } from "react";
 import { ChatContext, TypingProvider, type ChatContextValue, type ChatMessage } from "../../hooks/useChatContext";
 import { useMessageStore } from "../../stores/messageStore";
 import type { UploadOptions } from "../../api/client";
@@ -10,6 +10,7 @@ import { useServerStore } from "../../stores/serverStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useChannelPermissions } from "../../hooks/useChannelPermissions";
 import { hasPermission, Permissions } from "../../utils/permissions";
+import { noteConversationOpened } from "../../cache/conversationCache";
 import type { Message, MemberWithRoles } from "../../types";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
@@ -35,8 +36,8 @@ function ChannelChatProvider({
   const messages = useMessageStore(
     (s) => (channelId ? s.messagesByChannel[channelId] : undefined) as ChatMessage[] | undefined
   ) ?? EMPTY_MESSAGES;
-  const isLoading = useMessageStore((s) => s.isLoading);
-  const isLoadingMore = useMessageStore((s) => s.isLoadingMore);
+  const isLoading = useMessageStore((s) => !!s.loadingByChannel[channelId]);
+  const isLoadingMore = useMessageStore((s) => !!s.loadingMoreByChannel[channelId]);
   const hasMore = useMessageStore((s) =>
     channelId ? s.hasMoreByChannel[channelId] ?? false : false
   );
@@ -49,6 +50,8 @@ function ChannelChatProvider({
   const storeSetReplyingTo = useMessageStore((s) => s.setReplyingTo);
   const storeSetScrollToMessageId = useMessageStore((s) => s.setScrollToMessageId);
   const storeSendMessage = useMessageStore((s) => s.sendMessage);
+  const retryPending = useMessageStore((s) => s.retryPending);
+  const discardPending = useMessageStore((s) => s.discardPending);
   const storeEditMessage = useMessageStore((s) => s.editMessage);
   const storeDeleteMessage = useMessageStore((s) => s.deleteMessage);
   const storeToggleReaction = useMessageStore((s) => s.toggleReaction);
@@ -65,6 +68,11 @@ function ChannelChatProvider({
   const members = targetServerId ? (membersByServer[targetServerId] ?? EMPTY_MEMBERS) : EMPTY_MEMBERS;
   const currentUser = useAuthStore((s) => s.user);
   const { hasChannelPerm } = useChannelPermissions(channelId);
+
+  // Opening a channel makes it the most recent cached conversation.
+  useEffect(() => {
+    if (channelId && targetServerId) noteConversationOpened({ kind: "channel", id: channelId, serverId: targetServerId });
+  }, [channelId, targetServerId]);
 
   // ─── File drop ref — forwards drag-drop files from ChatArea to MessageInput ───
   const addFilesRef = useRef<((files: File[]) => void) | null>(null);
@@ -165,6 +173,9 @@ function ChannelChatProvider({
       replyingTo,
       scrollToMessageId,
       sendMessage,
+      sendsInBackground: true,
+      retryPending,
+      discardPending,
       editMessage,
       deleteMessage,
       fetchMessages,
@@ -185,7 +196,7 @@ function ChannelChatProvider({
     [
       channelId, channelName, explicitServerId, messages, isLoading, isLoadingMore, hasMore,
       replyingTo, scrollToMessageId,
-      sendMessage, editMessage, deleteMessage, fetchMessages, fetchOlderMessages,
+      sendMessage, retryPending, discardPending, editMessage, deleteMessage, fetchMessages, fetchOlderMessages,
       toggleReaction, setReplyingTo, setScrollToMessageId, sendTyping,
       pinMessage, unpinMessage, isMessagePinned,
       canSend, canManageMessages, members, addFilesRef,

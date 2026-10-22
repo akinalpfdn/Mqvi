@@ -29,6 +29,8 @@
   --red:#ef4444;
   --red-hover:#dc2626;
   --red-s:rgba(239,68,68,0.10);
+  /* Destructive actions and error text. Follows the theme's red; it was used everywhere but never defined. */
+  --danger:var(--red);
   --yellow:#f0b232;
   --yellow-s:rgba(240,178,50,0.10);
   --purple:#a855f7;
@@ -795,6 +797,14 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 .msg-text { font-size:13px;line-height:1.45;color:var(--t0);white-space:pre-wrap;word-break:break-word; }
 .msg-text code { font-family:var(--f-m);font-size:13px;background:var(--bg-0);padding:1px 5px;border-radius:3px;border:1px solid var(--b1);color:var(--teal); }
 .msg-edited { font-size:13px;color:var(--t3);margin-left:4px; }
+/* Own message delivery: clock until the server stored it, then a tick. Sized with the text. */
+.msg-delivery { display:inline-flex;vertical-align:-0.15em;width:1em;height:1em;margin-left:6px;font-size:13px;color:var(--t3); }
+.msg-delivery svg { width:100%;height:100%; }
+.msg-delivery.delivered { width:1.25em; }
+.msg-pending-failed { display:flex;align-items:center;flex-wrap:wrap;gap:4px 12px;margin-top:4px;font-size:13px; }
+.msg-pending-failed-text { color:var(--red); }
+.msg-pending-action { font-size:13px;font-weight:500;padding:2px 0;border:none;background:transparent;color:var(--primary);cursor:pointer; }
+.msg-pending-action:hover { text-decoration:underline; }
 
 /* Message column is a query container — layout responds to the ACTUAL text-column width,
    not the window width (so split-view with both sidebars open reflows just like mobile). */
@@ -1645,6 +1655,8 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 
 /* ── Download Prompt Modal ── */
 .download-prompt-overlay { position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:var(--overlay-backdrop,none);-webkit-backdrop-filter:var(--overlay-backdrop,none); }
+/* Blocks the app until it is updated: above every dialog and toast. */
+.download-prompt-overlay.update-required { z-index:10002; }
 .download-prompt-modal { background:var(--panel-bg);backdrop-filter:var(--panel-backdrop);-webkit-backdrop-filter:var(--panel-backdrop);border:1px solid var(--panel-border);border-radius:14px;box-shadow:var(--panel-inset),var(--panel-shadow);padding:32px;max-width:400px;width:90%;text-align:center; }
 .download-prompt-modal h3 { font-size:18px;font-weight:700;margin-bottom:8px;color:var(--t1); }
 .download-prompt-modal p { font-size:14px;color:var(--t2);margin-bottom:24px;line-height:1.5; }

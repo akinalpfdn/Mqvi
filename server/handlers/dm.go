@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"strconv"
@@ -26,6 +27,7 @@ type DMHandler struct {
 	maxUploadSize   int64
 	messageLimiter  *ratelimit.MessageRateLimiter
 	readLimiter     *ratelimit.MessageRateLimiter
+	deliveryLimiter *ratelimit.MessageRateLimiter
 	urlSigner       services.FileURLSigner
 }
 
@@ -36,6 +38,7 @@ func NewDMHandler(
 	maxUploadSize int64,
 	messageLimiter *ratelimit.MessageRateLimiter,
 	readLimiter *ratelimit.MessageRateLimiter,
+	deliveryLimiter *ratelimit.MessageRateLimiter,
 	urlSigner services.FileURLSigner,
 ) *DMHandler {
 	return &DMHandler{
@@ -45,6 +48,7 @@ func NewDMHandler(
 		maxUploadSize:   maxUploadSize,
 		messageLimiter:  messageLimiter,
 		readLimiter:     readLimiter,
+		deliveryLimiter: deliveryLimiter,
 		urlSigner:       urlSigner,
 	}
 }
@@ -206,6 +210,7 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		}
 
 		req.Content = r.FormValue("content")
+		req.ClientNonce = r.FormValue("client_nonce")
 		if replyTo := r.FormValue("reply_to_id"); replyTo != "" {
 			req.ReplyToID = &replyTo
 		}
@@ -249,10 +254,17 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	msg, err := h.dmService.SendMessage(r.Context(), user.ID, channelID, &req)
+	msg, repeat, err := h.dmService.SendMessage(r.Context(), user.ID, channelID, &req)
 	if err != nil {
 		releaseQuota(r.Context(), h.storageService, "dm", user.ID, reservedBytes)
 		pkg.Error(w, err)
+		return
+	}
+	// A retry of a send that went through: same answer as the first time, and nothing else — no
+	// upload, no broadcast, no push; the first request did all of it.
+	if repeat {
+		releaseQuota(r.Context(), h.storageService, "dm", user.ID, reservedBytes)
+		pkg.JSON(w, http.StatusCreated, msg)
 		return
 	}
 
@@ -276,8 +288,12 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			// The message goes too: a partial set would mis-key every attachment after the missing
 			// one. See uploadEachFile.
-			_ = h.dmService.DeleteMessage(r.Context(), user.ID, msg.ID)
-			releaseQuota(r.Context(), h.storageService, "dm", user.ID, reservedBytes-uploadedBytes)
+			// Not on the request's context — see the same cleanup in MessageHandler.Create.
+			cleanup := context.WithoutCancel(r.Context())
+			if delErr := h.dmService.DeleteMessage(cleanup, user.ID, msg.ID); delErr != nil {
+				log.Printf("[dm] failed to remove message %s after its upload failed: %v", msg.ID, delErr)
+			}
+			releaseQuota(cleanup, h.storageService, "dm", user.ID, reservedBytes-uploadedBytes)
 			respondUploadFailure(w, err)
 			return
 		}
@@ -447,6 +463,62 @@ func (h *DMHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pkg.JSON(w, http.StatusOK, map[string]int{"unread_count": unread})
+}
+
+// MarkDelivered handles POST /api/dms/channels/{channelId}/delivered — the recipient's app saying
+// how far it has received the conversation. Its own rate-limit bucket, never mark-read's: every
+// device reports, and spending the read budget would hold read state back.
+func (h *DMHandler) MarkDelivered(w http.ResponseWriter, r *http.Request) {
+	channelID := r.PathValue("channelId")
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+	if rateLimited(w, h.deliveryLimiter, user.ID) {
+		return
+	}
+
+	var req struct {
+		MessageID string `json:"message_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.MessageID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "message_id is required")
+		return
+	}
+
+	if err := h.dmService.MarkDelivered(r.Context(), user.ID, channelID, req.MessageID); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// MarkDeliveredLatest handles POST /api/dms/delivered — after connecting, the app reports every
+// conversation it learned has new messages, in one request rather than one each.
+func (h *DMHandler) MarkDeliveredLatest(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+	if rateLimited(w, h.deliveryLimiter, user.ID) {
+		return
+	}
+
+	var req struct {
+		DMChannelIDs []string `json:"dm_channel_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.DMChannelIDs) == 0 {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "dm_channel_ids is required")
+		return
+	}
+
+	if err := h.dmService.MarkDeliveredLatest(r.Context(), user.ID, req.DMChannelIDs); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ─── Search Endpoint ───

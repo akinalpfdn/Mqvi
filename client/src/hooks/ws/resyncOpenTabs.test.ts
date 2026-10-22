@@ -20,8 +20,6 @@ vi.mock("../../crypto/channelEncryption", () => ({
 vi.mock("../../crypto/dmEncryption", () => ({
   decryptDMMessages: vi.fn(async (m: unknown[]) => m),
   encryptDMMessage: vi.fn(),
-  pushSentPlaintext: vi.fn(),
-  discardLastSentPlaintext: vi.fn(),
   persistSentPlaintext: vi.fn(),
   cacheEditPlaintext: vi.fn(),
 }));

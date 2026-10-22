@@ -162,6 +162,11 @@ export type CachedDecryptedMessage = {
   dmChannelId: string | null;
   content: string;
   timestamp: number;
+  /**
+   * The message's attachment keys. A cache hit replaces decryption, so without them a message read
+   * from here shows its files as undecryptable bytes. Absent on entries written before they were kept.
+   */
+  fileKeys?: import("./fileEncryption").EncryptedFileMeta[];
 };
 
 // ──────────────────────────────────

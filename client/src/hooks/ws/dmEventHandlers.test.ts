@@ -6,7 +6,6 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("../../crypto/dmEncryption", () => ({
   decryptDMMessage: vi.fn(),
-  popSentPlaintext: vi.fn(),
   popEditPlaintext: vi.fn(),
 }));
 vi.mock("../../crypto/keyStorage", () => ({
@@ -25,6 +24,12 @@ vi.mock("../../api/dm", () => ({
 }));
 vi.mock("../../stores/toastStore", () => ({
   useToastStore: { getState: () => ({ addToast: vi.fn() }) },
+}));
+const reports = vi.hoisted(() => ({ reportDMDelivered: vi.fn() }));
+vi.mock("../../stores/shared/dmDeliveryReports", () => ({
+  ...reports,
+  reportDMsDeliveredLatest: vi.fn(async () => {}),
+  resetDMDeliveryReports: vi.fn(),
 }));
 vi.mock("../../utils/pushDismiss", () => ({
   dismissNotificationsFor: vi.fn(async () => {}),
@@ -216,3 +221,18 @@ describe("dm_message_create — the badge gate matches the read gate", () => {
     expect(useDMStore.getState().dmUnreadCounts.c1).toBeUndefined();
   });
 });
+
+describe("dm_message_create — the double tick", () => {
+  it("should report a message from the other participant as received, open conversation or not", async () => {
+    await handleDMEvent({ op: "dm_message_create", d: msg("m1", THEM) } as WSMessage);
+
+    expect(reports.reportDMDelivered).toHaveBeenCalledWith("c1", "m1");
+  });
+
+  it("should not report this user's own message", async () => {
+    await handleDMEvent({ op: "dm_message_create", d: msg("m1", ME) } as WSMessage);
+
+    expect(reports.reportDMDelivered).not.toHaveBeenCalled();
+  });
+});
+

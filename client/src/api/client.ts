@@ -165,6 +165,41 @@ function withStatus<T>(result: XhrResult<T>): APIResponse<T> {
   return { ...result.response, httpStatus: result.status };
 }
 
+/**
+ * Aborted when the signed-in session ends. The app does not reload between accounts, so a request
+ * the previous account started and that answers after sign-out would write that account's data
+ * into the stores the next one reads. Every request is tied to it; an aborted one comes back
+ * failed, which callers already treat as "nothing to apply".
+ */
+let sessionController = new AbortController();
+
+export function abortSessionRequests(): void {
+  sessionController.abort();
+  sessionController = new AbortController();
+}
+
+/**
+ * The caller's signal joined with the session's. The listeners are removed by `release` once the
+ * request is done: the session signal lives for the whole session, and listeners left on it would
+ * pile up one per request.
+ */
+function joinSession(signal: AbortSignal | undefined): { signal: AbortSignal; release: () => void } {
+  const session = sessionController.signal;
+  if (!signal) return { signal: session, release: () => {} };
+  const joined = new AbortController();
+  const abort = () => joined.abort();
+  if (signal.aborted || session.aborted) joined.abort();
+  signal.addEventListener("abort", abort, { once: true });
+  session.addEventListener("abort", abort, { once: true });
+  return {
+    signal: joined.signal,
+    release: () => {
+      signal.removeEventListener("abort", abort);
+      session.removeEventListener("abort", abort);
+    },
+  };
+}
+
 /** No response, a timeout, rate limiting or a server error: the session may be fine, the server is not. */
 function isTransientStatus(status: number | undefined): boolean {
   return status === undefined || status === 0 || status === 408 || status === 429 || status >= 500;
@@ -193,30 +228,35 @@ async function sendFetch<T>(
     // to "include"; this explicit value is required for the Electron renderer (file:// origin → API
     // is cross-site).
     credentials: "include",
-    signal,
   };
   if (body) fetchOptions.body = body instanceof FormData ? body : JSON.stringify(body);
 
-  let res: Response;
+  const joined = joinSession(signal);
+  fetchOptions.signal = joined.signal;
   try {
-    res = await fetch(`${API_BASE_URL}${endpoint}`, fetchOptions);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Network request failed";
-    console.error(`[apiClient] ${method} ${endpoint}:`, message);
-    return { status: 0, response: { success: false, error: message } as APIResponse<T> };
-  }
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE_URL}${endpoint}`, fetchOptions);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Network request failed";
+      console.error(`[apiClient] ${method} ${endpoint}:`, message);
+      return { status: 0, response: { success: false, error: message } as APIResponse<T> };
+    }
 
-  if (res.status === 204) {
-    return { status: 204, response: { success: true, data: undefined as T } };
-  }
-  try {
-    return { status: res.status, response: (await res.json()) as APIResponse<T> };
-  } catch {
-    console.error(`[apiClient] ${method} ${endpoint}: invalid JSON (HTTP ${res.status})`);
-    return {
-      status: res.status,
-      response: { success: false, error: `HTTP ${res.status}: ${res.statusText}` } as APIResponse<T>,
-    };
+    if (res.status === 204) {
+      return { status: 204, response: { success: true, data: undefined as T } };
+    }
+    try {
+      return { status: res.status, response: (await res.json()) as APIResponse<T> };
+    } catch {
+      console.error(`[apiClient] ${method} ${endpoint}: invalid JSON (HTTP ${res.status})`);
+      return {
+        status: res.status,
+        response: { success: false, error: `HTTP ${res.status}: ${res.statusText}` } as APIResponse<T>,
+      };
+    }
+  } finally {
+    joined.release();
   }
 }
 
@@ -269,16 +309,18 @@ function sendXhr<T>(
   body: FormData,
   method: string,
   extraHeaders: Record<string, string> | undefined,
-  signal: AbortSignal | undefined,
+  callerSignal: AbortSignal | undefined,
   onProgress: UploadOptions["onProgress"],
   token: string | null
 ): Promise<XhrResult<T>> {
-  return new Promise((resolve) => {
+  const joined = joinSession(callerSignal);
+  const signal = joined.signal;
+  const settled = new Promise<XhrResult<T>>((resolve) => {
     const aborted: XhrResult<T> = {
       status: 0,
       response: { success: false, error: "Upload cancelled", code: UPLOAD_ABORTED },
     };
-    if (signal?.aborted) {
+    if (signal.aborted) {
       resolve(aborted);
       return;
     }
@@ -305,8 +347,8 @@ function sendXhr<T>(
       // the multipart boundary. Setting it by hand produces a body the server cannot parse.
 
       const onAbort = () => xhr.abort();
-      signal?.addEventListener("abort", onAbort);
-      cleanup = () => signal?.removeEventListener("abort", onAbort);
+      signal.addEventListener("abort", onAbort);
+      cleanup = () => signal.removeEventListener("abort", onAbort);
 
       let lastTotal: number | null = null;
       if (onProgress) {
@@ -356,6 +398,7 @@ function sendXhr<T>(
       resolve({ status: 0, response: { success: false, error: message } });
     }
   });
+  return settled.finally(() => joined.release());
 }
 
 /**

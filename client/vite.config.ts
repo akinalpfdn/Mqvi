@@ -1,5 +1,17 @@
+import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+
+// The desktop/web release version (root package.json), stamped into client error reports. A
+// build context of client/ alone (docker-compose.dev.yml) has no root package.json: no version.
+function readAppVersion(): string {
+  try {
+    return (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }).version;
+  } catch {
+    return "";
+  }
+}
+const appVersion = readAppVersion();
 
 // https://vite.dev/config/
 // command: "serve" → dev server (vite dev), "build" → production build (vite build)
@@ -14,6 +26,7 @@ import react from "@vitejs/plugin-react";
 //   Absolute "/" → wrong path resolution. Relative "./" works correctly.
 export default defineConfig(({ command }) => ({
   plugins: [react()],
+  define: { __APP_VERSION__: JSON.stringify(appVersion) },
   clearScreen: false,
   server: {
     port: 3030,

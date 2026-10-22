@@ -1,3 +1,5 @@
+// First import: error reporting listens before any other module runs (see errorReporting.ts).
+import { errorReporting } from "./errorReporting";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, HashRouter } from "react-router-dom";
@@ -39,7 +41,12 @@ useP2PCallStore.setState({
 // "Is the user in front of the app?" — every platform. The DM read loop depends on it.
 initAppFocus();
 
-createRoot(document.getElementById("root")!).render(
+// The root boundary catches every render crash, and React passes caught errors only to this
+// callback (its default just logs) — never to window, where the reporter listens. The boundary
+// logs to the console itself.
+createRoot(document.getElementById("root")!, {
+  onCaughtError: (error, info) => errorReporting.reportRenderCrash(error, info.componentStack),
+}).render(
   <StrictMode>
     <ErrorBoundary>
       <Router>

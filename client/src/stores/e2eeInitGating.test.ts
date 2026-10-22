@@ -246,6 +246,25 @@ describe("refill once the keys are ready", () => {
     expect(refetched).toContain(OTHER);
   });
 
+  it("should resync a conversation shown from the device cache once the keys are ready", async () => {
+    // Cached plaintext, unverified; the reconnect resync skipped it because its page was encrypted
+    // and the keys were not ready. Nothing in it is gated, so no refill would ever touch it.
+    useMessageStore.getState().hydrateConversation(CHANNEL, [channelMessage("c1", false)], false);
+    openTabs({ channelId: CHANNEL, type: "text" });
+    vi.mocked(messageApi.getMessages).mockResolvedValue({
+      success: true,
+      data: { messages: [channelMessage("c1", false), channelMessage("c2", false)], has_more: false },
+    });
+
+    await useE2EEStore.getState().initialize("user-1");
+
+    // initialize does not await the refill; wait for its resync to land.
+    await vi.waitFor(() =>
+      expect(useMessageStore.getState().messagesByChannel[CHANNEL].map((m) => m.id)).toEqual(["c1", "c2"])
+    );
+    expect(messageApi.getMessages).toHaveBeenCalledTimes(1);
+  });
+
   it("should leave a cache that was never gated untouched", async () => {
     const healthy = channelMessage("c2", false);
     useMessageStore.setState({ messagesByChannel: { [CHANNEL]: [healthy] } });

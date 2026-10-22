@@ -1,9 +1,10 @@
 /** DMChatProvider — Maps DM store to ChatContext (no roles/permissions in DMs). */
 
-import { useMemo, useCallback, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useCallback, useRef, type ReactNode } from "react";
 import { ChatContext, TypingProvider, type ChatContextValue, type ChatMessage } from "../../hooks/useChatContext";
 import { useDMStore } from "../../stores/dmStore";
 import type { UploadOptions } from "../../api/client";
+import { noteConversationOpened } from "../../cache/conversationCache";
 import type { DMMessage, MemberWithRoles, User } from "../../types";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
@@ -29,7 +30,8 @@ function DMChatProvider({
   const messages = useDMStore(
     (s) => (channelId ? s.messagesByChannel[channelId] : undefined) as ChatMessage[] | undefined
   ) ?? EMPTY_MESSAGES;
-  const isLoadingMessages = useDMStore((s) => s.isLoadingMessages);
+  const isLoading = useDMStore((s) => !!s.loadingByChannel[channelId]);
+  const isLoadingMore = useDMStore((s) => !!s.loadingMoreByChannel[channelId]);
   const hasMore = useDMStore((s) =>
     channelId ? s.hasMoreByChannel[channelId] ?? false : false
   );
@@ -42,6 +44,8 @@ function DMChatProvider({
   const storeSetReplyingTo = useDMStore((s) => s.setReplyingTo);
   const storeSetScrollToMessageId = useDMStore((s) => s.setScrollToMessageId);
   const storeSendMessage = useDMStore((s) => s.sendMessage);
+  const retryPending = useDMStore((s) => s.retryPending);
+  const discardPending = useDMStore((s) => s.discardPending);
   const storeEditMessage = useDMStore((s) => s.editMessage);
   const storeDeleteMessage = useDMStore((s) => s.deleteMessage);
   const storeToggleReaction = useDMStore((s) => s.toggleReaction);
@@ -49,6 +53,11 @@ function DMChatProvider({
   const storeFetchOlderMessages = useDMStore((s) => s.fetchOlderMessages);
   const storePinMessage = useDMStore((s) => s.pinMessage);
   const storeUnpinMessage = useDMStore((s) => s.unpinMessage);
+
+  // Opening a DM makes it the most recent cached conversation.
+  useEffect(() => {
+    if (channelId) noteConversationOpened({ kind: "dm", id: channelId });
+  }, [channelId]);
 
   // ─── File drop ref — forwards files from drag-drop to MessageInput ───
   const addFilesRef = useRef<((files: File[]) => void) | null>(null);
@@ -156,12 +165,15 @@ function DMChatProvider({
       channelId,
       channelName,
       messages,
-      isLoading: isLoadingMessages,
-      isLoadingMore: false, // DM store has no separate isLoadingMore state
+      isLoading,
+      isLoadingMore,
       hasMore,
       replyingTo,
       scrollToMessageId,
       sendMessage,
+      sendsInBackground: true,
+      retryPending,
+      discardPending,
       editMessage,
       deleteMessage,
       fetchMessages,
@@ -180,9 +192,9 @@ function DMChatProvider({
       addFilesRef,
     }),
     [
-      channelId, channelName, messages, isLoadingMessages, hasMore,
+      channelId, channelName, messages, isLoading, isLoadingMore, hasMore,
       replyingTo, scrollToMessageId,
-      sendMessage, editMessage, deleteMessage, fetchMessages, fetchOlderMessages,
+      sendMessage, retryPending, discardPending, editMessage, deleteMessage, fetchMessages, fetchOlderMessages,
       toggleReaction, setReplyingTo, setScrollToMessageId, sendTyping,
       pinMessage, unpinMessage, isMessagePinned, members, addFilesRef,
     ]

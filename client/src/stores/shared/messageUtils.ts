@@ -6,10 +6,13 @@
 import i18n from "../../i18n";
 import { UPLOAD_ABORTED } from "../../api/client";
 import { encryptFile, encryptThumbnail } from "../../crypto/fileEncryption";
+import { encodePayload } from "../../crypto/e2eePayload";
+import { keepClientNonce } from "../../utils/messageSync";
 import { useToastStore } from "../toastStore";
+import { classifyFailure, type SendOutcome } from "../outboxStore";
 import type { EncryptedFileMeta } from "../../crypto/fileEncryption";
 import type { GeneratedThumbnail } from "../../utils/imageEncoding";
-import type { ReactionGroup } from "../../types";
+import type { APIResponse, ReactionGroup } from "../../types";
 
 // ─── File Encryption ───
 
@@ -115,6 +118,79 @@ export function handleSendError(res: {
   return true;
 }
 
+// ─── Second Copies ───
+
+type HeldCopy = {
+  content: string | null;
+  attachments?: unknown[];
+  e2ee_file_keys?: EncryptedFileMeta[];
+};
+
+/**
+ * A message arriving again — the send response and its echo, or a retry's answer and the first
+ * request's broadcast — may carry more than the copy already held: content the held copy could not
+ * decrypt, or files a retry answered before the first request had stored them. The fuller one wins;
+ * what only the held copy knows (its plaintext, its file keys) is kept. Null: keep the held copy.
+ */
+export function fullerCopy<T extends HeldCopy>(held: T, incoming: T): T | null {
+  const moreContent = held.content === null && incoming.content !== null;
+  const moreFiles = (incoming.attachments?.length ?? 0) > (held.attachments?.length ?? 0);
+  if (!moreContent && !moreFiles) return null;
+  return {
+    ...incoming,
+    content: incoming.content ?? held.content,
+    e2ee_file_keys: incoming.e2ee_file_keys ?? held.e2ee_file_keys,
+  };
+}
+
+// ─── Encrypted Edits ───
+
+/**
+ * The plaintext an encrypted edit carries. An edit replaces the stored ciphertext, so it has to
+ * carry the attachment keys along with the text — the text alone erases them for every reader.
+ * Null when this device does not hold every key: the edit would then break files that the
+ * recipients can still open.
+ */
+export function encryptedEditPayload(
+  content: string,
+  held: { attachments?: unknown[]; e2ee_file_keys?: EncryptedFileMeta[] } | undefined
+): string | null {
+  const attached = held?.attachments?.length ?? 0;
+  if (attached === 0) return encodePayload(content);
+  const keys = held?.e2ee_file_keys;
+  if (!keys || keys.length !== attached) return null;
+  return encodePayload(content, keys);
+}
+
+// ─── Outbox Outcomes ───
+
+/**
+ * The outcome of a send the server did not accept. A rejection is explained to the user; a
+ * transient failure only marks the bubble, since it is retried and a toast per message would pile up.
+ */
+export function sendFailureOutcome(res: APIResponse<unknown>): Exclude<SendOutcome, "sent"> {
+  // Cancel and timeout both abort the request; the outbox knows which it was.
+  if (res.code === UPLOAD_ABORTED) return "transient";
+  const outcome = classifyFailure(res.httpStatus);
+  if (outcome === "rejected") handleSendError(res);
+  return outcome;
+}
+
+/**
+ * The outcome of a send that could not be encrypted. A recipient without keys stays that way until
+ * they set up E2EE; anything else may be the network the key fetch needed, so it may be retried.
+ */
+export function encryptionFailureOutcome(err: unknown, logTag: string): Exclude<SendOutcome, "sent"> {
+  if (err instanceof DOMException && err.name === "AbortError") return "transient";
+  console.error(`[${logTag}] E2EE encryption failed:`, err);
+  if (err instanceof Error && err.message === "RECIPIENT_NO_KEYS") {
+    useToastStore.getState().addToast("error", i18n.t("e2ee:recipientNoKeys"));
+    return "rejected";
+  }
+  useToastStore.getState().addToast("error", i18n.t("e2ee:encryptionFailed"));
+  return "transient";
+}
+
 // ─── Typing Indicator ───
 
 const TYPING_TIMEOUT = 5_000;
@@ -175,7 +251,7 @@ export function createTypingHandler(
  * Used by both handleMessageUpdate and handleDMMessageUpdate.
  */
 export function updateMessageInRecord<
-  T extends { id: string }
+  T extends { id: string; client_nonce?: string }
 >(
   messagesByChannel: Record<string, T[]>,
   channelId: string,
@@ -187,7 +263,7 @@ export function updateMessageInRecord<
   return {
     ...messagesByChannel,
     [channelId]: messages.map((m) =>
-      m.id === updatedMessage.id ? updatedMessage : m
+      m.id === updatedMessage.id ? keepClientNonce(m, updatedMessage) : m
     ),
   };
 }

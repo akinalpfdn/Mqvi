@@ -296,3 +296,22 @@ describe("signing out closes what the guide had open", () => {
     expect(tabs.some((tb) => tb.channelId === GUIDE_TAB_ID)).toBe(false);
   });
 });
+
+describe("opened from the device cache", () => {
+  it("should sign out when the first request meets a revoked session, before initialize runs", async () => {
+    const { apiClient, setAuthRejectedHandler } = await import("../api/client");
+    // Earlier tests ran initialize, which armed it; this one has to prove openFromCache does.
+    setAuthRejectedHandler(null);
+    localStorage.setItem("access_token", "stale");
+    localStorage.setItem("refresh_token", "revoked");
+    // Every request 401s, the refresh included: the session was revoked while the app was closed.
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ success: false }), { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    useAuthStore.getState().openFromCache({ id: "alice", username: "alice" } as never);
+    await apiClient("/servers");
+    await vi.waitFor(() => expect(useAuthStore.getState().user).toBeNull());
+
+    vi.unstubAllGlobals();
+  });
+});

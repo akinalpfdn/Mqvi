@@ -92,7 +92,7 @@ func TestDMEncryptionPolicy_IsEnforcedOnSendAndEdit(t *testing.T) {
 		t.Run("send/"+tc.name, func(t *testing.T) {
 			svc, repo := policyDMService(tc.e2ee)
 
-			_, err := svc.SendMessage(context.Background(), "alice", "c1", &models.CreateDMMessageRequest{
+			_, _, err := svc.SendMessage(context.Background(), "alice", "c1", &models.CreateDMMessageRequest{
 				Content:           "hello",
 				EncryptionVersion: tc.version,
 				Ciphertext:        encryptedField(tc.version, "CIPHER"),

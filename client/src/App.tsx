@@ -16,12 +16,15 @@ import InviteJoinPage from "./components/servers/InviteJoinPage";
 import UpdateNotification from "./components/shared/UpdateNotification";
 import CustomTitleBar from "./components/layout/CustomTitleBar";
 import FileViewerOverlay from "./components/viewers/FileViewerOverlay";
+import MobileUpdatePrompt from "./components/shared/MobileUpdatePrompt";
 import ConfirmDialog from "./components/shared/ConfirmDialog";
 import ToastContainer from "./components/shared/ToastContainer";
 import { useUpdateChecker } from "./hooks/useUpdateChecker";
 import { useDeepLinks } from "./hooks/useDeepLinks";
 import { useFileTokenFreshness } from "./hooks/useFileTokenFreshness";
+import { useResetOnSignOut } from "./hooks/useResetOnSignOut";
 import { isElectron, isNativeApp, publicAsset } from "./utils/constants";
+import { restoreFromCache } from "./cache/cacheBoot";
 
 /**
  * App — Root component. Handles routing and auth initialization.
@@ -42,10 +45,14 @@ function App() {
   useDeepLinks();
 
   useEffect(() => {
-    initialize();
+    // On a native app with a warm cache this opens the app before any network response;
+    // initialize then confirms the session in the background.
+    void restoreFromCache().then(() => initialize());
   }, [initialize]);
 
   useFileTokenFreshness(user !== null);
+  // Logout, forced logout and an abandoned session all end at user → null.
+  useResetOnSignOut();
 
   // Apply blur + transparent classes at root level so they also affect
   // pre-auth pages (login, register, landing).
@@ -183,6 +190,7 @@ function App() {
       {/* At the root, not in AppLayout: the pre-auth pages (login's connection switcher) need them too. */}
       <ConfirmDialog />
       <ToastContainer />
+      <MobileUpdatePrompt />
     </>
   );
 }

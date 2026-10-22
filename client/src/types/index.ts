@@ -138,6 +138,8 @@ export type Message = {
   e2ee_metadata?: string | null;
   /** Client-only: decrypted file keys */
   e2ee_file_keys?: import("../crypto/fileEncryption").EncryptedFileMeta[];
+  /** The sender's idempotency key. Present on the create echo and the send response only. */
+  client_nonce?: string;
 };
 
 export type Attachment = {
@@ -380,6 +382,10 @@ export type DMMessage = {
   e2ee_metadata?: string | null;
   /** Client-only: decrypted file keys */
   e2ee_file_keys?: import("../crypto/fileEncryption").EncryptedFileMeta[];
+  /** The sender's idempotency key. Present on the create echo and the send response only. */
+  client_nonce?: string;
+  /** Own messages only: the other participant's app has received it (the double tick). */
+  delivered?: boolean;
 };
 
 export type DMAttachment = {
@@ -389,6 +395,13 @@ export type DMAttachment = {
   file_url: string;
   file_size: number | null;
   mime_type: string | null;
+};
+
+/** How far one participant has received a DM conversation (the dm_delivered event). */
+export type DMDeliveryMark = {
+  dm_channel_id: string;
+  message_id: string;
+  created_at: string;
 };
 
 export type DMMessagePage = {
@@ -727,7 +740,18 @@ export type FeedbackReply = {
 
 // ──────────────────────────────────
 export type AppLogLevel = "error" | "warn" | "info";
-export type AppLogCategory = "voice" | "video" | "screen_share" | "ws" | "auth" | "general" | "feedback" | "livekit" | "cleaner";
+export type AppLogCategory =
+  | "voice"
+  | "video"
+  | "screen_share"
+  | "noise_reduction"
+  | "ws"
+  | "auth"
+  | "general"
+  | "feedback"
+  | "livekit"
+  | "cleaner"
+  | "client";
 
 export type AppLog = {
   id: string;

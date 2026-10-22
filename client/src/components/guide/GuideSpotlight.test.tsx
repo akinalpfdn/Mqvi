@@ -11,6 +11,7 @@ import GuideSpotlight, { SPOTLIGHT_WAIT_MS, EXPLAIN_WAIT_MS, captionPosition } f
 import { useSpotlightStore } from "../../stores/spotlightStore";
 import { useGuideStore } from "../../stores/guideStore";
 import { useVoiceStore } from "../../stores/voiceStore";
+import { handleBack, pushBackHandler } from "../../utils/backStack";
 import type { Tour } from "../../utils/guideTours";
 
 const none = { community: false, message: false, voice: false, friend: false, profile: false, roles: false, app: false };
@@ -99,6 +100,25 @@ describe("the spotlight", () => {
     frames();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(useSpotlightStore.getState().tour).toBeNull();
+  });
+
+  it("ends on Android back before a panel opened during the tour", () => {
+    start();
+    frames();
+    const closeSettings = vi.fn();
+    const off = pushBackHandler(closeSettings); // the user opened settings on the way
+
+    act(() => {
+      handleBack();
+    });
+    expect(useSpotlightStore.getState().tour).toBeNull();
+    expect(closeSettings).not.toHaveBeenCalled();
+
+    act(() => {
+      handleBack();
+    });
+    expect(closeSettings).toHaveBeenCalledTimes(1);
+    off();
   });
 
   it("waits through a moment with nothing on screen, then gives up", () => {

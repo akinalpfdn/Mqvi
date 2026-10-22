@@ -17,12 +17,27 @@ import { useReadStateStore } from "./readStateStore";
 import { useToastStore } from "./toastStore";
 import { encryptChannelMessage, decryptChannelMessages } from "../crypto/channelEncryption";
 import { encodePayload } from "../crypto/e2eePayload";
-import type { Message, ReactionGroup } from "../types";
+import { randomId } from "../utils/randomId";
+import {
+  useOutboxStore,
+  startDelivery,
+  cancelDelivery,
+  previewAttachments,
+  autoRetryable,
+  getPrepared,
+  setPrepared,
+  type PreparedSend,
+  type SendAttempt,
+} from "./outboxStore";
+import type { Message, MessageReference, ReactionGroup } from "../types";
 import { DEFAULT_MESSAGE_LIMIT } from "../utils/constants";
-import { mergeLatestPage } from "../utils/messageSync";
+import { mergeLatestPage, resyncLimit, withFlag } from "../utils/messageSync";
 import {
   encryptFilesForE2EE,
-  handleSendError,
+  encryptedEditPayload,
+  fullerCopy,
+  sendFailureOutcome,
+  encryptionFailureOutcome,
   createTypingHandler,
   updateMessageInRecord,
   deleteMessageFromRecord,
@@ -34,8 +49,12 @@ type MessageState = {
   /** channelId -> Message[] */
   messagesByChannel: Record<string, Message[]>;
   hasMoreByChannel: Record<string, boolean>;
-  isLoading: boolean;
-  isLoadingMore: boolean;
+  /**
+   * Conversations whose first page is in flight, and those loading an older page. Per conversation:
+   * one shared flag put the skeleton over every open conversation while any one of them loaded.
+   */
+  loadingByChannel: Record<string, true>;
+  loadingMoreByChannel: Record<string, true>;
   /** channelId -> username[] */
   typingUsers: Record<string, string[]>;
 
@@ -54,7 +73,24 @@ type MessageState = {
   resyncChannel: (channelId: string, serverId?: string, opts?: { markRead?: boolean }) => Promise<void>;
   /** Clear fetch cache — forces re-fetch + re-decrypt (E2EE restore) */
   invalidateFetchCache: () => void;
+  /**
+   * Puts a conversation read from the device cache in place, unverified: the first fetch for it
+   * resyncs against the server instead of loading a first page on top of it.
+   */
+  hydrateConversation: (channelId: string, messages: Message[], hasMore: boolean) => void;
+  /** Resyncs a conversation still showing unverified cached messages; no-op otherwise. */
+  resyncIfStale: (channelId: string, serverId?: string) => Promise<void>;
+  /**
+   * Checks the message can go out, puts it in the outbox and starts delivering it. True once it is
+   * queued — delivery reports through the outbox. False only when it was refused up front.
+   */
   sendMessage: (channelId: string, content: string, files?: File[], replyToId?: string, serverId?: string, upload?: UploadOptions) => Promise<boolean>;
+  /** Sends a pending message again, under the nonce it already has. */
+  retryPending: (nonce: string) => void;
+  /** Cancels a pending message, aborting its upload if one is running. */
+  discardPending: (nonce: string) => void;
+  /** Retries every failed text send that may be retried unattended — after a reconnect. */
+  retryFailedSends: () => void;
   editMessage: (messageId: string, content: string, serverId?: string) => Promise<boolean>;
   deleteMessage: (messageId: string, serverId?: string) => Promise<boolean>;
 
@@ -96,11 +132,130 @@ let cacheGeneration = 0;
  */
 const inFlightChannels = new Set<string>();
 
+/**
+ * Conversations showing what the device cache held, not yet checked against the server. A first
+ * page loaded on top would be wrong: fetchMessages appends held messages the page lacks, so a
+ * message deleted since, or one older than the page, would land after the newest. The resync's
+ * merge is built for exactly this.
+ */
+const staleChannels = new Set<string>();
+
+/**
+ * Whether a message to this server goes out encrypted, or why it cannot go out at all.
+ *
+ * The flag is read for the server the message goes to, not the active one: a tab can hold a
+ * channel of a non-active server. Unknown state fails closed — guessing "not encrypted" would send
+ * plaintext to a server that mandates encryption.
+ */
+function channelSendMode(serverId: string): "plaintext" | "e2ee" | { refusal: string } {
+  const e2ee = selectServerE2EE(serverId)(useServerStore.getState());
+  if (e2ee === undefined) return { refusal: "chat:encryptionStateUnknown" };
+  if (!e2ee) return "plaintext";
+  // Encrypted target, device not ready: refuse rather than fall through to plaintext. The server
+  // would reject it anyway, but with the wrong reason.
+  if (!canEncrypt(useE2EEStore.getState()) || !useAuthStore.getState().user?.id) {
+    return { refusal: "chat:encryptionRequired" };
+  }
+  return "e2ee";
+}
+
+async function prepareChannelSend(
+  mode: "plaintext" | "e2ee",
+  channelId: string,
+  content: string,
+  files: File[],
+  signal: AbortSignal
+): Promise<PreparedSend> {
+  if (mode === "plaintext") {
+    // Previews are generated here, not in the api layer, so both paths produce them the same way.
+    // Non-images and already-small files come back null.
+    const thumbs = files.length > 0
+      ? await mapWithConcurrency(files, PREVIEW_CONCURRENCY, (file) => buildAttachmentPreview(file, signal))
+      : undefined;
+    return { thumbs };
+  }
+
+  const { localDeviceId } = useE2EEStore.getState();
+  const userId = useAuthStore.getState().user?.id;
+  // channelSendMode checked both moments ago; they can only have gone with a sign-out.
+  if (!localDeviceId || !userId) throw new Error("E2EE device not ready");
+
+  let encrypted: Awaited<ReturnType<typeof encryptFilesForE2EE>> | undefined;
+  if (files.length > 0) encrypted = await encryptFilesForE2EE(files, signal);
+
+  const senderKeyMsg = await encryptChannelMessage(
+    channelId,
+    userId,
+    localDeviceId,
+    encodePayload(content, encrypted?.metas)
+  );
+  return {
+    thumbs: encrypted?.thumbs,
+    encrypted: {
+      ciphertext: JSON.stringify(senderKeyMsg),
+      metadata: JSON.stringify({ distribution_id: senderKeyMsg.distributionId }),
+      deviceId: localDeviceId,
+      files: encrypted?.files,
+      fileMetas: encrypted?.metas,
+    },
+  };
+}
+
+function channelAttempt(nonce: string): SendAttempt {
+  return async ({ signal, upload }) => {
+    const entry = useOutboxStore.getState().find(nonce);
+    if (!entry?.serverId) return "rejected";
+
+    let prepared = getPrepared(nonce);
+    if (!prepared) {
+      const mode = channelSendMode(entry.serverId);
+      if (typeof mode === "object") {
+        useToastStore.getState().addToast("error", i18n.t(mode.refusal));
+        return "rejected";
+      }
+      try {
+        prepared = await prepareChannelSend(mode, entry.conversationId, entry.content, entry.files, signal);
+      } catch (err) {
+        return encryptionFailureOutcome(err, "messageStore");
+      }
+      setPrepared(nonce, prepared);
+    }
+    if (signal.aborted) return "transient";
+
+    const replyToId = entry.replyToId ?? undefined;
+    const sealed = prepared.encrypted;
+    const res = sealed
+      ? await messageApi.sendEncryptedMessage(
+          entry.serverId, entry.conversationId, sealed.ciphertext, sealed.deviceId, sealed.metadata,
+          sealed.files, replyToId, upload, prepared.thumbs, nonce
+        )
+      : await messageApi.sendMessage(
+          entry.serverId, entry.conversationId, entry.content, entry.files, replyToId, upload, prepared.thumbs, nonce
+        );
+
+    if (!res.success) return sendFailureOutcome(res);
+    if (res.data) {
+      // The response carries the ciphertext; the sender already has what it says.
+      const stored = sealed ? { ...res.data, content: entry.content, e2ee_file_keys: sealed.fileMetas } : res.data;
+      useMessageStore.getState().handleMessageCreate({ ...stored, client_nonce: nonce });
+    }
+    // Without a body the echo delivers it; the pending copy must not outlive the send either way.
+    useOutboxStore.getState().remove(nonce);
+    return "sent";
+  };
+}
+
+function referenceFor(messages: Message[] | undefined, replyToId: string | undefined): MessageReference | null {
+  if (!replyToId) return null;
+  const target = messages?.find((m) => m.id === replyToId);
+  return target ? { id: target.id, author: target.author, content: target.content } : null;
+}
+
 export const useMessageStore = create<MessageState>((set, get) => ({
   messagesByChannel: {},
   hasMoreByChannel: {},
-  isLoading: false,
-  isLoadingMore: false,
+  loadingByChannel: {},
+  loadingMoreByChannel: {},
   typingUsers: {},
   replyingTo: null,
   scrollToMessageId: null,
@@ -108,7 +263,23 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   invalidateFetchCache: () => {
     cacheGeneration++;
     fetchedChannels.clear();
+    staleChannels.clear();
     set({ messagesByChannel: {}, hasMoreByChannel: {} });
+  },
+
+  hydrateConversation: (channelId, messages, hasMore) => {
+    // Whatever arrived first is newer than the cache.
+    if (get().messagesByChannel[channelId]) return;
+    fetchedChannels.add(channelId);
+    staleChannels.add(channelId);
+    set((state) => ({
+      messagesByChannel: { ...state.messagesByChannel, [channelId]: messages },
+      hasMoreByChannel: { ...state.hasMoreByChannel, [channelId]: hasMore },
+    }));
+  },
+
+  resyncIfStale: async (channelId, serverId?) => {
+    if (staleChannels.has(channelId)) await get().resyncChannel(channelId, serverId);
   },
 
   resyncChannel: async (channelId, explicitServerId?, opts?) => {
@@ -116,7 +287,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
     if (!serverId) return;
 
-    const res = await messageApi.getMessages(serverId, channelId, undefined, DEFAULT_MESSAGE_LIMIT);
+    const held = get().messagesByChannel[channelId]?.length ?? 0;
+    const res = await messageApi.getMessages(serverId, channelId, undefined, resyncLimit(held));
     if (!res.success || !res.data) return;
     const data = res.data;
 
@@ -139,6 +311,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     if (generation !== cacheGeneration) return;
 
     fetchedChannels.add(channelId);
+    // Checked against the server now — only here, so a resync that bailed out above (keys not
+    // ready) leaves the conversation marked for the next one.
+    staleChannels.delete(channelId);
 
     set((state) => {
       const held = state.messagesByChannel[channelId] ?? [];
@@ -163,57 +338,59 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   },
 
   fetchMessages: async (channelId, explicitServerId?) => {
+    // Opened from the cache: verify what is shown, and read it as fetchMessages would.
+    if (staleChannels.has(channelId)) {
+      await get().resyncChannel(channelId, explicitServerId, { markRead: true });
+      return;
+    }
     if (fetchedChannels.has(channelId) || inFlightChannels.has(channelId)) return;
-
-    set({ isLoading: true });
 
     const generation = cacheGeneration;
     const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
-    if (!serverId) { set({ isLoading: false }); return; }
+    if (!serverId) return;
 
     inFlightChannels.add(channelId);
+    set((state) => ({ loadingByChannel: withFlag(state.loadingByChannel, channelId, true) }));
     try {
       const res = await messageApi.getMessages(serverId, channelId, undefined, DEFAULT_MESSAGE_LIMIT);
-      if (res.success && res.data) {
-        // Go nil slice -> JSON null; fallback to empty array
-        const apiMessages = await decryptChannelMessages(res.data.messages ?? []);
+      if (!res.success || !res.data) return;
+      const data = res.data;
+      // Go nil slice -> JSON null; fallback to empty array
+      const apiMessages = await decryptChannelMessages(data.messages ?? []);
 
-        // The cache was invalidated while this was in flight — E2EE keys arrived, and this page was
-        // decrypted before they did. Dropping it leaves the refill's own fetch to fill the channel.
-        if (generation !== cacheGeneration) { set({ isLoading: false }); return; }
-        fetchedChannels.add(channelId);
+      // The cache was invalidated while this was in flight — E2EE keys arrived, and this page was
+      // decrypted before they did. Dropping it leaves the refill's own fetch to fill the channel.
+      if (generation !== cacheGeneration) return;
+      fetchedChannels.add(channelId);
 
-        set((state) => {
-          // Merge WS-buffered messages that arrived during fetch
-          const buffered = state.messagesByChannel[channelId] ?? [];
-          const apiIds = new Set(apiMessages.map((m) => m.id));
-          const newFromWS = buffered.filter((m) => !apiIds.has(m.id));
+      set((state) => {
+        // Merge WS-buffered messages that arrived during fetch
+        const buffered = state.messagesByChannel[channelId] ?? [];
+        const apiIds = new Set(apiMessages.map((m) => m.id));
+        const newFromWS = buffered.filter((m) => !apiIds.has(m.id));
 
-          return {
-            messagesByChannel: {
-              ...state.messagesByChannel,
-              [channelId]: [...apiMessages, ...newFromWS],
-            },
-            hasMoreByChannel: {
-              ...state.hasMoreByChannel,
-              [channelId]: res.data!.has_more,
-            },
-            isLoading: false,
-          };
-        });
+        return {
+          messagesByChannel: {
+            ...state.messagesByChannel,
+            [channelId]: [...apiMessages, ...newFromWS],
+          },
+          hasMoreByChannel: {
+            ...state.hasMoreByChannel,
+            [channelId]: data.has_more,
+          },
+        };
+      });
 
-        // Auto-mark-read after messages load
-        const allMessages = get().messagesByChannel[channelId];
-        if (allMessages && allMessages.length > 0) {
-          const lastMsg = allMessages[allMessages.length - 1];
-          useReadStateStore.getState().markAsRead(channelId, lastMsg.id);
-        }
-      } else {
-        set({ isLoading: false });
+      // Auto-mark-read after messages load
+      const allMessages = get().messagesByChannel[channelId];
+      if (allMessages && allMessages.length > 0) {
+        const lastMsg = allMessages[allMessages.length - 1];
+        useReadStateStore.getState().markAsRead(channelId, lastMsg.id);
       }
     } finally {
       // Released on every exit path, or the channel could never be fetched again this session.
       inFlightChannels.delete(channelId);
+      set((state) => ({ loadingByChannel: withFlag(state.loadingByChannel, channelId, false) }));
     }
   },
 
@@ -221,119 +398,82 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     const messages = get().messagesByChannel[channelId];
     if (!messages || messages.length === 0) return;
     if (!get().hasMoreByChannel[channelId]) return;
-
-    set({ isLoadingMore: true });
+    if (get().loadingMoreByChannel[channelId]) return;
 
     const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
-    if (!serverId) { set({ isLoadingMore: false }); return; }
+    if (!serverId) return;
 
-    const beforeId = messages[0].id;
-    const res = await messageApi.getMessages(serverId, channelId, beforeId, DEFAULT_MESSAGE_LIMIT);
+    set((state) => ({ loadingMoreByChannel: withFlag(state.loadingMoreByChannel, channelId, true) }));
+    try {
+      const generation = cacheGeneration;
+      const beforeId = messages[0].id;
+      const res = await messageApi.getMessages(serverId, channelId, beforeId, DEFAULT_MESSAGE_LIMIT);
+      if (!res.success || !res.data) return;
+      const data = res.data;
+      const decrypted = await decryptChannelMessages(data.messages ?? []);
 
-    if (res.success && res.data) {
-      const decrypted = await decryptChannelMessages(res.data.messages ?? []);
+      // The keys changed while this was in flight: the page was decrypted under the old ones, and
+      // the refill that followed already holds what the conversation shows now.
+      if (generation !== cacheGeneration) return;
 
-      set((state) => ({
-        messagesByChannel: {
-          ...state.messagesByChannel,
-          [channelId]: [...decrypted, ...state.messagesByChannel[channelId]],
-        },
-        hasMoreByChannel: {
-          ...state.hasMoreByChannel,
-          [channelId]: res.data!.has_more,
-        },
-        isLoadingMore: false,
-      }));
-    } else {
-      set({ isLoadingMore: false });
+      set((state) => {
+        const held = state.messagesByChannel[channelId];
+        // The page continues the list it was requested from. Emptied or refetched meanwhile, the
+        // list no longer starts there, and prepending would throw or leave a hidden gap.
+        if (held?.[0]?.id !== beforeId) return state;
+        return {
+          messagesByChannel: { ...state.messagesByChannel, [channelId]: [...decrypted, ...held] },
+          hasMoreByChannel: { ...state.hasMoreByChannel, [channelId]: data.has_more },
+        };
+      });
+    } finally {
+      set((state) => ({ loadingMoreByChannel: withFlag(state.loadingMoreByChannel, channelId, false) }));
     }
   },
 
-  sendMessage: async (channelId, content, files, replyToId, explicitServerId?, upload?) => {
+  sendMessage: async (channelId, content, files, replyToId, explicitServerId?) => {
     const serverId = explicitServerId ?? useServerStore.getState().activeServerId;
     if (!serverId) return false;
 
-    // E2EE: encrypt with Sender Key.
-    // Read the flag for the server this message is actually going to. Reading `activeServer` sent
-    // a plaintext message to an E2EE server (or the reverse) whenever a tab held a channel of a
-    // non-active server — explicitServerId exists precisely because that happens.
-    const e2eeState = useE2EEStore.getState();
-    const targetServerE2EE = selectServerE2EE(serverId)(useServerStore.getState());
-    // Fail closed. Guessing "not encrypted" here would send plaintext to a server that mandates
-    // encryption, and the send path is the only thing that decides — better to refuse than to leak.
-    if (targetServerE2EE === undefined) {
-      useToastStore.getState().addToast("error", i18n.t("chat:encryptionStateUnknown"));
+    // Refused here, before anything is queued, so the composer keeps what the user wrote. The
+    // attempt checks again: encryption state can change while a message waits its turn.
+    const mode = channelSendMode(serverId);
+    if (typeof mode === "object") {
+      useToastStore.getState().addToast("error", i18n.t(mode.refusal));
       return false;
     }
-    // Encrypted target, device not ready: refuse here rather than falling through to the plaintext
-    // branch below. The server would reject it anyway, but with the wrong reason.
-    if (targetServerE2EE && !canEncrypt(e2eeState)) {
-      useToastStore.getState().addToast("error", i18n.t("chat:encryptionRequired"));
-      return false;
-    }
-    if (targetServerE2EE && e2eeState.initStatus === "ready" && e2eeState.localDeviceId) {
-      const currentUserId = useAuthStore.getState().user?.id;
-      if (currentUserId) {
-        try {
-          let encryptedFiles: File[] | undefined;
-          let thumbs: (import("../utils/imageEncoding").GeneratedThumbnail | null)[] | undefined;
-          let fileMetas: import("../crypto/fileEncryption").EncryptedFileMeta[] | undefined;
 
-          if (files && files.length > 0) {
-            const result = await encryptFilesForE2EE(files, upload?.signal);
-            encryptedFiles = result.files;
-            thumbs = result.thumbs;
-            fileMetas = result.metas;
-          }
+    const nonce = randomId();
+    const attached = files ?? [];
+    useOutboxStore.getState().add({
+      nonce,
+      kind: "channel",
+      conversationId: channelId,
+      serverId,
+      content,
+      files: attached,
+      attachments: previewAttachments(attached),
+      replyToId: replyToId ?? null,
+      referencedMessage: referenceFor(get().messagesByChannel[channelId], replyToId),
+      createdAt: new Date().toISOString(),
+      status: "sending",
+      failure: null,
+    });
+    get().retryPending(nonce);
+    return true;
+  },
 
-          const plaintext = encodePayload(content, fileMetas);
+  retryPending: (nonce) => {
+    startDelivery(nonce, channelAttempt(nonce), () => useOutboxStore.getState().remove(nonce));
+  },
 
-          const senderKeyMsg = await encryptChannelMessage(
-            channelId,
-            currentUserId,
-            e2eeState.localDeviceId,
-            plaintext
-          );
-          const ciphertext = JSON.stringify(senderKeyMsg);
-          const metadata = JSON.stringify({
-            distribution_id: senderKeyMsg.distributionId,
-          });
+  discardPending: (nonce) => {
+    // A running attempt finishes the discard through its cancel path, once it has stopped.
+    if (!cancelDelivery(nonce)) useOutboxStore.getState().remove(nonce);
+  },
 
-          const res = await messageApi.sendEncryptedMessage(
-            serverId,
-            channelId,
-            ciphertext,
-            e2eeState.localDeviceId,
-            metadata,
-            encryptedFiles,
-            replyToId,
-            upload,
-            thumbs
-          );
-
-          handleSendError(res);
-          return res.success;
-        } catch (err) {
-          // A user-initiated cancel is not a failure — no toast and no red console entry.
-          if (err instanceof DOMException && err.name === "AbortError") return false;
-          console.error("[messageStore] E2EE encryption failed:", err);
-          useToastStore.getState().addToast("error", i18n.t("e2ee:encryptionFailed"));
-          return false;
-        }
-      }
-    }
-
-    // Plaintext fallback
-    // Previews are generated here, not in the api layer, so the encrypted and plaintext paths
-    // produce them the same way. Non-images and already-small files come back null.
-    const plainThumbs = files
-      ? await mapWithConcurrency(files, PREVIEW_CONCURRENCY, (file) =>
-          buildAttachmentPreview(file, upload?.signal)
-        )
-      : undefined;
-    const res = await messageApi.sendMessage(serverId, channelId, content, files, replyToId, upload, plainThumbs);
-    handleSendError(res);
-    return res.success;
+  retryFailedSends: () => {
+    for (const entry of autoRetryable("channel")) get().retryPending(entry.nonce);
   },
 
   editMessage: async (messageId, content, explicitServerId?) => {
@@ -358,20 +498,27 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       // Find which channel this message belongs to
       const allChannels = get().messagesByChannel;
       let channelId: string | null = null;
+      let held: Message | undefined;
       for (const [chId, msgs] of Object.entries(allChannels)) {
-        if (msgs.some((m) => m.id === messageId)) {
+        held = msgs.find((m) => m.id === messageId);
+        if (held) {
           channelId = chId;
           break;
         }
       }
 
       if (currentUserId && channelId) {
+        const plaintext = encryptedEditPayload(content, held);
+        if (plaintext === null) {
+          useToastStore.getState().addToast("error", i18n.t("e2ee:editAttachmentKeysMissing"));
+          return false;
+        }
         try {
           const senderKeyMsg = await encryptChannelMessage(
             channelId,
             currentUserId,
             e2eeState.localDeviceId,
-            content
+            plaintext
           );
           const ciphertext = JSON.stringify(senderKeyMsg);
           const metadata = JSON.stringify({
@@ -430,8 +577,16 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       // fetchMessages will merge buffered messages when it completes.
       const channelMessages = state.messagesByChannel[message.channel_id] ?? [];
 
-      // Duplicate guard
-      if (channelMessages.some((m) => m.id === message.id)) return state;
+      // Duplicate guard. The send response and the echo both land here, whichever comes first;
+      // the held copy gives way only to a fuller one (see fullerCopy).
+      const heldIndex = channelMessages.findIndex((m) => m.id === message.id);
+      if (heldIndex !== -1) {
+        const fuller = fullerCopy(channelMessages[heldIndex], message);
+        if (!fuller) return state;
+        const next = [...channelMessages];
+        next[heldIndex] = fuller;
+        return { messagesByChannel: { ...state.messagesByChannel, [message.channel_id]: next } };
+      }
 
       // Clear typing indicator
       const typingUsers = { ...state.typingUsers };
@@ -449,6 +604,12 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         typingUsers,
       };
     });
+
+    // This device's own send is stored now — its pending copy goes, whichever of response and
+    // echo got here first. Only the author's nonce: nobody else can confirm our outbox.
+    if (message.client_nonce && message.user_id === useAuthStore.getState().user?.id) {
+      useOutboxStore.getState().remove(message.client_nonce);
+    }
   },
 
   handleMessageUpdate: (message) => {

@@ -39,13 +39,17 @@ export async function sendDMMessage(
   files?: File[],
   replyToId?: string,
   upload?: UploadOptions,
-  thumbs?: (GeneratedThumbnail | null)[]
+  thumbs?: (GeneratedThumbnail | null)[],
+  clientNonce?: string
 ) {
   if (files && files.length > 0) {
     const formData = new FormData();
     formData.append("content", content);
     if (replyToId) {
       formData.append("reply_to_id", replyToId);
+    }
+    if (clientNonce) {
+      formData.append("client_nonce", clientNonce);
     }
     for (const file of files) {
       formData.append("files", file);
@@ -61,7 +65,9 @@ export async function sendDMMessage(
     body: {
       content,
       ...(replyToId ? { reply_to_id: replyToId } : {}),
+      ...(clientNonce ? { client_nonce: clientNonce } : {}),
     },
+    signal: upload?.signal,
   });
 }
 
@@ -78,7 +84,8 @@ export async function sendEncryptedDMMessage(
   files?: File[],
   replyToId?: string,
   upload?: UploadOptions,
-  thumbs?: (GeneratedThumbnail | null)[]
+  thumbs?: (GeneratedThumbnail | null)[],
+  clientNonce?: string
 ) {
   if (files && files.length > 0) {
     const formData = new FormData();
@@ -88,6 +95,9 @@ export async function sendEncryptedDMMessage(
     formData.append("e2ee_metadata", metadata);
     if (replyToId) {
       formData.append("reply_to_id", replyToId);
+    }
+    if (clientNonce) {
+      formData.append("client_nonce", clientNonce);
     }
     for (const file of files) {
       formData.append("files", file);
@@ -106,7 +116,9 @@ export async function sendEncryptedDMMessage(
       sender_device_id: senderDeviceId,
       e2ee_metadata: metadata,
       ...(replyToId ? { reply_to_id: replyToId } : {}),
+      ...(clientNonce ? { client_nonce: clientNonce } : {}),
     },
+    signal: upload?.signal,
   });
 }
 
@@ -259,4 +271,20 @@ export function searchDMMessages(channelId: string, query: string, limit = 25, o
   if (limit !== 25) params.set("limit", String(limit));
   if (offset > 0) params.set("offset", String(offset));
   return apiClient<DMSearchResult>(`/dms/${channelId}/search?${params}`);
+}
+
+/** The recipient's app received this conversation up to messageId — the sender's double tick. */
+export function markDMDelivered(channelId: string, messageId: string) {
+  return apiClient<void>(`/dms/channels/${channelId}/delivered`, {
+    method: "POST",
+    body: { message_id: messageId },
+  });
+}
+
+/** After connecting: these conversations have news the app knows of but has not downloaded. */
+export function markDMsDeliveredLatest(channelIds: string[]) {
+  return apiClient<void>(`/dms/delivered`, {
+    method: "POST",
+    body: { dm_channel_ids: channelIds },
+  });
 }

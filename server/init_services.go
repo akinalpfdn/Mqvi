@@ -62,6 +62,7 @@ type Services struct {
 	Badge              services.BadgeService
 	Preferences        services.PreferencesService
 	AppLog             services.AppLogService
+	ClientError        *services.ClientErrorService
 	Feedback           services.FeedbackService
 	FeedbackUpload     services.FeedbackUploadService
 	Soundboard         services.SoundboardService
@@ -106,10 +107,19 @@ type RateLimiters struct {
 	// DM being read on the desktop.
 	DMRead      *ratelimit.MessageRateLimiter
 	ChannelRead *ratelimit.MessageRateLimiter
+	// DMDelivery is the double tick's own bucket. Every connected device reports what it received,
+	// so in a busy conversation it fires as often as mark-read; sharing that bucket let delivery
+	// reports spend the tokens mark-read needs and hold read state back for the cooldown.
+	DMDelivery *ratelimit.MessageRateLimiter
 	// SessionRevoke caps devices-screen sign-outs per user.
 	SessionRevoke *ratelimit.LoginRateLimiter
 	// CredentialStore caps "remember me" failure reports per user.
 	CredentialStore *ratelimit.MessageRateLimiter
+	// Client error reports, per IP: the route is public, so the IP is all there is to limit by.
+	// Render crashes have their own bucket (see ClientErrorHandler).
+	ClientError       *ratelimit.MessageRateLimiter
+	ClientRenderCrash *ratelimit.MessageRateLimiter
+	ClientErrorDaily  *ratelimit.MessageRateLimiter
 }
 
 // initServices creates all services. Order matters:
@@ -304,7 +314,9 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 
 	// Rate limiters
 	loginLimiter := ratelimit.NewLoginRateLimiter(5, 2*time.Minute)
-	messageLimiter := ratelimit.NewMessageRateLimiter(5, 5*time.Second, 15*time.Second)
+	// 15 messages per 7 s, then a 15 s cooldown. 5 per 5 s was easy to trip in an ordinary quick
+	// back-and-forth (user decision, 2026-10-22); a flood still stops at about two a second.
+	messageLimiter := ratelimit.NewMessageRateLimiter(15, 7*time.Second, 15*time.Second)
 	registerLimiter := ratelimit.NewLoginRateLimiter(3, 10*time.Minute)                    // 3 registrations per 10 min per IP
 	forgotPwdLimiter := ratelimit.NewLoginRateLimiter(3, 5*time.Minute)                    // 3 forgot-password per 5 min per IP
 	resetPwdLimiter := ratelimit.NewLoginRateLimiter(5, 5*time.Minute)                     // 5 reset attempts per 5 min per IP
@@ -330,6 +342,8 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	// not. Separate buckets so neither path can spend the other's tokens.
 	dmReadLimiter := ratelimit.NewMessageRateLimiter(30, 10*time.Second, 10*time.Second)
 	channelReadLimiter := ratelimit.NewMessageRateLimiter(30, 10*time.Second, 10*time.Second)
+	// Clients coalesce delivery to ~1/s per conversation, and each of a user's devices reports.
+	dmDeliveryLimiter := ratelimit.NewMessageRateLimiter(60, 10*time.Second, 10*time.Second)
 
 	svcs := &Services{
 		Auth:               authService,
@@ -371,6 +385,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		Badge:              badgeService,
 		Preferences:        preferencesService,
 		AppLog:             appLogService,
+		ClientError:        services.NewClientErrorService(appLogService),
 		Feedback:           feedbackService,
 		FeedbackUpload:     feedbackUploadService,
 		Soundboard:         soundboardService,
@@ -402,9 +417,19 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		NoiseReduction:  noiseReductionLimiter,
 		DMRead:          dmReadLimiter,
 		ChannelRead:     channelReadLimiter,
+		DMDelivery:      dmDeliveryLimiter,
 		SessionRevoke:   ratelimit.NewLoginRateLimiter(10, time.Minute),
 		// A real failure reports once per login attempt; a handful an hour is plenty.
 		CredentialStore: ratelimit.NewMessageRateLimiter(5, time.Hour, time.Hour),
+		// Two batches (up to ten reports) a minute per IP: under the service's global cap of 20, so
+		// one client cannot spend everyone's budget, yet a session with a second batch is not cut off.
+		ClientError: ratelimit.NewMessageRateLimiter(2, time.Minute, time.Minute),
+		// Five single-report render crashes a minute per IP: the error boundary reloads up to three
+		// times on a deterministic crash, and users behind one NAT share the bucket.
+		ClientRenderCrash: ratelimit.NewMessageRateLimiter(5, time.Minute, time.Minute),
+		// Thirty requests a day per IP (at most 150 reports): a real client sends a few, and four
+		// addresses would be needed to fill the service's daily cap of 1000.
+		ClientErrorDaily: ratelimit.NewMessageRateLimiter(30, 24*time.Hour, 24*time.Hour),
 	}
 
 	return svcs, limiters, metricsCollector

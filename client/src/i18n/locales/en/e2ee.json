@@ -93,5 +93,6 @@
   "recoveryPromptHint": "You can manage this anytime from Settings > Encryption.",
   "recoveryPromptSetPassword": "Set Recovery Password",
   "recoveryPromptContinueNewKeys": "Continue with New Keys",
-  "recoveryPromptDismiss": "Later"
+  "recoveryPromptDismiss": "Later",
+  "editAttachmentKeysMissing": "This message's attachments can't be read on this device, so editing it here would break them for everyone."
 }

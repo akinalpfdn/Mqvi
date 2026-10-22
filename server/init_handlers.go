@@ -30,6 +30,8 @@ type Handlers struct {
 	Friendship        *handlers.FriendshipHandler
 	Avatar            *handlers.AvatarHandler
 	Stats             *handlers.StatsHandler
+	ClientPolicy      *handlers.ClientPolicyHandler
+	ClientError       *handlers.ClientErrorHandler
 	Admin             *handlers.AdminHandler
 	ServerMute        *handlers.ServerMuteHandler
 	ChannelMute       *handlers.ChannelMuteHandler
@@ -75,12 +77,14 @@ func initHandlers(svcs *Services, repos *Repositories, limiters *RateLimiters, h
 		Pin:               handlers.NewPinHandler(svcs.Pin),
 		Search:            handlers.NewSearchHandler(svcs.Search),
 		ReadState:         handlers.NewReadStateHandler(svcs.ReadState, limiters.ChannelRead),
-		DM:                handlers.NewDMHandler(svcs.DM, svcs.DMUpload, svcs.Storage, cfg.Upload.MaxSize, limiters.Message, limiters.DMRead, urlSigner),
+		DM:                handlers.NewDMHandler(svcs.DM, svcs.DMUpload, svcs.Storage, cfg.Upload.MaxSize, limiters.Message, limiters.DMRead, limiters.DMDelivery, urlSigner),
 		Reaction:          handlers.NewReactionHandler(svcs.Reaction),
 		ChannelPermission: handlers.NewChannelPermissionHandler(svcs.ChannelPermission),
 		Friendship:        handlers.NewFriendshipHandler(svcs.Friendship),
 		Avatar:            handlers.NewAvatarHandler(repos.User, svcs.Member, svcs.Server, fileLocator, svcs.UploadPipeline, urlSigner),
 		Stats:             handlers.NewStatsHandler(repos.User),
+		ClientPolicy:      handlers.NewClientPolicyHandler(cfg.ClientVersions.MinAndroid, cfg.ClientVersions.MinIOS),
+		ClientError:       handlers.NewClientErrorHandler(svcs.ClientError, limiters.ClientError, limiters.ClientRenderCrash, limiters.ClientErrorDaily),
 		Admin:             handlers.NewAdminHandler(svcs.LiveKitAdmin, svcs.MetricsHistory, svcs.AdminUser, svcs.AdminServer, svcs.Report, svcs.ReportModeration, svcs.AppLog, svcs.SettingsBadge, svcs.Voice),
 		ServerMute:        handlers.NewServerMuteHandler(svcs.ServerMute),
 		ChannelMute:       handlers.NewChannelMuteHandler(svcs.ChannelMute),

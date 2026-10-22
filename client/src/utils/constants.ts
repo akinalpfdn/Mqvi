@@ -212,6 +212,9 @@ export const WS_MAX_RECONNECT_ATTEMPTS = 7;
 /** Default message count (pagination) */
 export const DEFAULT_MESSAGE_LIMIT = 50;
 
+/** The most messages the server returns in one page (services clamp anything above to the default). */
+export const MAX_MESSAGE_PAGE = 100;
+
 /** Max message length (characters) — synced with backend models.MaxMessageLength */
 export const MAX_MESSAGE_LENGTH = 999;
 

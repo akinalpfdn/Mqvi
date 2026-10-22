@@ -1,5 +1,5 @@
 import type { StateCreator } from "zustand";
-import type { DMChannelWithUser, DMMessage, ReactionGroup } from "../../types";
+import type { DMChannelWithUser, DMDeliveryMark, DMMessage, ReactionGroup } from "../../types";
 import { useUIStore } from "../uiStore";
 import {
   createTypingHandler,
@@ -7,11 +7,21 @@ import {
   deleteMessageFromRecord,
   updateReactionInRecord,
   updateAuthorInRecord,
+  fullerCopy,
 } from "../shared/messageUtils";
 import { sortChannelsByActivity } from "../shared/dmSort";
+import { useAuthStore } from "../authStore";
+import { useOutboxStore } from "../outboxStore";
 import type { DMStore } from "../dmStore";
 
 export type DMWsSlice = {
+  /**
+   * The latest dm_delivered per conversation. Kept, not just applied: the other app can report
+   * before this device's own send is confirmed, and that message is marked when it lands.
+   */
+  deliveredMarks: Record<string, DMDeliveryMark>;
+  /** The other participant's app received the conversation this far: double tick on own messages. */
+  handleDMDelivered: (mark: DMDeliveryMark) => void;
   handleDMChannelCreate: (channel: DMChannelWithUser) => void;
   handleDMMessageCreate: (message: DMMessage) => void;
   handleDMMessageUpdate: (message: DMMessage) => void;
@@ -34,6 +44,32 @@ export const createDMWsSlice: StateCreator<
   [],
   DMWsSlice
 > = (set, get) => ({
+  deliveredMarks: {},
+
+  handleDMDelivered: (mark) => {
+    set((state) => {
+      const marks = { ...state.deliveredMarks, [mark.dm_channel_id]: mark };
+      const held = state.messagesByChannel[mark.dm_channel_id];
+      if (!held) return { deliveredMarks: marks };
+      const me = useAuthStore.getState().user?.id;
+      const markIndex = held.findIndex((m) => m.id === mark.message_id);
+      const markTime = Date.parse(mark.created_at);
+      let changed = false;
+      const next = held.map((m, i) => {
+        if (m.user_id !== me || m.delivered) return m;
+        // Held: everything up to it. Not held: strictly older only — a same-second message may
+        // come after the mark, and the next page says for certain.
+        const reached = markIndex !== -1 ? i <= markIndex : Date.parse(m.created_at) < markTime;
+        if (!reached) return m;
+        changed = true;
+        return { ...m, delivered: true };
+      });
+      return changed
+        ? { deliveredMarks: marks, messagesByChannel: { ...state.messagesByChannel, [mark.dm_channel_id]: next } }
+        : { deliveredMarks: marks };
+    });
+  },
+
   handleDMChannelCreate: (channel) => {
     set((state) => {
       if (state.channels.some((ch) => ch.id === channel.id)) return state;
@@ -41,8 +77,14 @@ export const createDMWsSlice: StateCreator<
     });
   },
 
-  handleDMMessageCreate: (message) => {
+  handleDMMessageCreate: (incoming) => {
     set((state) => {
+      // This device's own send, confirmed after the other app already reported it.
+      const mark = state.deliveredMarks[incoming.dm_channel_id];
+      const message =
+        mark?.message_id === incoming.id && incoming.user_id === useAuthStore.getState().user?.id
+          ? { ...incoming, delivered: true }
+          : incoming;
       const updatedChannels = state.channels.map((ch) =>
         ch.id === message.dm_channel_id
           ? { ...ch, last_message_at: message.created_at }
@@ -62,8 +104,19 @@ export const createDMWsSlice: StateCreator<
         return { channels: sortedChannels, typingUsers };
       }
 
-      if (channelMessages.some((m) => m.id === message.id)) {
-        return { channels: sortedChannels, typingUsers };
+      // The send response and the echo both land here, whichever comes first; the held copy
+      // gives way only to a fuller one (see fullerCopy).
+      const heldIndex = channelMessages.findIndex((m) => m.id === message.id);
+      if (heldIndex !== -1) {
+        const fuller = fullerCopy(channelMessages[heldIndex], message);
+        if (!fuller) return { channels: sortedChannels, typingUsers };
+        const next = [...channelMessages];
+        next[heldIndex] = { ...fuller, delivered: fuller.delivered || channelMessages[heldIndex].delivered };
+        return {
+          channels: sortedChannels,
+          messagesByChannel: { ...state.messagesByChannel, [message.dm_channel_id]: next },
+          typingUsers,
+        };
       }
 
       return {
@@ -75,6 +128,11 @@ export const createDMWsSlice: StateCreator<
         typingUsers,
       };
     });
+
+    // Only the author's nonce: nobody else can confirm this device's outbox.
+    if (incoming.client_nonce && incoming.user_id === useAuthStore.getState().user?.id) {
+      useOutboxStore.getState().remove(incoming.client_nonce);
+    }
   },
 
   handleDMMessageUpdate: (message) => {

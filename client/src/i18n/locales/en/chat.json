@@ -134,5 +134,12 @@
   "voiceInviteError": "Could not send voice invite",
   "statusOnlineDescription": "Appear as online",
   "statusIdleDescription": "Appear as idle",
-  "statusDndDescription": "Pause notifications"
+  "statusDndDescription": "Pause notifications",
+  "messageSending": "Sending…",
+  "messageNotSent": "Not sent",
+  "retrySend": "Retry",
+  "discardMessage": "Delete",
+  "messageAttachmentsLost": "Not sent — the attachments could not be kept, add them again",
+  "messageSent": "Sent",
+  "messageDelivered": "Delivered"
 }

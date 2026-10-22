@@ -80,6 +80,8 @@ const (
 	OpDMMessagePin     = "dm_message_pin"
 	OpDMMessageUnpin   = "dm_message_unpin"
 	OpDMRead            = "dm_read"
+	// OpDMDelivered tells a DM's sender how far the other participant has received it.
+	OpDMDelivered       = "dm_delivered"
 	OpDMSettingsUpdate  = "dm_settings_update"
 	OpDMRequestAccept      = "dm_request_accept"
 	OpDMRequestDecline     = "dm_request_decline"
