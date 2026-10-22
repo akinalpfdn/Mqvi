@@ -1,5 +1,5 @@
 /** A pending send is drawn under the stored messages, and its delivery line offers what can be done. */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import type { ChatContextValue, ChatMessage } from "../../hooks/useChatContext";
 import type { PendingMessage } from "../../stores/outboxStore";
@@ -89,6 +89,51 @@ describe("MessageList while loading", () => {
 
     expect(screen.queryAllByTestId("row")).toEqual([]);
     expect(screen.queryByText("welcomeChannel")).toBeNull();
+  });
+});
+
+describe("MessageList auto-scroll", () => {
+  // jsdom lays nothing out: give the scroller a height that grows with its rows (100px each), and
+  // a scrollTop that sticks, so "scrolled to the bottom" can be measured.
+  const tops = new WeakMap<Element, number>();
+  beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() { return (this as HTMLElement).querySelectorAll("[data-testid=row]").length * 100; },
+    });
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 300 });
+    Object.defineProperty(HTMLElement.prototype, "scrollTop", {
+      configurable: true,
+      get() { return tops.get(this as Element) ?? 0; },
+      set(v: number) { tops.set(this as Element, v); },
+    });
+  });
+  afterEach(() => {
+    for (const prop of ["scrollHeight", "clientHeight", "scrollTop"]) {
+      delete (HTMLElement.prototype as unknown as Record<string, unknown>)[prop];
+    }
+  });
+
+  const row = (i: number) =>
+    ({ id: `m${i}`, user_id: "bob", content: `msg ${i}`, created_at: `2026-10-22T10:00:${String(i).padStart(2, "0")}Z`, author: { id: "bob" } }) as ChatMessage;
+
+  it("should follow new messages in a conversation that opened already holding some", () => {
+    // Opened with its messages in place — from memory or the device cache, no loading state.
+    const held = Array.from({ length: 10 }, (_, i) => row(i));
+    const { rerender, container } = render(
+      <ChatContext.Provider value={contextValue(held)}>
+        <MessageList />
+      </ChatContext.Provider>
+    );
+
+    rerender(
+      <ChatContext.Provider value={contextValue([...held, row(10)])}>
+        <MessageList />
+      </ChatContext.Provider>
+    );
+
+    const scroller = container.querySelector(".messages-scroll") as HTMLElement;
+    expect(scroller.scrollTop).toBe(scroller.scrollHeight);
   });
 });
 

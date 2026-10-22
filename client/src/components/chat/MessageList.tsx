@@ -158,8 +158,15 @@ function MessageList() {
     }
   }
 
-  useEffect(() => {
+  // A layout effect, declared before the restore below, so the reset runs FIRST. As a plain
+  // effect it ran after every layout effect: a conversation that opens already holding messages
+  // (from memory or the device cache) was pinned to the bottom by the restore and then unpinned
+  // here, and new messages stopped scrolling it until the user scrolled by hand.
+  useLayoutEffect(() => {
     stickToBottomRef.current = false;
+  }, [channelId]);
+
+  useEffect(() => {
     setRevealedIds(new Set());
     if (channelId) fetchMessages();
   }, [channelId, fetchMessages]);

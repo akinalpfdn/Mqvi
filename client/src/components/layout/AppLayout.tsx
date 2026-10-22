@@ -47,7 +47,7 @@ import ScreenPicker from "../voice/ScreenPicker";
 import AFKKickPopup from "../voice/AFKKickPopup";
 import ConnectionBanner from "../shared/ConnectionBanner";
 import { useAuthStore } from "../../stores/authStore";
-import { resolveAssetUrl } from "../../utils/constants";
+import { isCapacitor, resolveAssetUrl } from "../../utils/constants";
 import { resolveWallpaperBlobUrl } from "../../utils/wallpaperCache";
 import { useServerStore } from "../../stores/serverStore";
 import { useChannelStore } from "../../stores/channelStore";
@@ -312,9 +312,11 @@ function AppLayout() {
   // Shared overlays rendered in both mobile and desktop layouts
   const overlays = (
     <>
-      {/* Connection status banner — desktop only. On a phone the connection drops constantly and
-          comes back by itself; a failed send already says so on its own bubble. */}
-      {!isMobile && <ConnectionBanner status={connectionStatus} reconnectAttempt={reconnectAttempt} />}
+      {/* Connection status banner — not in the mobile app (phone or tablet: a tablet gets the
+          desktop layout, so the layout width alone is not the test) nor in a narrow layout. The
+          connection drops constantly there and comes back by itself; a failed send already says
+          so on its own bubble. */}
+      {!isMobile && !isCapacitor() && <ConnectionBanner status={connectionStatus} reconnectAttempt={reconnectAttempt} />}
 
       {/* Settings modal */}
       <SettingsModal />
