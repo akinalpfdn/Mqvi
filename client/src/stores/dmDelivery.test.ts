@@ -7,7 +7,7 @@ import type { DMChannelWithUser, DMMessage, User } from "../types";
 
 const dmApi = vi.hoisted(() => ({
   markDMDelivered: vi.fn(async () => ({ success: true })),
-  markDMsDeliveredLatest: vi.fn(async () => ({ success: true })),
+  markDMsDeliveredLatest: vi.fn<(ids: string[]) => Promise<{ success: boolean }>>(async () => ({ success: true })),
   listDMChannels: vi.fn(),
   getDMMessages: vi.fn(),
 }));
@@ -103,6 +103,23 @@ describe("recipient: reporting", () => {
 
     expect(dmApi.markDMsDeliveredLatest).toHaveBeenCalledTimes(1);
     expect(dmApi.markDMsDeliveredLatest).toHaveBeenCalledWith(["d1", "d3"]);
+  });
+
+  it("should not report again a conversation whose newest message has not changed", async () => {
+    const list = (d1At: string) => ({
+      success: true,
+      data: [{ id: "d1", unread_count: 2, last_message_at: d1At }, { id: "d3", unread_count: 1, last_message_at: at(3) }] as DMChannelWithUser[],
+    });
+    dmApi.listDMChannels.mockResolvedValue(list(at(1)));
+    await useDMStore.getState().fetchChannels();
+
+    dmApi.listDMChannels.mockResolvedValue(list(at(1)));
+    await useDMStore.getState().fetchChannels(); // a reconnect with nothing new
+
+    dmApi.listDMChannels.mockResolvedValue(list(at(9)));
+    await useDMStore.getState().fetchChannels(); // d1 got a new message
+
+    expect(dmApi.markDMsDeliveredLatest.mock.calls.map((c) => c[0])).toEqual([["d1", "d3"], ["d1"]]);
   });
 });
 

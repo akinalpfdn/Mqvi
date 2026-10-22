@@ -313,7 +313,11 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
     get().applyServerUnread(serverKnows ? counts : null, gen);
     // The list is how a freshly connected app learns of messages it has not downloaded: they
     // reached it, so their senders get the double tick now rather than when each is opened.
-    void reportDMsDeliveredLatest(Object.keys(counts));
+    void reportDMsDeliveredLatest(
+      res.data
+        .filter((ch) => counts[ch.id])
+        .map((ch) => ({ id: ch.id, lastMessageAt: ch.last_message_at ?? "" }))
+    );
   },
 
   selectDM: (channelId) => {
@@ -645,8 +649,10 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
 
   invalidateMessages: (channelId) => {
     set((state) => {
-      const { [channelId]: _, ...rest } = state.messagesByChannel;
-      const { [channelId]: __, ...restMore } = state.hasMoreByChannel;
+      const rest = { ...state.messagesByChannel };
+      const restMore = { ...state.hasMoreByChannel };
+      delete rest[channelId];
+      delete restMore[channelId];
       return { messagesByChannel: rest, hasMoreByChannel: restMore };
     });
   },

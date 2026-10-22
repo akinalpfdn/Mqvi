@@ -27,17 +27,15 @@ function canReopen(shell: CachedShell): (tab: Tab) => boolean {
 }
 
 /**
- * Unsent messages back into the outbox. One whose stored copy the cache already holds was sent:
- * the app closed between the confirmation landing and its outbox record being deleted. It is not
- * restored — it would sit next to its own stored copy under the same row key — and its record goes.
+ * Unsent messages back into the outbox. One whose stored copy the cache already holds was sent: the
+ * app closed between the confirmation landing and its outbox record being deleted. The caller
+ * drops those first; they would sit next to their own stored copy under the same row key.
  */
-async function restorePending(records: CachedPending[], storedNonces: Set<string>, backend: CacheBackend): Promise<void> {
+function restorePending(records: CachedPending[]): void {
   const outbox = useOutboxStore.getState();
   const ordered = [...records].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  const sent = ordered.filter((r) => storedNonces.has(r.nonce));
-  await Promise.all(sent.map((r) => backend.deletePending(r.key)));
   for (const r of ordered) {
-    if (r.schema !== CACHE_SCHEMA || outbox.find(r.nonce) || storedNonces.has(r.nonce)) continue;
+    if (r.schema !== CACHE_SCHEMA || outbox.find(r.nonce)) continue;
     outbox.add({
       nonce: r.nonce,
       kind: r.kind,
@@ -90,16 +88,22 @@ export async function restoreFromCache(backend: CacheBackend = indexedDBBackend)
       backend.listPending(partition),
     ]);
 
+    const storedNonces = new Set(
+      conversations.flatMap((c) => (c.messages as { client_nonce?: string }[]).map((m) => m.client_nonce)).filter((n): n is string => !!n)
+    );
+    const sent = pending.filter((p) => storedNonces.has(p.nonce));
+    await Promise.all(sent.map((p) => backend.deletePending(p.key)));
+
+    // Every read and delete is done: from here on only synchronous store writes, all or nothing.
+    // A failure above leaves the stores untouched, so a later sign-in by another account finds
+    // nothing of this one in memory.
     hydrateShell(shell);
     for (const c of conversations) {
       if (c.schema !== CACHE_SCHEMA) continue;
       if (c.kind === "channel") useMessageStore.getState().hydrateConversation(c.id, c.messages, c.hasMore);
       else useDMStore.getState().hydrateConversation(c.id, c.messages, c.hasMore);
     }
-    const storedNonces = new Set(
-      conversations.flatMap((c) => (c.messages as { client_nonce?: string }[]).map((m) => m.client_nonce)).filter((n): n is string => !!n)
-    );
-    await restorePending(pending, storedNonces, backend);
+    restorePending(pending.filter((p) => !storedNonces.has(p.nonce)));
     useUIStore.getState().restoreLayout(shell.ui, canReopen(shell));
 
     useAuthStore.getState().openFromCache(shell.user);

@@ -30,6 +30,7 @@ vi.mock("../crypto/channelEncryption", () => ({ decryptChannelMessages: vi.fn(as
 const { restoreFromCache } = await import("./cacheBoot");
 const { indexedDBBackend: backend, CACHE_SCHEMA } = await import("./cacheBackend");
 const { rememberCachedUser, partitionFor } = await import("./cacheSession");
+const { startConversationCache } = await import("./conversationCache");
 const { useAuthStore } = await import("../stores/authStore");
 const { useMessageStore } = await import("../stores/messageStore");
 const { useOutboxStore, resetOutbox } = await import("../stores/outboxStore");
@@ -178,15 +179,21 @@ describe("confirming the cached session", () => {
     expect(useAuthStore.getState()).toMatchObject({ user: alice, isServerUnreachable: false, isSessionConfirmed: false });
   });
 
-  it("should land on login with nothing cached when the server refuses the session", async () => {
+  it("should leave the app but keep unsent messages and the cache when /users/me is refused without a sign-out", async () => {
+    // A 403 from a proxy or a 404 mid-deploy: the tokens are still here, so this is not a sign-out.
     authApi.getMe.mockResolvedValue({ success: false, httpStatus: 403, error: "forbidden" });
+    // The app is up, as it is after a cold start: its cache writer mirrors the outbox to disk, so
+    // emptying the outbox while it still runs would delete the records too.
+    startConversationCache("alice");
+    await new Promise((r) => setTimeout(r, 20));
 
     await useAuthStore.getState().initialize();
-    await new Promise((r) => setTimeout(r, 0)); // the wipe is not awaited by initialize
+    await new Promise((r) => setTimeout(r, 0));
 
     expect(useAuthStore.getState().user).toBeNull();
-    expect(await backend.getShell(partitionFor("alice"))).toBeUndefined();
-    expect(await backend.listConversations(partitionFor("alice"))).toEqual([]);
-    expect(await backend.listPending(partitionFor("alice"))).toEqual([]);
+    expect(useOutboxStore.getState().find("n1")).toBeUndefined();
+    // Still on disk for the next start.
+    expect(await backend.listPending(partitionFor("alice"))).toHaveLength(1);
+    expect(await backend.getShell(partitionFor("alice"))).toBeDefined();
   });
 });

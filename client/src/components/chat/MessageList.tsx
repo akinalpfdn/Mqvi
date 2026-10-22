@@ -124,6 +124,12 @@ function MessageList() {
   const prevScrollTopRef = useRef(0);
   const prevMessageCountRef = useRef(0);
 
+  function scrollToBottom() {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }
+
   // ─── Mention Navigation State ───
   const lastMentionSeen = useReadStateStore((s) => s.lastMentionSeen[channelId]);
   const markMentionSeen = useReadStateStore((s) => s.markMentionSeen);
@@ -277,12 +283,6 @@ function MessageList() {
 
     setScrollToMessageId(null);
   }, [scrollToMessageId, setScrollToMessageId, messages, isHidden]);
-
-  function scrollToBottom() {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }
 
   /** Scroll handler — direction-based intent tracking + persist position + infinite scroll. */
   const handleScroll = useCallback(() => {

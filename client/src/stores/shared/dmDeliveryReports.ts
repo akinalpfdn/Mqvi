@@ -10,6 +10,8 @@ import { markDMDelivered, markDMsDeliveredLatest } from "../../api/dm";
 export const REPORT_DELAY_MS = 1_000;
 
 const reported = new Map<string, string>();
+/** conversation → the last_message_at its latest message was reported for, by the batch. */
+const latestReported = new Map<string, string>();
 const queued = new Map<string, string>();
 let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -33,9 +35,17 @@ export function reportDMDelivered(channelId: string, messageId: string): void {
   timer ??= setTimeout(() => void flush(), REPORT_DELAY_MS);
 }
 
-/** Just connected: these conversations have news the app knows of but has not downloaded. */
-export async function reportDMsDeliveredLatest(channelIds: string[]): Promise<void> {
-  if (channelIds.length > 0) await markDMsDeliveredLatest(channelIds);
+/**
+ * Just connected: these conversations have news the app knows of but has not downloaded. Only the
+ * ones whose newest message changed since the last report: an old unread conversation would
+ * otherwise go out again on every reconnect, each one a write attempt on the server.
+ */
+export async function reportDMsDeliveredLatest(conversations: { id: string; lastMessageAt: string }[]): Promise<void> {
+  const changed = conversations.filter((c) => latestReported.get(c.id) !== c.lastMessageAt);
+  if (changed.length === 0) return;
+  const res = await markDMsDeliveredLatest(changed.map((c) => c.id));
+  // Forgotten on failure, so the next connect reports them again.
+  if (res.success) for (const c of changed) latestReported.set(c.id, c.lastMessageAt);
 }
 
 /** Sign-out: the next account starts with nothing reported. */
@@ -43,5 +53,6 @@ export function resetDMDeliveryReports(): void {
   clearTimeout(timer);
   timer = undefined;
   reported.clear();
+  latestReported.clear();
   queued.clear();
 }

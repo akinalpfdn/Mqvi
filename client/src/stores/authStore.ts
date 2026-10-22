@@ -29,7 +29,7 @@ import { useSessionStore } from "./sessionStore";
 import { unregisterCurrentPushToken, clearCachedPushToken, reassertPushTokens } from "../utils/pushToken";
 import { resetMarkReadTracking } from "./shared/markReadTracking";
 import { resetOutbox } from "./outboxStore";
-import { retryPendingWipe, wipeConversationCache } from "../cache/cacheSession";
+import { retryPendingWipe, suspendConversationCache, wipeConversationCache } from "../cache/cacheSession";
 import type { User, UserStatus } from "../types";
 
 const MANUAL_STATUS_KEY = "mqvi_manual_status";
@@ -434,12 +434,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (!getAccessToken()) {
         clearCachedPushToken();
       }
-      // A rejected refresh already signed out through forceLogout. Any other refusal of a session
-      // shown from the cache (a 403 on /users/me) must not leave it on screen either: back to the
-      // login a normal start would have shown, with the device cache gone.
+      // A rejected refresh already signed out through forceLogout, which wipes. Any other refusal
+      // (a 403 from a proxy, a 404 mid-deploy) leaves the tokens in place: it is not a sign-out, and
+      // a normal start would show the login and resume the session at the next launch. So the app
+      // leaves the screen, but the device keeps the unsent messages and the cache — stop writing
+      // first, so dropping the in-memory outbox does not delete their records.
       if (get().user && !get().isSessionConfirmed) {
+        suspendConversationCache();
         resetOutbox();
-        void wipeConversationCache();
         set({ user: null });
       }
       set({ isInitialized: true, isServerUnreachable: false });

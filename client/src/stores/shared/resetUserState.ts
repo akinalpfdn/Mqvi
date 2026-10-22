@@ -30,6 +30,7 @@ import { useSpotlightStore } from "../spotlightStore";
 import { useFileViewerStore } from "../fileViewerStore";
 import { useMobileStore } from "../mobileStore";
 import { resetDMDeliveryReports } from "./dmDeliveryReports";
+import { abortSessionRequests } from "../../api/client";
 
 type Resettable = { getInitialState: () => object; setState: (state: never, replace: true) => void };
 
@@ -38,6 +39,9 @@ function toInitial(store: Resettable): void {
 }
 
 export function resetUserState(): void {
+  // First: a request this account started must not answer into the stores after they are reset.
+  abortSessionRequests();
+
   // Their module-level "already fetched" and "unverified" sets go first, or a fetch for the next
   // account would think its conversations are already loaded.
   useMessageStore.getState().invalidateFetchCache();

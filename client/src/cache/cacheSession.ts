@@ -52,6 +52,16 @@ export function endCacheSession(partition: string): void {
   if (current?.partition === partition) current = null;
 }
 
+/**
+ * Stops writing without wiping: what is on disk stays for the next start. For a session the server
+ * refused for a reason other than the credentials — the tokens are still here, and the unsent
+ * messages and cache belong to an account that is still signed in on this device.
+ */
+export function suspendConversationCache(): void {
+  current?.stop();
+  current = null;
+}
+
 /** Writes check this right before their transaction, so none outlives its session. */
 export function isCurrentPartition(partition: string): boolean {
   return current?.partition === partition;

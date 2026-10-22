@@ -69,3 +69,25 @@ describe("signing out", () => {
     expect(useMessageStore.getState().messagesByChannel["c1"].map((m) => m.id)).toEqual(["m2"]);
   });
 });
+
+describe("requests in flight at sign-out", () => {
+  it("should not let a request the signed-out account started write into the next one's stores", async () => {
+    renderHook(() => useResetOnSignOut());
+    // A real fetch rejects when its signal aborts; this one does too, and otherwise answers late.
+    let answer!: () => void;
+    vi.stubGlobal("fetch", vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+      answer = () => resolve(new Response(JSON.stringify({ success: true, data: [{ id: "alice-server" }] }), { status: 200 }));
+    })));
+    localStorage.setItem("access_token", "a");
+
+    const fetching = useServerStore.getState().fetchServers();
+    useAuthStore.setState({ user: null }); // signed out while it was in flight
+    answer();
+    await fetching;
+
+    expect(useServerStore.getState().servers).toEqual([]);
+    vi.unstubAllGlobals();
+  });
+});
+
