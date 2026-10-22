@@ -28,6 +28,9 @@ type DMService interface {
 	// conversation read on one of them stops showing unread — and stops showing a
 	// notification — on the rest. Returns the unread count left after the write.
 	MarkRead(ctx context.Context, userID, channelID, messageID string) (int, error)
+	// MarkDelivered records that the user's app has received the conversation up to messageID
+	// and, when that moved anything, tells the other participant — the double tick.
+	MarkDelivered(ctx context.Context, userID, channelID, messageID string) error
 
 	GetMessages(ctx context.Context, userID, channelID string, beforeID string, limit int) (*models.DMMessagePage, error)
 	// SendMessage stores a DM. With a client nonce already used by this author in this conversation

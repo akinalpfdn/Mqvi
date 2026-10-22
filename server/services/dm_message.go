@@ -27,7 +27,8 @@ func (s *dmService) GetMessages(ctx context.Context, userID, channelID string, b
 		limit = 50
 	}
 
-	if _, err := s.verifyChannelMembership(ctx, userID, channelID); err != nil {
+	channel, err := s.verifyChannelMembership(ctx, userID, channelID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -54,10 +55,43 @@ func (s *dmService) GetMessages(ctx context.Context, userID, channelID string, b
 		messages = []models.DMMessage{}
 	}
 
+	if err := s.markOwnDelivered(ctx, channel, userID, messages); err != nil {
+		return nil, err
+	}
+
 	return &models.DMMessagePage{
 		Messages: messages,
 		HasMore:  hasMore,
 	}, nil
+}
+
+// markOwnDelivered sets Delivered on the requester's own messages: whether the other participant
+// has received each one, so a reload shows the same ticks the live events built.
+func (s *dmService) markOwnDelivered(ctx context.Context, channel *models.DMChannel, userID string, messages []models.DMMessage) error {
+	peerID := channel.User1ID
+	if peerID == userID {
+		peerID = channel.User2ID
+	}
+	var own []string
+	for _, m := range messages {
+		if m.UserID == userID {
+			own = append(own, m.ID)
+		}
+	}
+	if len(own) == 0 || peerID == userID {
+		return nil
+	}
+	delivered, err := s.dmRepo.DeliveredMessageIDs(ctx, peerID, channel.ID, own)
+	if err != nil {
+		return err
+	}
+	for i := range messages {
+		if messages[i].UserID == userID {
+			d := delivered[messages[i].ID]
+			messages[i].Delivered = &d
+		}
+	}
+	return nil
 }
 
 // enforceDMEncryptionPolicy makes the message's encryption match the conversation's setting, in both

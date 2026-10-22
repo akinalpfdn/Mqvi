@@ -225,6 +225,90 @@ func (r *sqliteDMRepo) HasRead(ctx context.Context, userID, channelID, messageID
 	return read, nil
 }
 
+// MarkDelivered moves the user's delivery watermark up to the given message. Same statement shape
+// as MarkRead, for the same reasons: one statement so two devices cannot interleave, the upsert's
+// WHERE keeps it monotonic, and the SELECT drops a message that is not in this channel.
+func (r *sqliteDMRepo) MarkDelivered(ctx context.Context, userID, channelID, messageID string) (bool, error) {
+	res, err := r.db.ExecContext(ctx, `
+		INSERT INTO dm_deliveries (user_id, dm_channel_id, last_delivered_message_id, last_delivered_at, last_delivered_seq)
+		SELECT ?, ?, m.id, m.created_at, m.rowid
+		FROM dm_messages m
+		WHERE m.id = ? AND m.dm_channel_id = ?
+		ON CONFLICT(user_id, dm_channel_id) DO UPDATE SET
+			last_delivered_message_id = excluded.last_delivered_message_id,
+			last_delivered_at = excluded.last_delivered_at,
+			last_delivered_seq = excluded.last_delivered_seq
+		WHERE (excluded.last_delivered_at, excluded.last_delivered_seq)
+		    > (dm_deliveries.last_delivered_at, dm_deliveries.last_delivered_seq)`,
+		userID, channelID, messageID, channelID)
+	if err != nil {
+		return false, fmt.Errorf("failed to mark DM delivered: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to mark DM delivered: %w", err)
+	}
+	return n > 0, nil
+}
+
+// DeliveryMark returns the user's delivery watermark.
+func (r *sqliteDMRepo) DeliveryMark(ctx context.Context, userID, channelID string) (*models.DMDeliveryMark, error) {
+	var messageID sql.NullString
+	var at time.Time
+	err := r.db.QueryRowContext(ctx, `
+		SELECT last_delivered_message_id, last_delivered_at
+		FROM dm_deliveries WHERE user_id = ? AND dm_channel_id = ?`, userID, channelID).Scan(&messageID, &at)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read DM delivery mark: %w", err)
+	}
+	return &models.DMDeliveryMark{MessageID: messageID.String, CreatedAt: at}, nil
+}
+
+// DeliveredMessageIDs returns which of messageIDs sit at or before the user's delivery watermark.
+// Compared on (created_at, rowid) in SQL, where same-second messages are still ordered.
+func (r *sqliteDMRepo) DeliveredMessageIDs(ctx context.Context, userID, channelID string, messageIDs []string) (map[string]bool, error) {
+	delivered := make(map[string]bool)
+	if len(messageIDs) == 0 {
+		return delivered, nil
+	}
+
+	placeholders := strings.Repeat("?,", len(messageIDs))
+	placeholders = placeholders[:len(placeholders)-1]
+
+	query := fmt.Sprintf(`
+		SELECT m.id FROM dm_messages m
+		WHERE m.dm_channel_id = ? AND m.id IN (%s)
+		  AND (m.created_at, m.rowid) <= (SELECT last_delivered_at, last_delivered_seq FROM dm_deliveries
+		                                   WHERE user_id = ? AND dm_channel_id = ?)`, placeholders)
+
+	args := make([]any, 0, len(messageIDs)+3)
+	args = append(args, channelID)
+	for _, id := range messageIDs {
+		args = append(args, id)
+	}
+	args = append(args, userID, channelID)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read DM delivery state: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan DM delivery state: %w", err)
+		}
+		delivered[id] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read DM delivery state: %w", err)
+	}
+	return delivered, nil
+}
+
 // ListChannels returns a user's DM channels with the other user's info.
 // Joins user_dm_settings to filter hidden channels and include pin/mute state.
 // Sorted: pinned first (by activity), then unpinned by activity.

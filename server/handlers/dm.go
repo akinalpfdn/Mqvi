@@ -457,6 +457,35 @@ func (h *DMHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 	pkg.JSON(w, http.StatusOK, map[string]int{"unread_count": unread})
 }
 
+// MarkDelivered handles POST /api/dms/channels/{channelId}/delivered — the recipient's app saying
+// how far it has received the conversation. Rate limited with mark-read: as cheap per call, and the
+// client reports it for every message that arrives.
+func (h *DMHandler) MarkDelivered(w http.ResponseWriter, r *http.Request) {
+	channelID := r.PathValue("channelId")
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+	if rateLimited(w, h.readLimiter, user.ID) {
+		return
+	}
+
+	var req struct {
+		MessageID string `json:"message_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.MessageID == "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "message_id is required")
+		return
+	}
+
+	if err := h.dmService.MarkDelivered(r.Context(), user.ID, channelID, req.MessageID); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // ─── Search Endpoint ───
 
 // SearchMessages handles GET /api/dms/{channelId}/search?q=&limit=&offset=

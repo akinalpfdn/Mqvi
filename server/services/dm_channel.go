@@ -188,3 +188,48 @@ func (s *dmService) MarkRead(ctx context.Context, userID, channelID, messageID s
 
 	return unread, nil
 }
+
+// MarkDelivered records how far the user's app has received the conversation. A no-op report (an
+// older message, a repeat from a second device) tells nobody anything.
+func (s *dmService) MarkDelivered(ctx context.Context, userID, channelID, messageID string) error {
+	channel, err := s.verifyChannelMembership(ctx, userID, channelID)
+	if err != nil {
+		return err
+	}
+	moved, err := s.dmRepo.MarkDelivered(ctx, userID, channelID, messageID)
+	if err != nil {
+		return err
+	}
+	if !moved {
+		return nil
+	}
+	return s.notifyDelivery(ctx, channel, userID)
+}
+
+// notifyDelivery sends the other participant how far receiverID has received the conversation —
+// read back, so two reports racing each other cannot leave the sender on the older one.
+func (s *dmService) notifyDelivery(ctx context.Context, channel *models.DMChannel, receiverID string) error {
+	senderID := channel.User1ID
+	if senderID == receiverID {
+		senderID = channel.User2ID
+	}
+	if senderID == receiverID {
+		return nil // a conversation with oneself has nobody waiting on a tick
+	}
+	mark, err := s.dmRepo.DeliveryMark(ctx, receiverID, channel.ID)
+	if err != nil {
+		return err
+	}
+	if mark == nil {
+		return nil
+	}
+	s.hub.BroadcastToUser(senderID, ws.Event{
+		Op: ws.OpDMDelivered,
+		Data: map[string]any{
+			"dm_channel_id": channel.ID,
+			"message_id":    mark.MessageID,
+			"created_at":    mark.CreatedAt,
+		},
+	})
+	return nil
+}
