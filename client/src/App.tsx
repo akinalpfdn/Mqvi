@@ -22,6 +22,7 @@ import ToastContainer from "./components/shared/ToastContainer";
 import { useUpdateChecker } from "./hooks/useUpdateChecker";
 import { useDeepLinks } from "./hooks/useDeepLinks";
 import { useFileTokenFreshness } from "./hooks/useFileTokenFreshness";
+import { useResetOnSignOut } from "./hooks/useResetOnSignOut";
 import { isElectron, isNativeApp, publicAsset } from "./utils/constants";
 import { restoreFromCache } from "./cache/cacheBoot";
 
@@ -50,6 +51,8 @@ function App() {
   }, [initialize]);
 
   useFileTokenFreshness(user !== null);
+  // Logout, forced logout and an abandoned session all end at user → null.
+  useResetOnSignOut();
 
   // Apply blur + transparent classes at root level so they also affect
   // pre-auth pages (login, register, landing).

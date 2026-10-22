@@ -27,6 +27,11 @@ type ServerMutation = { server: Server | null; error?: string };
 /** Persist last active server across page reloads */
 const LAST_SERVER_KEY = "mqvi_last_server";
 
+/** For sign-out: the next account must not open on this one's last server. */
+export function forgetLastServer(): void {
+  localStorage.removeItem(LAST_SERVER_KEY);
+}
+
 /** Result of a join attempt: joined outright, queued for approval, or failed. */
 export type JoinOutcome =
   | { status: "joined"; server: Server }

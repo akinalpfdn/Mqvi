@@ -312,8 +312,9 @@ function AppLayout() {
   // Shared overlays rendered in both mobile and desktop layouts
   const overlays = (
     <>
-      {/* Connection status banner */}
-      <ConnectionBanner status={connectionStatus} reconnectAttempt={reconnectAttempt} />
+      {/* Connection status banner — desktop only. On a phone the connection drops constantly and
+          comes back by itself; a failed send already says so on its own bubble. */}
+      {!isMobile && <ConnectionBanner status={connectionStatus} reconnectAttempt={reconnectAttempt} />}
 
       {/* Settings modal */}
       <SettingsModal />

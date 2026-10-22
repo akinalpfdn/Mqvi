@@ -175,26 +175,25 @@ describe("unsent messages", () => {
     status: "sending" as const, failure: null,
   });
   const file = new File(["x"], "a.png", { type: "image/png" });
-  // The writes chain behind each other and the stand-in yields a timer turn per put.
-  const writes = () => new Promise((r) => setTimeout(r, 10));
 
   it("should keep a queued message with its files until it is confirmed", async () => {
     useOutboxStore.getState().add(pending("n1", [file]));
-    await writes();
-    expect(store.outbox.get("https://chat.example|alice|n1")).toMatchObject({ files: [file], filesLost: false });
+    await vi.waitFor(() =>
+      expect(store.outbox.get("https://chat.example|alice|n1")).toMatchObject({ files: [file], filesLost: false })
+    );
 
     useOutboxStore.getState().remove("n1");
-    await writes();
-    expect(store.outbox.size).toBe(0);
+    await vi.waitFor(() => expect(store.outbox.size).toBe(0));
   });
 
   it("should keep the text and say the files are gone when they cannot be stored", async () => {
     store.backend.failFiles = true;
 
     useOutboxStore.getState().add(pending("n1", [file]));
-    await writes();
 
-    expect(store.outbox.get("https://chat.example|alice|n1")).toMatchObject({ content: "hi", files: [], filesLost: true });
+    await vi.waitFor(() =>
+      expect(store.outbox.get("https://chat.example|alice|n1")).toMatchObject({ content: "hi", files: [], filesLost: true })
+    );
   });
 
   it("should not leave a message confirmed before its own write finished", async () => {
@@ -209,7 +208,7 @@ describe("unsent messages", () => {
 
   it("should drop unsent messages with everything else at sign-out", async () => {
     useOutboxStore.getState().add(pending("n1"));
-    await writes();
+    await vi.waitFor(() => expect(store.outbox.size).toBe(1));
 
     await wipeConversationCache(store.backend);
 
