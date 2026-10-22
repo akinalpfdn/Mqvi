@@ -29,6 +29,7 @@ import { useSettingsBadgeStore } from "../settingsBadgeStore";
 import { useSpotlightStore } from "../spotlightStore";
 import { useFileViewerStore } from "../fileViewerStore";
 import { useMobileStore } from "../mobileStore";
+import { resetDMDeliveryReports } from "./dmDeliveryReports";
 
 type Resettable = { getInitialState: () => object; setState: (state: never, replace: true) => void };
 
@@ -50,6 +51,8 @@ export function resetUserState(): void {
   ] as Resettable[]) {
     toInitial(store);
   }
+
+  resetDMDeliveryReports();
 
   // The initial state read the last server from storage at startup: this account's, by now.
   forgetLastServer();

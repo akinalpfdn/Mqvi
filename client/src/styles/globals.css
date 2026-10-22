@@ -800,6 +800,7 @@ button.ch-tree-vu-stream svg { width:21px;height:21px; }
 /* Own message delivery: clock until the server stored it, then a tick. Sized with the text. */
 .msg-delivery { display:inline-flex;vertical-align:-0.15em;width:1em;height:1em;margin-left:6px;font-size:13px;color:var(--t3); }
 .msg-delivery svg { width:100%;height:100%; }
+.msg-delivery.delivered { width:1.25em; }
 .msg-pending-failed { display:flex;align-items:center;flex-wrap:wrap;gap:4px 12px;margin-top:4px;font-size:13px; }
 .msg-pending-failed-text { color:var(--red); }
 .msg-pending-action { font-size:13px;font-weight:500;padding:2px 0;border:none;background:transparent;color:var(--primary);cursor:pointer; }

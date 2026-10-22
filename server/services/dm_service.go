@@ -31,6 +31,10 @@ type DMService interface {
 	// MarkDelivered records that the user's app has received the conversation up to messageID
 	// and, when that moved anything, tells the other participant — the double tick.
 	MarkDelivered(ctx context.Context, userID, channelID, messageID string) error
+	// MarkDeliveredLatest does it for whole conversations at once: an app that just connected has
+	// learned of new messages in them without downloading them. Conversations the user is not in
+	// are skipped, not reported.
+	MarkDeliveredLatest(ctx context.Context, userID string, channelIDs []string) error
 
 	GetMessages(ctx context.Context, userID, channelID string, beforeID string, limit int) (*models.DMMessagePage, error)
 	// SendMessage stores a DM. With a client nonce already used by this author in this conversation

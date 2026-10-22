@@ -206,6 +206,35 @@ func (s *dmService) MarkDelivered(ctx context.Context, userID, channelID, messag
 	return s.notifyDelivery(ctx, channel, userID)
 }
 
+// MaxDeliveryBatch bounds one catch-up report; a user with more conversations needing it sends
+// the rest on the next connect.
+const MaxDeliveryBatch = 100
+
+func (s *dmService) MarkDeliveredLatest(ctx context.Context, userID string, channelIDs []string) error {
+	if len(channelIDs) > MaxDeliveryBatch {
+		channelIDs = channelIDs[:MaxDeliveryBatch]
+	}
+	for _, channelID := range channelIDs {
+		channel, err := s.verifyChannelMembership(ctx, userID, channelID)
+		if errors.Is(err, pkg.ErrForbidden) || errors.Is(err, pkg.ErrNotFound) {
+			continue // gone or never theirs: nothing to report, and nothing to tell them about it
+		}
+		if err != nil {
+			return err
+		}
+		moved, err := s.dmRepo.MarkDeliveredLatest(ctx, userID, channelID)
+		if err != nil {
+			return err
+		}
+		if moved {
+			if err := s.notifyDelivery(ctx, channel, userID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // notifyDelivery sends the other participant how far receiverID has received the conversation —
 // read back, so two reports racing each other cannot leave the sender on the older one.
 func (s *dmService) notifyDelivery(ctx context.Context, channel *models.DMChannel, receiverID string) error {

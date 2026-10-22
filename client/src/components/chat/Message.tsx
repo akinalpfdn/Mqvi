@@ -135,7 +135,7 @@ function Message({ message, isCompact, pending }: MessageProps) {
   const userBadges = useUserBadges(message.user_id);
 
   const isPinned = isMessagePinned(message.id);
-  const delivery = deliveryState(isOwner, mode, pending);
+  const delivery = deliveryState(isOwner, mode, pending, message.delivered);
 
   // Check if current user is mentioned (user mention or role mention)
   const currentMember = members.find((m) => m.id === currentUser?.id);

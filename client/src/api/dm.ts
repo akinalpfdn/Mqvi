@@ -272,3 +272,19 @@ export function searchDMMessages(channelId: string, query: string, limit = 25, o
   if (offset > 0) params.set("offset", String(offset));
   return apiClient<DMSearchResult>(`/dms/${channelId}/search?${params}`);
 }
+
+/** The recipient's app received this conversation up to messageId — the sender's double tick. */
+export function markDMDelivered(channelId: string, messageId: string) {
+  return apiClient<void>(`/dms/channels/${channelId}/delivered`, {
+    method: "POST",
+    body: { message_id: messageId },
+  });
+}
+
+/** After connecting: these conversations have news the app knows of but has not downloaded. */
+export function markDMsDeliveredLatest(channelIds: string[]) {
+  return apiClient<void>(`/dms/delivered`, {
+    method: "POST",
+    body: { dm_channel_ids: channelIds },
+  });
+}

@@ -10,9 +10,10 @@ import { isAppInForeground } from "../../stores/appFocusStore";
 import { useE2EEStore } from "../../stores/e2eeStore";
 import { decryptDMMessage, popEditPlaintext, isCacheable } from "../../crypto/dmEncryption";
 import { sentPayload } from "../../stores/outboxStore";
+import { reportDMDelivered } from "../../stores/shared/dmDeliveryReports";
 import * as keyStorage from "../../crypto/keyStorage";
 import { playNotificationSound } from "../../utils/sounds";
-import type { WSMessage, DMChannelWithUser, DMMessage, ReactionGroup } from "../../types";
+import type { WSMessage, DMChannelWithUser, DMMessage, ReactionGroup, DMDeliveryMark } from "../../types";
 
 export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
   switch (msg.op) {
@@ -94,6 +95,9 @@ export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
       useDMStore.getState().handleDMMessageCreate(dmMsg);
 
       if (dmMsg.user_id === dmCurrentUserId) return true;
+
+      // It reached this app: the sender's double tick. Whether the conversation is open or not.
+      reportDMDelivered(dmMsg.dm_channel_id, dmMsg.id);
 
       const dmState = useDMStore.getState();
       // The same test DMChat uses to decide the message is READ. Selection alone is not enough:
@@ -225,6 +229,10 @@ export async function handleDMEvent(msg: WSMessage): Promise<boolean> {
       return true;
 
     // Read on another of our own devices — clear the badge and pull back the notification.
+    case "dm_delivered":
+      useDMStore.getState().handleDMDelivered(msg.d as DMDeliveryMark);
+      return true;
+
     case "dm_read":
       useDMStore.getState().handleDMRead(msg.d as { dm_channel_id: string; unread_count: number });
       return true;

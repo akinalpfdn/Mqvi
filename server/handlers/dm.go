@@ -486,6 +486,33 @@ func (h *DMHandler) MarkDelivered(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// MarkDeliveredLatest handles POST /api/dms/delivered — after connecting, the app reports every
+// conversation it learned has new messages, in one request rather than one each.
+func (h *DMHandler) MarkDeliveredLatest(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+	if rateLimited(w, h.readLimiter, user.ID) {
+		return
+	}
+
+	var req struct {
+		DMChannelIDs []string `json:"dm_channel_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.DMChannelIDs) == 0 {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "dm_channel_ids is required")
+		return
+	}
+
+	if err := h.dmService.MarkDeliveredLatest(r.Context(), user.ID, req.DMChannelIDs); err != nil {
+		pkg.Error(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // ─── Search Endpoint ───
 
 // SearchMessages handles GET /api/dms/{channelId}/search?q=&limit=&offset=

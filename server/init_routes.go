@@ -171,6 +171,7 @@ func initRoutes(
 	mux.Handle("PATCH /api/dms/channels/{channelId}/e2ee", auth(h.DM.ToggleE2EE))
 	mux.Handle("POST /api/dms/channels/{channelId}/read", auth(h.DM.MarkRead))
 	mux.Handle("POST /api/dms/channels/{channelId}/delivered", auth(h.DM.MarkDelivered))
+	mux.Handle("POST /api/dms/delivered", auth(h.DM.MarkDeliveredLatest))
 
 	// Block — literal "blocked" before parametric {userId}
 	mux.Handle("GET /api/users/blocked", auth(h.Block.ListBlocked))

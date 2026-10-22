@@ -27,11 +27,19 @@ type deliveryDMRepo struct {
 	deliveredAsked string // whose watermark DeliveredMessageIDs was asked about
 }
 
-func (r *deliveryDMRepo) GetChannelByID(context.Context, string) (*models.DMChannel, error) {
+func (r *deliveryDMRepo) GetChannelByID(_ context.Context, id string) (*models.DMChannel, error) {
+	if id != r.channel.ID {
+		return nil, pkg.ErrNotFound
+	}
 	return r.channel, nil
 }
 
 func (r *deliveryDMRepo) MarkDelivered(context.Context, string, string, string) (bool, error) {
+	r.markCalls++
+	return r.moved, nil
+}
+
+func (r *deliveryDMRepo) MarkDeliveredLatest(context.Context, string, string) (bool, error) {
 	r.markCalls++
 	return r.moved, nil
 }
@@ -145,5 +153,26 @@ func TestGetMessages_MarksOnlyOwnMessagesDelivered(t *testing.T) {
 	}
 	if byID["m2"] != nil {
 		t.Error("the other participant's message carries a delivery flag")
+	}
+}
+
+// One request covers every conversation the app learned has news; one it is not in — or that is
+// gone — is skipped rather than failing the rest.
+func TestMarkDeliveredLatest_SkipsConversationsTheUserIsNotIn(t *testing.T) {
+	svc, repo, hub := deliveryService(true)
+
+	if err := svc.MarkDeliveredLatest(context.Background(), "bob", []string{"gone", "c1"}); err != nil {
+		t.Fatalf("MarkDeliveredLatest: %v", err)
+	}
+	if repo.markCalls != 1 || len(hub.eventsFor("alice", ws.OpDMDelivered)) != 1 {
+		t.Fatalf("%d marks, %d events to the sender; want one each", repo.markCalls, len(hub.eventsFor("alice", ws.OpDMDelivered)))
+	}
+
+	repo.markCalls = 0
+	if err := svc.MarkDeliveredLatest(context.Background(), "mallory", []string{"c1"}); err != nil {
+		t.Fatalf("a stranger's report: %v", err)
+	}
+	if repo.markCalls != 0 {
+		t.Fatal("a stranger's report was stored")
 	}
 }

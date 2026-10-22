@@ -20,6 +20,7 @@ import {
 import { encodePayload } from "../crypto/e2eePayload";
 import { mergeLatestPage, resyncLimit, withFlag } from "../utils/messageSync";
 import { randomId } from "../utils/randomId";
+import { reportDMDelivered, reportDMsDeliveredLatest } from "./shared/dmDeliveryReports";
 import {
   useOutboxStore,
   startDelivery,
@@ -253,6 +254,17 @@ function deliverDM(nonce: string): Promise<void> {
   return startDelivery(nonce, dmAttempt(nonce), () => useOutboxStore.getState().remove(nonce));
 }
 
+/** A page reached this app: report its newest message from the other participant. */
+function reportNewestReceived(channelId: string, page: DMMessage[]): void {
+  const me = useAuthStore.getState().user?.id;
+  for (let i = page.length - 1; i >= 0; i--) {
+    if (page[i].user_id !== me) {
+      reportDMDelivered(channelId, page[i].id);
+      return;
+    }
+  }
+}
+
 function referenceFor(messages: DMMessage[] | undefined, replyToId: string | undefined): MessageReference | null {
   if (!replyToId) return null;
   const target = messages?.find((m) => m.id === replyToId);
@@ -299,6 +311,9 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
 
     set({ channels: res.data, isLoading: false });
     get().applyServerUnread(serverKnows ? counts : null, gen);
+    // The list is how a freshly connected app learns of messages it has not downloaded: they
+    // reached it, so their senders get the double tick now rather than when each is opened.
+    void reportDMsDeliveredLatest(Object.keys(counts));
   },
 
   selectDM: (channelId) => {
@@ -351,6 +366,7 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
           [channelId]: data.has_more,
         },
       }));
+      reportNewestReceived(channelId, messages);
     } finally {
       set((state) => ({ loadingByChannel: withFlag(state.loadingByChannel, channelId, false) }));
     }
@@ -380,6 +396,8 @@ export const useDMStore = create<DMStore>((set, get, store) => ({
     // messageStore.resyncChannel.
     if (generation !== cacheGeneration) return;
     staleChannels.delete(channelId);
+
+    reportNewestReceived(channelId, page);
 
     set((state) => {
       const held = state.messagesByChannel[channelId] ?? [];

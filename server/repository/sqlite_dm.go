@@ -251,6 +251,33 @@ func (r *sqliteDMRepo) MarkDelivered(ctx context.Context, userID, channelID, mes
 	return n > 0, nil
 }
 
+// MarkDeliveredLatest points the delivery watermark at the newest message in the conversation, with
+// MarkDelivered's monotonic guard.
+func (r *sqliteDMRepo) MarkDeliveredLatest(ctx context.Context, userID, channelID string) (bool, error) {
+	res, err := r.db.ExecContext(ctx, `
+		INSERT INTO dm_deliveries (user_id, dm_channel_id, last_delivered_message_id, last_delivered_at, last_delivered_seq)
+		SELECT ?, ?, m.id, m.created_at, m.rowid
+		FROM dm_messages m
+		WHERE m.dm_channel_id = ?
+		ORDER BY m.created_at DESC, m.rowid DESC
+		LIMIT 1
+		ON CONFLICT(user_id, dm_channel_id) DO UPDATE SET
+			last_delivered_message_id = excluded.last_delivered_message_id,
+			last_delivered_at = excluded.last_delivered_at,
+			last_delivered_seq = excluded.last_delivered_seq
+		WHERE (excluded.last_delivered_at, excluded.last_delivered_seq)
+		    > (dm_deliveries.last_delivered_at, dm_deliveries.last_delivered_seq)`,
+		userID, channelID, channelID)
+	if err != nil {
+		return false, fmt.Errorf("failed to mark DM delivered: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to mark DM delivered: %w", err)
+	}
+	return n > 0, nil
+}
+
 // DeliveryMark returns the user's delivery watermark.
 func (r *sqliteDMRepo) DeliveryMark(ctx context.Context, userID, channelID string) (*models.DMDeliveryMark, error) {
 	var messageID sql.NullString

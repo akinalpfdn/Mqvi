@@ -110,3 +110,25 @@ func TestDMDelivery_ConcurrentReportsKeepTheLatest(t *testing.T) {
 		t.Fatalf("DeliveryMark = %+v, %v; want the newest message", mark, err)
 	}
 }
+
+// After connecting, the app reports conversations it has not downloaded: the newest message.
+func TestDMDelivery_LatestMovesToTheNewestMessage(t *testing.T) {
+	ctx := context.Background()
+	f := dbtest.New(t)
+	repo := NewSQLiteDMRepo(f.DB)
+	alice, bob := f.User(""), f.User("")
+	ch := f.DMChannel("", alice, bob)
+	f.DMMessage(dbtest.DMMessageSeed{DMChannelID: ch, UserID: alice, Content: dbtest.Ptr("1")})
+	newest := f.DMMessage(dbtest.DMMessageSeed{DMChannelID: ch, UserID: alice, Content: dbtest.Ptr("2")})
+
+	if moved, err := repo.MarkDeliveredLatest(ctx, bob, ch); err != nil || !moved {
+		t.Fatalf("first: moved=%v err=%v", moved, err)
+	}
+	if moved, err := repo.MarkDeliveredLatest(ctx, bob, ch); err != nil || moved {
+		t.Fatalf("repeat: moved=%v err=%v, want no move", moved, err)
+	}
+	mark, err := repo.DeliveryMark(ctx, bob, ch)
+	if err != nil || mark == nil || mark.MessageID != newest {
+		t.Fatalf("DeliveryMark = %+v, %v; want the newest", mark, err)
+	}
+}

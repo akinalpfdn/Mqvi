@@ -47,6 +47,9 @@ type DMRepository interface {
 	// MarkDelivered advances how far the user's app has received the conversation, with the same
 	// monotonic, "did it move" contract as MarkRead.
 	MarkDelivered(ctx context.Context, userID, channelID, messageID string) (moved bool, err error)
+	// MarkDeliveredLatest moves it to the newest message in the conversation — for an app that has
+	// just connected and learned of new messages it has not downloaded yet.
+	MarkDeliveredLatest(ctx context.Context, userID, channelID string) (moved bool, err error)
 	// DeliveryMark is how far the user's app has received the conversation; nil before any report.
 	// Reads deliberately play no part: a tick that followed reading would tell the sender when
 	// their message was read, which the double tick must not.
