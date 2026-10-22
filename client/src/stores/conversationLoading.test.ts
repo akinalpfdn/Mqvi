@@ -153,3 +153,23 @@ describe("resync window", () => {
     expect(useMessageStore.getState().messagesByChannel["c1"].some((m) => m.id === "m10")).toBe(false);
   });
 });
+
+describe("row keys survive replacement", () => {
+  it("should keep an own message's client nonce when a resync page replaces it", async () => {
+    const { mergeLatestPage } = await import("../utils/messageSync");
+    const held = [{ ...chMsg("m1", 1), client_nonce: "n1" }];
+
+    const { messages } = mergeLatestPage(held, [chMsg("m1", 1)]);
+
+    expect(messages[0].client_nonce).toBe("n1");
+  });
+
+  it("should keep it through an edit", () => {
+    useMessageStore.setState({ messagesByChannel: { c1: [{ ...chMsg("m1", 1), client_nonce: "n1" }] } });
+
+    useMessageStore.getState().handleMessageUpdate({ ...chMsg("m1", 1), content: "edited" } as Message);
+
+    expect(useMessageStore.getState().messagesByChannel["c1"][0]).toMatchObject({ content: "edited", client_nonce: "n1" });
+  });
+});
+

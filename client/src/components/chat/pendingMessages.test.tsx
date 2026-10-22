@@ -137,6 +137,46 @@ describe("MessageList auto-scroll", () => {
   });
 });
 
+describe("MessageList row identity", () => {
+  // Confirming a send must update its row in place. Deleted and re-inserted, the list was a row
+  // shorter for a moment, and Safari (no scroll anchoring) left the view clamped one row short.
+  it("should keep the same row element when a pending send is confirmed", () => {
+    useOutboxStore.getState().add(pendingEntry("n1", "hello"));
+    const { rerender, container } = render(
+      <ChatContext.Provider value={contextValue([])}>
+        <MessageList />
+      </ChatContext.Provider>
+    );
+    const before = container.querySelector("#msg-pending-n1");
+
+    const confirmed = { id: "m1", user_id: "me", content: "hello", created_at: "2026-10-22T10:00:00Z", author: me, client_nonce: "n1" } as ChatMessage;
+    useOutboxStore.getState().remove("n1");
+    rerender(
+      <ChatContext.Provider value={contextValue([confirmed])}>
+        <MessageList />
+      </ChatContext.Provider>
+    );
+
+    expect(before).not.toBeNull();
+    expect(container.querySelector("#msg-m1")).toBe(before);
+  });
+});
+
+describe("MessageList pending and stored copies", () => {
+  it("should draw a send once when its stored copy is already in the list", () => {
+    useOutboxStore.getState().add(pendingEntry("n1", "hello"));
+    const storedCopy = { id: "m1", user_id: "me", content: "hello", created_at: "2026-10-22T10:00:00Z", author: me, client_nonce: "n1" } as ChatMessage;
+
+    render(
+      <ChatContext.Provider value={contextValue([storedCopy])}>
+        <MessageList />
+      </ChatContext.Provider>
+    );
+
+    expect(screen.getAllByTestId("row").map((r) => r.textContent)).toEqual(["hello"]);
+  });
+});
+
 describe("PendingMessageStatus", () => {
   function renderStatus(entry: PendingMessage) {
     return render(

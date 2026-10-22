@@ -26,11 +26,18 @@ function canReopen(shell: CachedShell): (tab: Tab) => boolean {
   };
 }
 
-function restorePending(records: CachedPending[]): void {
+/**
+ * Unsent messages back into the outbox. One whose stored copy the cache already holds was sent:
+ * the app closed between the confirmation landing and its outbox record being deleted. It is not
+ * restored — it would sit next to its own stored copy under the same row key — and its record goes.
+ */
+async function restorePending(records: CachedPending[], storedNonces: Set<string>, backend: CacheBackend): Promise<void> {
   const outbox = useOutboxStore.getState();
   const ordered = [...records].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const sent = ordered.filter((r) => storedNonces.has(r.nonce));
+  await Promise.all(sent.map((r) => backend.deletePending(r.key)));
   for (const r of ordered) {
-    if (r.schema !== CACHE_SCHEMA || outbox.find(r.nonce)) continue;
+    if (r.schema !== CACHE_SCHEMA || outbox.find(r.nonce) || storedNonces.has(r.nonce)) continue;
     outbox.add({
       nonce: r.nonce,
       kind: r.kind,
@@ -89,7 +96,10 @@ export async function restoreFromCache(backend: CacheBackend = indexedDBBackend)
       if (c.kind === "channel") useMessageStore.getState().hydrateConversation(c.id, c.messages, c.hasMore);
       else useDMStore.getState().hydrateConversation(c.id, c.messages, c.hasMore);
     }
-    restorePending(pending);
+    const storedNonces = new Set(
+      conversations.flatMap((c) => (c.messages as { client_nonce?: string }[]).map((m) => m.client_nonce)).filter((n): n is string => !!n)
+    );
+    await restorePending(pending, storedNonces, backend);
     useUIStore.getState().restoreLayout(shell.ui, canReopen(shell));
 
     useAuthStore.getState().openFromCache(shell.user);

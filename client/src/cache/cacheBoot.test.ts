@@ -117,6 +117,17 @@ describe("cold start from the cache", () => {
     ]);
   });
 
+  it("should not bring back an unsent message whose stored copy the cache already holds", async () => {
+    await seed();
+    // The app closed between the confirmation landing and the outbox record being deleted.
+    await backend.putConversation({ ...conversation, messages: [...conversation.messages, { ...msg("m4", 4), client_nonce: "n1" }] }, yes);
+
+    await restoreFromCache();
+
+    expect(useOutboxStore.getState().find("n1")).toBeUndefined();
+    expect(await backend.listPending(partition)).toEqual([]);
+  });
+
   it("should start normally without a stored session", async () => {
     await seed();
     localStorage.removeItem("access_token");

@@ -47,6 +47,8 @@ export type ChatMessage = {
   encryption_version?: number;
   /** E2EE: File encryption keys (index-matched to attachments) */
   e2ee_file_keys?: EncryptedFileMeta[];
+  /** This device's own send: the nonce it went out under. Keys its row from pending to stored. */
+  client_nonce?: string;
   /** DM-only, own messages: the other participant's app has received it. */
   delivered?: boolean;
   /** DM-only: "text" (default) or "call" — a system call-log entry. */

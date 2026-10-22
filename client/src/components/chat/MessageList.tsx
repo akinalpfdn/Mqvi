@@ -27,9 +27,18 @@ const scrollPositions = new Map<string, number>();
 const NO_PENDING: PendingMessage[] = [];
 
 /** A pending send drawn as the message it will become, authored by the current user. */
+/**
+ * One key for a send from pending to stored. Keyed by id, confirming a send deleted its pending row
+ * and inserted the stored one: for a moment the list was a row shorter, Safari (no scroll
+ * anchoring) clamped the scroll position to that and kept it, so the newest message ended one row
+ * below the visible area and the list stopped following. Same key: React updates the row in place.
+ */
+const rowKey = (msg: ChatMessage) => (msg.client_nonce ? `send-${msg.client_nonce}` : msg.id);
+
 function pendingAsMessage(pending: PendingMessage, author: ChatMessage["author"]): ChatMessage {
   return {
     id: `pending-${pending.nonce}`,
+    client_nonce: pending.nonce,
     user_id: author.id,
     content: pending.content,
     edited_at: null,
@@ -63,7 +72,14 @@ function MessageList() {
 
   const currentUser = useAuthStore((s) => s.user);
   const members = useActiveMembers();
-  const pending = useOutboxStore((s) => s.pendingByConversation[channelId]) ?? NO_PENDING;
+  const queued = useOutboxStore((s) => s.pendingByConversation[channelId]) ?? NO_PENDING;
+  // A pending send whose stored copy is already here is drawn once, as the stored message: both
+  // would share one row key (rowKey), and React would mix the two rows up.
+  const pending = useMemo(() => {
+    if (queued.length === 0) return queued;
+    const stored = new Set(messages.map((m) => m.client_nonce).filter(Boolean));
+    return stored.size === 0 ? queued : queued.filter((p) => !stored.has(p.nonce));
+  }, [queued, messages]);
 
   // Unconfirmed sends go under every stored message: the server decides where they land once it
   // has them, and until then they are the newest thing in the conversation.
@@ -343,7 +359,7 @@ function MessageList() {
       }
       flushRun();
       nodes.push(
-        <div key={msg.id} id={`msg-${msg.id}`}>
+        <div key={rowKey(msg)} id={`msg-${msg.id}`}>
           {msg.message_type === "call" && msg.call_meta ? (
             <CallLogRow meta={msg.call_meta} createdAt={msg.created_at} />
           ) : (

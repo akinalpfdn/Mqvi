@@ -7,6 +7,7 @@ import i18n from "../../i18n";
 import { UPLOAD_ABORTED } from "../../api/client";
 import { encryptFile, encryptThumbnail } from "../../crypto/fileEncryption";
 import { encodePayload } from "../../crypto/e2eePayload";
+import { keepClientNonce } from "../../utils/messageSync";
 import { useToastStore } from "../toastStore";
 import { classifyFailure, type SendOutcome } from "../outboxStore";
 import type { EncryptedFileMeta } from "../../crypto/fileEncryption";
@@ -250,7 +251,7 @@ export function createTypingHandler(
  * Used by both handleMessageUpdate and handleDMMessageUpdate.
  */
 export function updateMessageInRecord<
-  T extends { id: string }
+  T extends { id: string; client_nonce?: string }
 >(
   messagesByChannel: Record<string, T[]>,
   channelId: string,
@@ -262,7 +263,7 @@ export function updateMessageInRecord<
   return {
     ...messagesByChannel,
     [channelId]: messages.map((m) =>
-      m.id === updatedMessage.id ? updatedMessage : m
+      m.id === updatedMessage.id ? keepClientNonce(m, updatedMessage) : m
     ),
   };
 }

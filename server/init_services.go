@@ -314,7 +314,9 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 
 	// Rate limiters
 	loginLimiter := ratelimit.NewLoginRateLimiter(5, 2*time.Minute)
-	messageLimiter := ratelimit.NewMessageRateLimiter(5, 5*time.Second, 15*time.Second)
+	// 15 messages per 7 s, then a 15 s cooldown. 5 per 5 s was easy to trip in an ordinary quick
+	// back-and-forth (user decision, 2026-10-22); a flood still stops at about two a second.
+	messageLimiter := ratelimit.NewMessageRateLimiter(15, 7*time.Second, 15*time.Second)
 	registerLimiter := ratelimit.NewLoginRateLimiter(3, 10*time.Minute)                    // 3 registrations per 10 min per IP
 	forgotPwdLimiter := ratelimit.NewLoginRateLimiter(3, 5*time.Minute)                    // 3 forgot-password per 5 min per IP
 	resetPwdLimiter := ratelimit.NewLoginRateLimiter(5, 5*time.Minute)                     // 5 reset attempts per 5 min per IP
