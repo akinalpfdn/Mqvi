@@ -107,6 +107,10 @@ type RateLimiters struct {
 	// DM being read on the desktop.
 	DMRead      *ratelimit.MessageRateLimiter
 	ChannelRead *ratelimit.MessageRateLimiter
+	// DMDelivery is the double tick's own bucket. Every connected device reports what it received,
+	// so in a busy conversation it fires as often as mark-read; sharing that bucket let delivery
+	// reports spend the tokens mark-read needs and hold read state back for the cooldown.
+	DMDelivery *ratelimit.MessageRateLimiter
 	// SessionRevoke caps devices-screen sign-outs per user.
 	SessionRevoke *ratelimit.LoginRateLimiter
 	// CredentialStore caps "remember me" failure reports per user.
@@ -336,6 +340,8 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	// not. Separate buckets so neither path can spend the other's tokens.
 	dmReadLimiter := ratelimit.NewMessageRateLimiter(30, 10*time.Second, 10*time.Second)
 	channelReadLimiter := ratelimit.NewMessageRateLimiter(30, 10*time.Second, 10*time.Second)
+	// Clients coalesce delivery to ~1/s per conversation, and each of a user's devices reports.
+	dmDeliveryLimiter := ratelimit.NewMessageRateLimiter(60, 10*time.Second, 10*time.Second)
 
 	svcs := &Services{
 		Auth:               authService,
@@ -409,6 +415,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		NoiseReduction:  noiseReductionLimiter,
 		DMRead:          dmReadLimiter,
 		ChannelRead:     channelReadLimiter,
+		DMDelivery:      dmDeliveryLimiter,
 		SessionRevoke:   ratelimit.NewLoginRateLimiter(10, time.Minute),
 		// A real failure reports once per login attempt; a handful an hour is plenty.
 		CredentialStore: ratelimit.NewMessageRateLimiter(5, time.Hour, time.Hour),

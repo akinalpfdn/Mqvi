@@ -125,7 +125,7 @@ func TestDMHandler_RepeatSendAnswersWithoutUploadingOrBroadcasting(t *testing.T)
 		svc := &repeatDMService{repeat: repeat}
 		upload := &countingDMUpload{}
 		ledger := &quotaLedger{}
-		h := NewDMHandler(svc, upload, ledger.storage(), 10<<20, nil, nil, &testutil.MockFileURLSigner{})
+		h := NewDMHandler(svc, upload, ledger.storage(), 10<<20, nil, nil, nil, &testutil.MockFileURLSigner{})
 
 		req := multipartSend(t, "/api/dms/c1/messages", "nonce-dm-01")
 		req.SetPathValue("channelId", "c1")

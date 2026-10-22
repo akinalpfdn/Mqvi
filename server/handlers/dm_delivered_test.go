@@ -38,7 +38,7 @@ func TestDMHandler_MarkDelivered(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			svc := &deliveredDMService{}
-			h := NewDMHandler(svc, nil, nil, 10<<20, nil, nil, &testutil.MockFileURLSigner{})
+			h := NewDMHandler(svc, nil, nil, 10<<20, nil, nil, nil, &testutil.MockFileURLSigner{})
 			req := httptest.NewRequest(http.MethodPost, "/api/dms/channels/c1/delivered", strings.NewReader(tc.body))
 			req.SetPathValue("channelId", "c1")
 			req = req.WithContext(context.WithValue(req.Context(), ctxkeys.User, &models.User{ID: "bob"}))

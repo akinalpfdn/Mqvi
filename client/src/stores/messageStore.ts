@@ -35,6 +35,7 @@ import { mergeLatestPage, resyncLimit, withFlag } from "../utils/messageSync";
 import {
   encryptFilesForE2EE,
   encryptedEditPayload,
+  fullerCopy,
   sendFailureOutcome,
   encryptionFailureOutcome,
   createTypingHandler,
@@ -577,12 +578,13 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       const channelMessages = state.messagesByChannel[message.channel_id] ?? [];
 
       // Duplicate guard. The send response and the echo both land here, whichever comes first;
-      // a held copy that could not be decrypted takes the content the later one brings.
+      // the held copy gives way only to a fuller one (see fullerCopy).
       const heldIndex = channelMessages.findIndex((m) => m.id === message.id);
       if (heldIndex !== -1) {
-        if (channelMessages[heldIndex].content !== null || message.content === null) return state;
+        const fuller = fullerCopy(channelMessages[heldIndex], message);
+        if (!fuller) return state;
         const next = [...channelMessages];
-        next[heldIndex] = message;
+        next[heldIndex] = fuller;
         return { messagesByChannel: { ...state.messagesByChannel, [message.channel_id]: next } };
       }
 

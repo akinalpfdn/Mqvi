@@ -226,6 +226,26 @@ describe("optimistic channel send", () => {
     expect(useMessageStore.getState().messagesByChannel["c1"][0].content).toBe("hello");
   });
 
+  it("should take the files a later copy brings when a retry was answered before they were stored", () => {
+    // The retry's answer: the first request was still storing the files, so it came without them.
+    useMessageStore.getState().handleMessageCreate(stored("m1", "n", { content: "pic", attachments: [] }));
+
+    // The first request's broadcast, once the files were in.
+    useMessageStore.getState().handleMessageCreate(stored("m1", "n", { content: "pic", attachments: [{ id: "a1" }] as never }));
+
+    const [held] = useMessageStore.getState().messagesByChannel["c1"];
+    expect(held.attachments.map((a) => a.id)).toEqual(["a1"]);
+    expect(held.content).toBe("pic");
+  });
+
+  it("should keep the held copy when the later one brings nothing more", () => {
+    useMessageStore.getState().handleMessageCreate(stored("m1", "n", { content: "kept", attachments: [] }));
+
+    useMessageStore.getState().handleMessageCreate(stored("m1", "n", { content: "other", attachments: [] }));
+
+    expect(useMessageStore.getState().messagesByChannel["c1"][0].content).toBe("kept");
+  });
+
   it("should queue nothing when the server's encryption state is unknown", async () => {
     useServerStore.setState({ servers: [{ id: "s1" }] as never });
 

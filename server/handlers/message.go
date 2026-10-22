@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"strconv"
@@ -191,9 +192,15 @@ func (h *MessageHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 		if err != nil {
 			// The message goes too: a partial set would mis-key every attachment after the missing
-			// one. See uploadEachFile.
-			_ = h.messageService.Delete(r.Context(), r.PathValue("serverId"), message.ID, user.ID, models.PermManageMessages)
-			releaseQuota(r.Context(), h.storageService, "message", user.ID, reservedBytes-uploadedBytes)
+			// one. See uploadEachFile. Not on the request's context: a client that hung up is the
+			// usual cause of this failure, and its cancelled context would fail the cleanup too —
+			// leaving a message without its files that a retry under the same nonce then returns
+			// as sent.
+			cleanup := context.WithoutCancel(r.Context())
+			if delErr := h.messageService.Delete(cleanup, r.PathValue("serverId"), message.ID, user.ID, models.PermManageMessages); delErr != nil {
+				log.Printf("[message] failed to remove message %s after its upload failed: %v", message.ID, delErr)
+			}
+			releaseQuota(cleanup, h.storageService, "message", user.ID, reservedBytes-uploadedBytes)
 			respondUploadFailure(w, err)
 			return
 		}

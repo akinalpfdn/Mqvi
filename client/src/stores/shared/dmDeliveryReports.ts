@@ -6,7 +6,8 @@
 
 import { markDMDelivered, markDMsDeliveredLatest } from "../../api/dm";
 
-const REPORT_DELAY_MS = 300;
+/** Mark-read's pace: a busy conversation sends one report a second, not one per message. */
+export const REPORT_DELAY_MS = 1_000;
 
 const reported = new Map<string, string>();
 const queued = new Map<string, string>();

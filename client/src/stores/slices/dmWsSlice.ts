@@ -7,6 +7,7 @@ import {
   deleteMessageFromRecord,
   updateReactionInRecord,
   updateAuthorInRecord,
+  fullerCopy,
 } from "../shared/messageUtils";
 import { sortChannelsByActivity } from "../shared/dmSort";
 import { useAuthStore } from "../authStore";
@@ -103,15 +104,14 @@ export const createDMWsSlice: StateCreator<
         return { channels: sortedChannels, typingUsers };
       }
 
-      // The send response and the echo both land here, whichever comes first; a held copy that
-      // could not be decrypted takes the content the later one brings.
+      // The send response and the echo both land here, whichever comes first; the held copy
+      // gives way only to a fuller one (see fullerCopy).
       const heldIndex = channelMessages.findIndex((m) => m.id === message.id);
       if (heldIndex !== -1) {
-        if (channelMessages[heldIndex].content !== null || message.content === null) {
-          return { channels: sortedChannels, typingUsers };
-        }
+        const fuller = fullerCopy(channelMessages[heldIndex], message);
+        if (!fuller) return { channels: sortedChannels, typingUsers };
         const next = [...channelMessages];
-        next[heldIndex] = message;
+        next[heldIndex] = { ...fuller, delivered: fuller.delivered || channelMessages[heldIndex].delivered };
         return {
           channels: sortedChannels,
           messagesByChannel: { ...state.messagesByChannel, [message.dm_channel_id]: next },

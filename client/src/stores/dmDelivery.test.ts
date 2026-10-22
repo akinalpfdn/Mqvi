@@ -17,13 +17,13 @@ vi.mock("../i18n", () => ({ default: { t: (k: string) => k } }));
 
 const { useDMStore } = await import("./dmStore");
 const { useAuthStore } = await import("./authStore");
-const { reportDMDelivered, resetDMDeliveryReports } = await import("./shared/dmDeliveryReports");
+const { reportDMDelivered, resetDMDeliveryReports, REPORT_DELAY_MS } = await import("./shared/dmDeliveryReports");
 const { deliveryState } = await import("../utils/deliveryState");
 
 const at = (s: number) => new Date(Date.UTC(2026, 9, 22, 10, 0, s)).toISOString();
 const dm = (id: string, user: string, s: number) => ({ id, dm_channel_id: "d1", user_id: user, created_at: at(s) }) as DMMessage;
 const delivered = () => Object.fromEntries((useDMStore.getState().messagesByChannel["d1"] ?? []).map((m) => [m.id, !!m.delivered]));
-const settle = () => new Promise((r) => setTimeout(r, 350));
+const settle = () => new Promise((r) => setTimeout(r, REPORT_DELAY_MS + 50));
 
 beforeEach(() => {
   vi.clearAllMocks();

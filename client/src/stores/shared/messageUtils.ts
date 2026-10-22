@@ -117,6 +117,31 @@ export function handleSendError(res: {
   return true;
 }
 
+// ─── Second Copies ───
+
+type HeldCopy = {
+  content: string | null;
+  attachments?: unknown[];
+  e2ee_file_keys?: EncryptedFileMeta[];
+};
+
+/**
+ * A message arriving again — the send response and its echo, or a retry's answer and the first
+ * request's broadcast — may carry more than the copy already held: content the held copy could not
+ * decrypt, or files a retry answered before the first request had stored them. The fuller one wins;
+ * what only the held copy knows (its plaintext, its file keys) is kept. Null: keep the held copy.
+ */
+export function fullerCopy<T extends HeldCopy>(held: T, incoming: T): T | null {
+  const moreContent = held.content === null && incoming.content !== null;
+  const moreFiles = (incoming.attachments?.length ?? 0) > (held.attachments?.length ?? 0);
+  if (!moreContent && !moreFiles) return null;
+  return {
+    ...incoming,
+    content: incoming.content ?? held.content,
+    e2ee_file_keys: incoming.e2ee_file_keys ?? held.e2ee_file_keys,
+  };
+}
+
 // ─── Encrypted Edits ───
 
 /**

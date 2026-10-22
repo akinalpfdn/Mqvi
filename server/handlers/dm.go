@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"strconv"
@@ -26,6 +27,7 @@ type DMHandler struct {
 	maxUploadSize   int64
 	messageLimiter  *ratelimit.MessageRateLimiter
 	readLimiter     *ratelimit.MessageRateLimiter
+	deliveryLimiter *ratelimit.MessageRateLimiter
 	urlSigner       services.FileURLSigner
 }
 
@@ -36,6 +38,7 @@ func NewDMHandler(
 	maxUploadSize int64,
 	messageLimiter *ratelimit.MessageRateLimiter,
 	readLimiter *ratelimit.MessageRateLimiter,
+	deliveryLimiter *ratelimit.MessageRateLimiter,
 	urlSigner services.FileURLSigner,
 ) *DMHandler {
 	return &DMHandler{
@@ -45,6 +48,7 @@ func NewDMHandler(
 		maxUploadSize:   maxUploadSize,
 		messageLimiter:  messageLimiter,
 		readLimiter:     readLimiter,
+		deliveryLimiter: deliveryLimiter,
 		urlSigner:       urlSigner,
 	}
 }
@@ -284,8 +288,12 @@ func (h *DMHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			// The message goes too: a partial set would mis-key every attachment after the missing
 			// one. See uploadEachFile.
-			_ = h.dmService.DeleteMessage(r.Context(), user.ID, msg.ID)
-			releaseQuota(r.Context(), h.storageService, "dm", user.ID, reservedBytes-uploadedBytes)
+			// Not on the request's context — see the same cleanup in MessageHandler.Create.
+			cleanup := context.WithoutCancel(r.Context())
+			if delErr := h.dmService.DeleteMessage(cleanup, user.ID, msg.ID); delErr != nil {
+				log.Printf("[dm] failed to remove message %s after its upload failed: %v", msg.ID, delErr)
+			}
+			releaseQuota(cleanup, h.storageService, "dm", user.ID, reservedBytes-uploadedBytes)
 			respondUploadFailure(w, err)
 			return
 		}
@@ -458,8 +466,8 @@ func (h *DMHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 }
 
 // MarkDelivered handles POST /api/dms/channels/{channelId}/delivered — the recipient's app saying
-// how far it has received the conversation. Rate limited with mark-read: as cheap per call, and the
-// client reports it for every message that arrives.
+// how far it has received the conversation. Its own rate-limit bucket, never mark-read's: every
+// device reports, and spending the read budget would hold read state back.
 func (h *DMHandler) MarkDelivered(w http.ResponseWriter, r *http.Request) {
 	channelID := r.PathValue("channelId")
 	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
@@ -467,7 +475,7 @@ func (h *DMHandler) MarkDelivered(w http.ResponseWriter, r *http.Request) {
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
-	if rateLimited(w, h.readLimiter, user.ID) {
+	if rateLimited(w, h.deliveryLimiter, user.ID) {
 		return
 	}
 
@@ -494,7 +502,7 @@ func (h *DMHandler) MarkDeliveredLatest(w http.ResponseWriter, r *http.Request) 
 		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
-	if rateLimited(w, h.readLimiter, user.ID) {
+	if rateLimited(w, h.deliveryLimiter, user.ID) {
 		return
 	}
 
