@@ -128,9 +128,9 @@ describe("PendingMessageStatus", () => {
     expect(screen.getByText("discardMessage")).toBeTruthy();
   });
 
-  it("should say it is sending when there is no upload", () => {
-    renderStatus(pendingEntry("n1", "x"));
+  it("should add no line of its own for a text send in flight — the clock on the message says it", () => {
+    const { container } = renderStatus(pendingEntry("n1", "x"));
 
-    expect(screen.getByText("messageSending")).toBeTruthy();
+    expect(container.textContent).toBe("");
   });
 });

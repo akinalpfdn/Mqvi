@@ -139,5 +139,6 @@
   "messageNotSent": "Not sent",
   "retrySend": "Retry",
   "discardMessage": "Delete",
-  "messageAttachmentsLost": "Not sent — the attachments could not be kept, add them again"
+  "messageAttachmentsLost": "Not sent — the attachments could not be kept, add them again",
+  "messageSent": "Sent"
 }

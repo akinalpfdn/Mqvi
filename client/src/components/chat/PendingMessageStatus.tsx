@@ -45,8 +45,8 @@ function PendingMessageStatus({ pending }: PendingMessageStatusProps) {
     );
   }
 
-  // Delayed in CSS: a send that confirms quickly never shows it.
-  return <span className="msg-pending-sending">{t("messageSending")}</span>;
+  // A text send in flight: the clock on the message line says it.
+  return null;
 }
 
 export default PendingMessageStatus;

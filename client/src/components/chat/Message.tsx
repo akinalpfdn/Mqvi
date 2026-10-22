@@ -27,6 +27,8 @@ import MessageHoverActions from "./MessageHoverActions";
 import MessageReactions from "./MessageReactions";
 import MobileMessageActions from "./MobileMessageActions";
 import PendingMessageStatus from "./PendingMessageStatus";
+import DeliveryMark from "./DeliveryMark";
+import { deliveryState } from "../../utils/deliveryState";
 import ReportModal from "../shared/ReportModal";
 import { REPORT_EXCERPT_MAX } from "../../api/report";
 import { useUserBadges } from "../../hooks/useUserBadges";
@@ -133,6 +135,7 @@ function Message({ message, isCompact, pending }: MessageProps) {
   const userBadges = useUserBadges(message.user_id);
 
   const isPinned = isMessagePinned(message.id);
+  const delivery = deliveryState(isOwner, mode, pending);
 
   // Check if current user is mentioned (user mention or role mention)
   const currentMember = members.find((m) => m.id === currentUser?.id);
@@ -692,6 +695,7 @@ function Message({ message, isCompact, pending }: MessageProps) {
                   {t("edited")}
                 </span>
               )}
+              {delivery && <DeliveryMark state={delivery} />}
               {isCompact && (
                 <span className="msg-gtime" title={formatFullDate(message.created_at)}>
                   {formatTime(message.created_at)}
