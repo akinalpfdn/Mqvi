@@ -96,6 +96,45 @@ describe("createOutputTracker", () => {
     expect(t.said()).toBe("encoder stopped: NoFrames");
   });
 
+  // A WARN line can quote the system's words for a fault the helper shrugs off — an encoder that
+  // refused before the next one accepted. Read by its wording, it would head the report of a share
+  // that later died of something else, and push the real cause past the server's 200-character cut.
+  it("should not take a warning that quotes an error message for the failure", () => {
+    const t = createOutputTracker();
+    t.push(
+      "[2026-10-23T19:13:16Z WARN  mqvi_game_capture::mf_encoder] encoder AMDh264Encoder refused: " +
+        "SetOutputType: Unspecified error (0x80004005)\n"
+    );
+    t.push(STATS);
+    t.push(FAILURE);
+
+    expect(t.said()).toBe(FAILURE.trim());
+  });
+
+  it("should fall back to the last line when only a warning mentions an error", () => {
+    const t = createOutputTracker();
+    t.push("[2026-10-23T19:13:16Z WARN  mqvi_game_capture] encode error (continuing): 0x8000FFFF\n");
+    t.push(STATS);
+
+    expect(t.said()).toBe(STATS_MSG);
+  });
+
+  it("should store an ERROR line from a helper submodule without its log prefix", () => {
+    const t = createOutputTracker();
+    t.push("[2026-10-23T19:13:16Z ERROR mqvi_game_capture::mf_encoder] encoder stopped: NoFrames\n");
+    t.push(STATS);
+
+    expect(t.said()).toBe("encoder stopped: NoFrames");
+  });
+
+  it("should take an ERROR line from any module for the failure", () => {
+    const t = createOutputTracker();
+    t.push("[2026-10-23T19:13:16Z ERROR livekit::rtc_engine] signal connection lost\n");
+    t.push(STATS);
+
+    expect(t.said()).toContain("signal connection lost");
+  });
+
   // `fn main() -> Result<()>` prints the anyhow chain over several indented lines. Keeping only one
   // of them reports an inner cause as if it were the whole failure — "0: transport error" without
   // the message that says what was being attempted.

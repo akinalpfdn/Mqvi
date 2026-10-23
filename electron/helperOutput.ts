@@ -14,18 +14,26 @@ export type OutputTracker = {
   said(): string;
 };
 
-/** Lines that look like a failure, so a later stats line cannot bury the error. */
+/** Unlogged output that reads as a failure — what `main` returned, a panic. */
 const ERROR_LINE = /error|panic|bail/i;
+/**
+ * The level env_logger writes at the start of every line, whatever the module. A logged line is a
+ * failure only at ERROR: a WARN line can quote the system's message ("Unspecified error") while the
+ * helper carries on, and would then head the report of a share that later died of something else.
+ */
+const LOG_LEVEL = /^\[(?:\S+ )?(ERROR|WARN|INFO|DEBUG|TRACE)\b[^\]]*\]/;
 /** anyhow's chain header. Carries no information of its own — the causes under it do. */
 const CHAIN_HEADER = /^caused by:?$/i;
 /** Enough for a deep cause chain; the server truncates the report at 200 anyway. */
 const MAX_ERROR_LEN = 300;
 /**
- * env_logger's per-line prefix. Dropped from what gets reported: the log row carries its own
- * timestamp and the module never varies, so this is ~45 characters of the 200 the server keeps
- * spent on nothing. The level is read off the full line first — see `take`.
+ * env_logger's per-line prefix for the helper's own modules (`mqvi_game_capture` and its
+ * submodules). Dropped from what gets reported: the log row carries its own timestamp, and the
+ * helper is always the one speaking, so this is ~45 characters of the 200 the server keeps spent on
+ * nothing. Other crates (livekit, libwebrtc) keep theirs — it names who failed. The level is read
+ * off the full line first — see `take`.
  */
-const LOG_PREFIX = /^\[[^\]]*mqvi_game_capture\]\s*/;
+const LOG_PREFIX = /^\[[^\]]*\bmqvi_game_capture(?:::\w+)*\]\s*/;
 
 export function createOutputTracker(): OutputTracker {
   // Every distinct error, oldest first. NOT just the newest: the helper reports a failure twice —
@@ -73,10 +81,11 @@ export function createOutputTracker(): OutputTracker {
       return;
     }
 
-    // Matched against the full line on purpose: `log::error!("encoder stopped")` says nothing that
-    // looks like a failure, and the only evidence that it is one is the ERROR in the prefix that
-    // the next line strips.
-    inError = ERROR_LINE.test(full);
+    // A logged line is judged by its level, anything else by its wording. Read off the full line:
+    // `log::error!("encoder stopped")` says nothing that reads as a failure, and the ERROR that
+    // says it is one lives in the prefix the next line strips.
+    const level = LOG_LEVEL.exec(full)?.[1];
+    inError = level === undefined ? ERROR_LINE.test(full) : level === "ERROR";
     const line = full.replace(LOG_PREFIX, "");
     lastLine = line;
     if (inError) addError(line);
