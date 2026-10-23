@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Modified by mqvi, 2026-10-23: frames carry a sequence number. See MQVI-PATCHES.md.
+
 #pragma once
 
 #include <atomic>
@@ -71,7 +73,8 @@ class EncodedVideoFrameBuffer : public webrtc::VideoFrameBuffer {
       EncodedFrameType frame_type,
       webrtc::scoped_refptr<webrtc::EncodedImageBuffer> payload,
       std::shared_ptr<std::atomic<bool>> keyframe_request_flag = nullptr,
-      std::shared_ptr<EncodedRateControlState> rate_control_state = nullptr);
+      std::shared_ptr<EncodedRateControlState> rate_control_state = nullptr,
+      uint64_t sequence = 0);
   ~EncodedVideoFrameBuffer() override = default;
 
   Type type() const override;
@@ -88,6 +91,10 @@ class EncodedVideoFrameBuffer : public webrtc::VideoFrameBuffer {
 
   EncodedVideoCodec codec() const { return codec_; }
   EncodedFrameType frame_type() const { return frame_type_; }
+
+  // Consecutive per source. A skip seen by the pass-through encoder means a
+  // frame was dropped between the source and the encoder.
+  uint64_t sequence() const { return sequence_; }
 
   // The encoded access unit. Shared with the pass-through encoder so the
   // payload is not copied again on the send path.
@@ -114,6 +121,7 @@ class EncodedVideoFrameBuffer : public webrtc::VideoFrameBuffer {
   webrtc::scoped_refptr<webrtc::EncodedImageBuffer> payload_;
   std::shared_ptr<std::atomic<bool>> keyframe_request_flag_;
   std::shared_ptr<EncodedRateControlState> rate_control_state_;
+  uint64_t sequence_;
 };
 
 }  // namespace livekit

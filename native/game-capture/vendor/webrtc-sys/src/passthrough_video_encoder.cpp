@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+// Modified by mqvi, 2026-10-23: trusts the upstream rate controller and holds
+// deltas after a dropped frame until a keyframe. See MQVI-PATCHES.md.
+
 #include "livekit/passthrough_video_encoder.h"
 
 #include <algorithm>
@@ -25,6 +28,8 @@
 #include <vector>
 
 #include "absl/container/inlined_vector.h"
+#include "api/units/time_delta.h"
+#include "api/units/timestamp.h"
 #include "api/video/encoded_image.h"
 #include "api/video/video_frame.h"
 #include "api/video/video_codec_constants.h"
@@ -39,9 +44,15 @@
 #include "modules/video_coding/svc/scalable_video_controller_no_layering.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/synchronization/mutex.h"
+#include "system_wrappers/include/clock.h"
 
 namespace livekit_ffi {
 namespace {
+
+// How often a held stream asks for its keyframe again: libwebrtc's own spacing
+// for keyframe requests (video/encoder_rtcp_feedback.cc).
+constexpr webrtc::TimeDelta kRecoveryRequestInterval =
+    webrtc::TimeDelta::Millis(300);
 
 using livekit::EncodedVideoFrameBuffer;
 using webrtc::CodecSpecificInfo;
@@ -198,6 +209,7 @@ class PassthroughVideoEncoder final : public VideoEncoder {
     if (IsAv1Codec(codec_type_) && !codec_.GetScalabilityMode().has_value()) {
       codec_.SetScalabilityMode(ScalabilityMode::kL1T1);
     }
+    ResetRecovery();
     return WEBRTC_VIDEO_CODEC_OK;
   }
 
@@ -209,6 +221,7 @@ class PassthroughVideoEncoder final : public VideoEncoder {
 
   int32_t Release() override {
     encoded_image_callback_ = nullptr;
+    ResetRecovery();
     return WEBRTC_VIDEO_CODEC_OK;
   }
 
@@ -250,6 +263,31 @@ class PassthroughVideoEncoder final : public VideoEncoder {
                     });
     if (keyframe_requested && !is_keyframe) {
       encoded_buffer->request_keyframe();
+    }
+
+    // VideoStreamEncoder can still drop a frame before it reaches us (encoder
+    // paused, queue overload, a repeated capture time). Every delta after it
+    // references a picture no receiver has, and no receiver can tell, so hold
+    // deltas until a keyframe: a short freeze instead of corruption.
+    const uint64_t sequence = encoded_buffer->sequence();
+    const bool gap =
+        last_sequence_.has_value() && sequence != *last_sequence_ + 1;
+    if (gap && !is_keyframe && !awaiting_keyframe_) {
+      RTC_LOG(LS_WARNING) << "PassthroughVideoEncoder: frames dropped between "
+                          << *last_sequence_ << " and " << sequence
+                          << "; holding deltas until a keyframe";
+      awaiting_keyframe_ = true;
+    }
+    last_sequence_ = sequence;
+    if (awaiting_keyframe_ && is_keyframe) {
+      awaiting_keyframe_ = false;
+      last_recovery_request_.reset();
+    }
+    if (awaiting_keyframe_) {
+      RequestRecoveryKeyframe(encoded_buffer);
+      encoded_image_callback_->OnDroppedFrame(
+          EncodedImageCallback::DropReason::kDroppedByEncoder);
+      return WEBRTC_VIDEO_CODEC_OK;
     }
 
     if (encoded_buffer->payload_size() == 0) {
@@ -331,6 +369,10 @@ class PassthroughVideoEncoder final : public VideoEncoder {
     info.supports_native_handle = true;
     info.implementation_name = "LiveKit pre-encoded passthrough";
     info.scaling_settings = VideoEncoder::ScalingSettings::kOff;
+    // Each frame is already encoded and is the next one's reference, so the
+    // media-optimisation frame dropper must not thin them: the upstream
+    // encoder's rate control is the one in charge.
+    info.has_trusted_rate_controller = true;
     info.is_hardware_accelerated = false;
     info.supports_simulcast = false;
     info.preferred_pixel_formats = {VideoFrameBuffer::Type::kNative};
@@ -338,6 +380,29 @@ class PassthroughVideoEncoder final : public VideoEncoder {
   }
 
  private:
+  // After (re)initialisation the next frame is the new sequence base, and
+  // nothing goes out until a keyframe: a delta would reference a picture from
+  // before the reset.
+  void ResetRecovery() {
+    last_sequence_.reset();
+    awaiting_keyframe_ = true;
+    last_recovery_request_.reset();
+  }
+
+  // Asks the capture side for a keyframe, again every
+  // kRecoveryRequestInterval while deltas are held: the keyframe itself can be
+  // dropped, or the encoder can miss the request, and neither may freeze the
+  // stream for good.
+  void RequestRecoveryKeyframe(EncodedVideoFrameBuffer* encoded_buffer) {
+    const webrtc::Timestamp now = env_.clock().CurrentTime();
+    if (last_recovery_request_.has_value() &&
+        now - *last_recovery_request_ < kRecoveryRequestInterval) {
+      return;
+    }
+    encoded_buffer->request_keyframe();
+    last_recovery_request_ = now;
+  }
+
   void ForwardPendingRateControl(
       EncodedVideoFrameBuffer* encoded_buffer) {
     std::optional<livekit::EncodedRateControlRequest> request;
@@ -361,6 +426,10 @@ class PassthroughVideoEncoder final : public VideoEncoder {
   std::vector<uint8_t> cached_sequence_header_obu_;
   webrtc::Mutex rate_control_mutex_;
   std::optional<livekit::EncodedRateControlRequest> latest_rate_control_request_;
+  // Recovery state; touched only on the encoder queue, like codec_.
+  std::optional<uint64_t> last_sequence_;
+  bool awaiting_keyframe_ = true;
+  std::optional<webrtc::Timestamp> last_recovery_request_;
 };
 
 }  // namespace

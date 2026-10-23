@@ -90,6 +90,8 @@ path = "src/bin/test_capture_encode.rs"
 name = "snapshot-capture"
 path = "src/bin/snapshot_capture.rs"
 
-# webrtc-sys 0.3.38 from crates.io, vendored unchanged so its pass-through encoder can be patched.
+# webrtc-sys with our pass-through encoder fixes: libwebrtc must never silently drop a frame our
+# hardware encoder already encoded. What changed and why: vendor/webrtc-sys/MQVI-PATCHES.md. Drop the
+# vendored copy once livekit/rust-sdks ships an equivalent.
 [patch.crates-io]
 webrtc-sys = { path = "vendor/webrtc-sys" }

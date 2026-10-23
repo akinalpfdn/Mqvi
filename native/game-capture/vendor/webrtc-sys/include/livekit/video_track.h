@@ -14,9 +14,12 @@
  * limitations under the License.
  */
 
+// Modified by mqvi, 2026-10-23: the source numbers its encoded frames. See MQVI-PATCHES.md.
+
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 
 #include "api/media_stream_interface.h"
@@ -117,6 +120,11 @@ class VideoTrackSource {
       return rate_control_state_;
     }
 
+    // The sequence number for the next encoded frame this source emits.
+    uint64_t next_encoded_sequence() const {
+      return encoded_sequence_.fetch_add(1, std::memory_order_relaxed);
+    }
+
    private:
     mutable webrtc::Mutex mutex_;
     webrtc::TimestampAligner timestamp_aligner_;
@@ -126,6 +134,7 @@ class VideoTrackSource {
         std::make_shared<std::atomic<bool>>(false);
     std::shared_ptr<livekit::EncodedRateControlState> rate_control_state_ =
         std::make_shared<livekit::EncodedRateControlState>();
+    mutable std::atomic<uint64_t> encoded_sequence_{0};
     bool is_screencast_;
   };
 

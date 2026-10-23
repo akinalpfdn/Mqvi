@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+// Modified by mqvi, 2026-10-23: congestion-window pushback lowers the target
+// instead of dropping frames. See MQVI-PATCHES.md.
+
 #include "livekit/peer_connection_factory.h"
 
 #include <memory>
@@ -53,23 +56,39 @@ constexpr char kForcePlayoutDelayFieldTrial[] =
     "WebRTC-ForcePlayoutDelay/min_ms:0,max_ms:0/";
 constexpr char kForcePlayoutDelayValue[] = "min_ms:0,max_ms:0";
 
-class ZeroPlayoutDelayFieldTrials final : public webrtc::FieldTrialsView {
+// libwebrtc's default is the same with DropFrame:true, which drops frames to
+// relieve congestion. For a pass-through encoder those frames are already
+// encoded references; lowering the target instead lets the upstream encoder
+// slow down without breaking the chain.
+constexpr char kCongestionWindowValue[] =
+    "QueueSize:350,MinBitrate:30000,DropFrame:false";
+
+class LiveKitFieldTrials final : public webrtc::FieldTrialsView {
  public:
+  explicit LiveKitFieldTrials(bool zero_playout_delay)
+      : zero_playout_delay_(zero_playout_delay) {}
+
   std::string Lookup(absl::string_view key) const override {
-    return key == "WebRTC-ForcePlayoutDelay" ? kForcePlayoutDelayValue : "";
+    if (zero_playout_delay_ && key == "WebRTC-ForcePlayoutDelay") {
+      return kForcePlayoutDelayValue;
+    }
+    if (key == "WebRTC-CongestionWindow") {
+      return kCongestionWindowValue;
+    }
+    return "";
   }
 
   std::unique_ptr<webrtc::FieldTrialsView> CreateCopy() const override {
-    return std::make_unique<ZeroPlayoutDelayFieldTrials>();
+    return std::make_unique<LiveKitFieldTrials>(zero_playout_delay_);
   }
+
+ private:
+  bool zero_playout_delay_;
 };
 
 webrtc::Environment CreateEnvironment(bool zero_playout_delay) {
-  if (zero_playout_delay) {
-    return webrtc::CreateEnvironment(
-        std::make_unique<ZeroPlayoutDelayFieldTrials>());
-  }
-  return webrtc::CreateEnvironment();
+  return webrtc::CreateEnvironment(
+      std::make_unique<LiveKitFieldTrials>(zero_playout_delay));
 }
 
 }  // namespace

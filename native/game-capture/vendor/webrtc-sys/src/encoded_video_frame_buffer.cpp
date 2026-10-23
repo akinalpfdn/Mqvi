@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Modified by mqvi, 2026-10-23: frames carry a sequence number. See MQVI-PATCHES.md.
+
 #include "livekit/encoded_video_frame_buffer.h"
 
 #include <utility>
@@ -45,14 +47,16 @@ EncodedVideoFrameBuffer::EncodedVideoFrameBuffer(
     EncodedFrameType frame_type,
     webrtc::scoped_refptr<webrtc::EncodedImageBuffer> payload,
     std::shared_ptr<std::atomic<bool>> keyframe_request_flag,
-    std::shared_ptr<EncodedRateControlState> rate_control_state)
+    std::shared_ptr<EncodedRateControlState> rate_control_state,
+    uint64_t sequence)
     : width_(width),
       height_(height),
       codec_(codec),
       frame_type_(frame_type),
       payload_(std::move(payload)),
       keyframe_request_flag_(std::move(keyframe_request_flag)),
-      rate_control_state_(std::move(rate_control_state)) {}
+      rate_control_state_(std::move(rate_control_state)),
+      sequence_(sequence) {}
 
 webrtc::VideoFrameBuffer::Type EncodedVideoFrameBuffer::type() const {
   return Type::kNative;
