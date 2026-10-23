@@ -89,3 +89,7 @@ path = "src/bin/test_capture_encode.rs"
 [[bin]]
 name = "snapshot-capture"
 path = "src/bin/snapshot_capture.rs"
+
+# webrtc-sys 0.3.38 from crates.io, vendored unchanged so its pass-through encoder can be patched.
+[patch.crates-io]
+webrtc-sys = { path = "vendor/webrtc-sys" }
