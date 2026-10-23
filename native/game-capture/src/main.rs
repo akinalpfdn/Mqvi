@@ -44,6 +44,7 @@ use windows::core::PCWSTR;
 mod delivery_watch;
 mod encoder_swap;
 mod keyframe_watch;
+mod pump_stats;
 mod pump_timing;
 mod rate_policy;
 mod sharp_pump;
@@ -857,21 +858,36 @@ impl Drop for MmcssHandle {
     }
 }
 
-/// The pump's next encoder, for `encoder_swap::replace`. `beside` says whether the current one
-/// still runs; the dev harness refuses that case the way a GPU with one free session does.
-fn next_encoder(
-    dev: DevHarness,
-    beside: bool,
-    width: u32,
-    height: u32,
+/// What every encoder in one pump shares; a rebuild changes only the size and the bitrate.
+#[derive(Clone, Copy)]
+struct EncoderSpec {
     fps: u32,
-    bps: u32,
     hevc: bool,
-) -> Result<HwEncoder> {
-    if beside && dev.one_encoder_session {
-        bail!("dev harness: no second encoder session");
+    dev: DevHarness,
+}
+
+impl EncoderSpec {
+    /// The encoder that replaces `enc` at `size` and `bps` — see encoder_swap — with the VBV rule
+    /// restarted from it. Every rebuild comes through here, so none can forget that restart.
+    fn rebuild(
+        self,
+        enc: HwEncoder,
+        size: (u32, u32),
+        bps: u32,
+        vbv_follow: &mut vbv_follow::VbvFollow,
+        why: &'static str,
+    ) -> Result<HwEncoder> {
+        let next = encoder_swap::replace(enc, |beside| {
+            // The dev harness refuses a second encoder the way a GPU with one free session does.
+            if beside && self.dev.one_encoder_session {
+                bail!("dev harness: no second encoder session");
+            }
+            HwEncoder::new(size.0, size.1, self.fps, bps, self.hevc)
+        })
+        .context(why)?;
+        vbv_follow.rebuilt(bps, std::time::Instant::now());
+        Ok(next)
     }
-    HwEncoder::new(width, height, fps, bps, hevc)
 }
 
 /// MF hardware-encode pump (dedicated OS thread): NV12 (synthetic or WGC-captured screen) →
@@ -898,6 +914,7 @@ fn encoded_pump(
     HwEncoder::startup()?;
     let mut enc = HwEncoder::new(width, height, fps, bitrate, hevc)?;
     log::info!("hardware encoder: {}", enc.name());
+    let spec = EncoderSpec { fps, hevc, dev };
 
     let codec = if hevc { EncodedVideoCodec::H265 } else { EncodedVideoCodec::H264 };
     let frame_us = 1_000_000i64 / fps as i64;
@@ -911,31 +928,20 @@ fn encoded_pump(
     let mut cur = Vec::new();
     let mut have_frame = false;
 
-    // Delivery stats reported once a second: fed = frames we tried to encode, sent = encoded
-    // packets handed to livekit, plus their bitrate. Tells us if the pump keeps ~fps or stalls.
-    let mut fed = 0u32;
-    let mut sent = 0u32;
-    // Counted, not logged per event: a subscriber that can't decode asks every second, and eight
-    // identical lines say less than one number.
-    let mut keyframes = 0u32;
-    let mut bytes = 0usize;
+    // What the pump did this second, reported once a second: tells us whether it keeps ~fps or
+    // stalls, and what the encoder made of it — see pump_stats.
+    let mut stats = pump_stats::PumpStats::default();
     let mut last_report = std::time::Instant::now();
     // How the encoder's bitrate follows libwebrtc's target — see rate_policy.
     let mut rate = rate_policy::RatePolicy::new(bitrate);
     // When a new encoder is due so its VBV fits that bitrate — see vbv_follow.
     let mut vbv_follow = vbv_follow::VbvFollow::new(bitrate, std::time::Instant::now());
-    // Keyframes out of the encoder this second, the largest, and the delta frames to compare it to.
-    let mut keyframes_out = 0u32;
-    let mut largest_keyframe = 0usize;
-    let mut delta_bytes = 0usize;
-    let mut deltas = 0u32;
     // libwebrtc's latest target, as it gave it.
     let mut last_estimate = 0u32;
     // Whether the encoder refused the last bitrate: one without bitrate control refuses every value,
     // and saying so five times a second says nothing new.
     let mut refusing = false;
-    // Slots dropped after a stall, and when the last frame went to livekit — see pump_timing.
-    let mut skipped_slots = 0u64;
+    // When the last frame went to livekit — see pump_timing.
     let mut last_handoff: Option<std::time::Instant> = None;
     // An encoder that ignores keyframe requests is rebuilt — see keyframe_watch.
     let mut keyframe_watch = keyframe_watch::KeyframeWatch::default();
@@ -955,7 +961,7 @@ fn encoded_pump(
         let (slot, skipped) =
             pump_timing::skip_missed_slots(idx, t0.elapsed().as_micros() as u64, frame_us as u64);
         idx = slot;
-        skipped_slots += skipped;
+        stats.skipped_slots += skipped;
         // Absolute schedule: frame idx is due at t0 + idx*frame_us. Sleeping to an absolute target
         // (not interval-minus-work) keeps delivery even — relative sleeps accumulate drift/jitter
         // when encode() takes a variable time, which shows as the stream stretching then snapping.
@@ -973,7 +979,7 @@ fn encoded_pump(
         }
         let force_key = (requested && !dev.ignore_keyframe_requests) || rebuild_idr;
         if force_key {
-            keyframes += 1;
+            stats.keyframes_asked += 1;
         }
         rebuild_idr = false;
         // Follow libwebrtc's target: whatever the encoder makes above it, libwebrtc may drop after
@@ -998,11 +1004,8 @@ fn encoded_pump(
                 vbv_follow.basis() / 1000,
                 rate.applied() / 1000
             );
-            enc = encoder_swap::replace(enc, |beside| {
-                next_encoder(dev, beside, width, height, fps, rate.applied(), hevc)
-            })
-            .context("rebuilding the encoder for a new VBV")?;
-            vbv_follow.rebuilt(rate.applied(), std::time::Instant::now());
+            let why = "rebuilding the encoder for a new VBV";
+            enc = spec.rebuild(enc, (width, height), rate.applied(), &mut vbv_follow, why)?;
             // A fresh MFT opens with an IDR; asking keeps it to that one.
             rebuild_idr = true;
             continue;
@@ -1046,11 +1049,8 @@ fn encoded_pump(
                         };
                         if settled {
                             log::info!("stream {width}x{height} → {}x{} (source settled)", want.0, want.1);
-                            enc = encoder_swap::replace(enc, |beside| {
-                                next_encoder(dev, beside, want.0, want.1, fps, rate.applied(), hevc)
-                            })
-                            .context("rebuilding the encoder for the new size")?;
-                            vbv_follow.rebuilt(rate.applied(), std::time::Instant::now());
+                            let why = "rebuilding the encoder for the new size";
+                            enc = spec.rebuild(enc, want, rate.applied(), &mut vbv_follow, why)?;
                             (width, height) = want;
                             wanted = None;
                             // Subscribers need an IDR at the new size to decode anything at all.
@@ -1088,18 +1088,12 @@ fn encoded_pump(
                 Vec::new()
             }
         };
-        fed += 1;
+        stats.fed += 1;
         let delivered = !packets.is_empty();
         let mut unanswered = false;
         for p in packets {
             unanswered |= keyframe_watch.delivered(p.keyframe);
-            if p.keyframe {
-                keyframes_out += 1;
-                largest_keyframe = largest_keyframe.max(p.data.len());
-            } else {
-                delta_bytes += p.data.len();
-                deltas += 1;
-            }
+            stats.encoded(p.keyframe, p.data.len());
             if held.is_none() && pump_timing::holds_for_same_ms_pair(handoffs, dev.same_ms_every) {
                 held = Some(p);
                 continue;
@@ -1110,8 +1104,8 @@ fn encoded_pump(
             }
             // A held frame goes out right before this one, inside the same millisecond.
             for q in held.take().into_iter().chain(std::iter::once(p)) {
-                sent += 1;
-                bytes += q.data.len();
+                stats.sent += 1;
+                stats.bytes += q.data.len();
                 hand_over(&source, codec, &q, width, height);
                 handoffs += 1;
             }
@@ -1119,11 +1113,8 @@ fn encoded_pump(
         }
         if unanswered {
             log::warn!("{} ignored a keyframe request for 10 frames; rebuilding it", enc.name());
-            enc = encoder_swap::replace(enc, |beside| {
-                next_encoder(dev, beside, width, height, fps, rate.applied(), hevc)
-            })
-            .context("rebuilding an encoder that ignored a keyframe request")?;
-            vbv_follow.rebuilt(rate.applied(), std::time::Instant::now());
+            let why = "rebuilding an encoder that ignored a keyframe request";
+            enc = spec.rebuild(enc, (width, height), rate.applied(), &mut vbv_follow, why)?;
             // A fresh MFT opens with an IDR; asking for one makes sure of it.
             rebuild_idr = true;
         }
@@ -1136,56 +1127,26 @@ fn encoded_pump(
 
         if last_report.elapsed() >= Duration::from_secs(1) {
             let secs = last_report.elapsed().as_secs_f64();
-            // How much of a second at the current bitrate the largest keyframe took — the burst the
-            // link had to absorb — and how it compares to an ordinary frame.
-            let keyframe_seconds = largest_keyframe as f64 * 8.0 / f64::from(rate.applied().max(1));
-            let keyframe_vs_delta = if deltas > 0 && delta_bytes > 0 {
-                largest_keyframe as f64 / (delta_bytes as f64 / f64::from(deltas))
-            } else {
-                0.0
-            };
-            log::info!(
-                "encode: fed {:.1} fps, sent {:.1} fps, {:.0} kbps out | {}x{}, encoder at {} kbps, link estimate {} kbps, {} keyframes asked, {} slots skipped | {} keyframes out, largest {} KB = {:.2} s of bitrate, {:.1}x a delta frame",
-                fed as f64 / secs,
-                sent as f64 / secs,
-                (bytes as f64 * 8.0 / 1000.0) / secs,
-                width,
-                height,
-                rate.applied() / 1000,
-                last_estimate / 1000,
-                keyframes,
-                skipped_slots,
-                keyframes_out,
-                largest_keyframe / 1024,
-                keyframe_seconds,
-                keyframe_vs_delta
-            );
+            log::info!("{}", stats.describe(secs, (width, height), rate.applied(), last_estimate));
             // An encoder can also fail without ever erroring: keep accepting frames and simply
             // stop producing. `fed` climbs, `sent` sits at 0, viewers hold the last picture and
             // nobody is told — so the same silence the report prints is what we act on. Only after
             // the encoder has proven itself once, or a slow first frame would trip it.
             if ready.is_none() {
-                if sent == 0 {
+                if stats.sent == 0 {
                     silent_reports += 1;
                     if silent_reports >= MAX_SILENT_REPORTS {
                         bail!(
-                            "{} accepted {fed} frames but produced nothing for {silent_reports}s",
-                            enc.name()
+                            "{} accepted {} frames but produced nothing for {silent_reports}s",
+                            enc.name(),
+                            stats.fed
                         );
                     }
                 } else {
                     silent_reports = 0;
                 }
             }
-            fed = 0;
-            sent = 0;
-            bytes = 0;
-            keyframes = 0;
-            skipped_slots = 0;
-            keyframes_out = 0;
-            largest_keyframe = 0;
-            delta_bytes = 0;
-            deltas = 0;
+            stats = pump_stats::PumpStats::default();
             last_report = std::time::Instant::now();
         }
     }
