@@ -292,6 +292,9 @@ class PassthroughVideoEncoder final : public VideoEncoder {
 
     if (encoded_buffer->payload_size() == 0) {
       RTC_LOG(LS_ERROR) << "PassthroughVideoEncoder received an empty frame";
+      // Every return below this point drops a frame whose sequence is already
+      // recorded, so each one holds deltas like a gap would.
+      awaiting_keyframe_ = true;
       return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
     }
 
@@ -318,6 +321,7 @@ class PassthroughVideoEncoder final : public VideoEncoder {
         RTC_LOG(LS_ERROR)
             << "PassthroughVideoEncoder received an AV1 frame that WebRTC "
                "cannot packetize";
+        awaiting_keyframe_ = true;
         return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
       }
       encoded_data = EncodedImageBuffer::Create(payload.data(), payload.size());

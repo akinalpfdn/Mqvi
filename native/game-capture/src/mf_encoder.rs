@@ -54,6 +54,8 @@ pub struct HwEncoder {
     name: String,
     /// Which codec's NAL headers we're parsing on the way out — they aren't laid out the same.
     hevc: bool,
+    /// Whether this MFT's CleanPoint flag has contradicted the bitstream yet — said once.
+    clean_point_disagreed: bool,
 }
 
 impl HwEncoder {
@@ -98,7 +100,16 @@ impl HwEncoder {
             transform.ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0)?;
             transform.ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0)?;
 
-            Ok(Self { transform, events, codec_api, provides_samples, out_size: info.cbSize, name, hevc })
+            Ok(Self {
+                transform,
+                events,
+                codec_api,
+                provides_samples,
+                out_size: info.cbSize,
+                name,
+                hevc,
+                clean_point_disagreed: false,
+            })
         }
     }
 
@@ -206,7 +217,16 @@ impl HwEncoder {
         // structural difference from a normal stream and the prime ghosting suspect.
         let data = strip_aud(raw, self.hevc);
         buffer.Unlock()?;
-        let keyframe = clean_point || holds_keyframe(&data, self.hevc);
+        // The bitstream alone decides: a CleanPoint on a frame that is not an IDR would end the
+        // pass-through's hold on a picture that still references one the viewers never got.
+        let keyframe = holds_keyframe(&data, self.hevc);
+        if keyframe != clean_point && !self.clean_point_disagreed {
+            self.clean_point_disagreed = true;
+            log::warn!(
+                "{}: CleanPoint says keyframe {clean_point}, the bitstream says {keyframe}; following the bitstream",
+                self.name
+            );
+        }
 
         Ok(Some(EncodedPacket { data, keyframe, timestamp_us: ts_100ns / 10 }))
     }
@@ -216,11 +236,6 @@ fn pack(hi: u32, lo: u32) -> u64 {
     ((hi as u64) << 32) | (lo as u64)
 }
 
-/// Copies an Annex-B stream, dropping every Access Unit Delimiter NAL.
-///
-/// The two codecs pack the NAL header differently: H.264 has a 5-bit type in the low bits (AUD =
-/// 9), HEVC a 6-bit type shifted up by one (AUD = 35). Reading an HEVC header the H.264 way always
-/// yields an even number, so it can never equal 9 — the filter would quietly pass everything.
 /// Start-code positions (0x000001 or 0x00000001) and their lengths.
 fn start_codes(data: &[u8]) -> Vec<(usize, usize)> {
     let mut starts = Vec::new();
@@ -241,7 +256,7 @@ fn start_codes(data: &[u8]) -> Vec<(usize, usize)> {
 
 /// Whether the access unit can be decoded on its own: an IDR slice (H.264) or an IRAP picture
 /// (H.265). Read from the bitstream because the pass-through holds every frame until it sees a
-/// keyframe, and `MFSampleExtension_CleanPoint` is an MFT's promise, not something every vendor keeps.
+/// keyframe, and `MFSampleExtension_CleanPoint` is an MFT's promise, kept or not either way.
 fn holds_keyframe(data: &[u8], hevc: bool) -> bool {
     start_codes(data).iter().any(|&(pos, sc)| match data.get(pos + sc) {
         Some(&header) if hevc => (16..=21).contains(&((header >> 1) & 0x3F)),
@@ -250,6 +265,11 @@ fn holds_keyframe(data: &[u8], hevc: bool) -> bool {
     })
 }
 
+/// Copies an Annex-B stream, dropping every Access Unit Delimiter NAL.
+///
+/// The two codecs pack the NAL header differently: H.264 has a 5-bit type in the low bits (AUD =
+/// 9), HEVC a 6-bit type shifted up by one (AUD = 35). Reading an HEVC header the H.264 way always
+/// yields an even number, so it can never equal 9 — the filter would quietly pass everything.
 fn strip_aud(data: &[u8], hevc: bool) -> Vec<u8> {
     let mut out = Vec::with_capacity(data.len());
     let starts = start_codes(data);

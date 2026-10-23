@@ -27,11 +27,13 @@ const CHAIN_HEADER = /^caused by:?$/i;
 /** Enough for a deep cause chain; the server truncates the report at 200 anyway. */
 const MAX_ERROR_LEN = 300;
 /**
- * env_logger's per-line prefix. Dropped from what gets reported: the log row carries its own
- * timestamp and the module never varies, so this is ~45 characters of the 200 the server keeps
- * spent on nothing. The level is read off the full line first — see `take`.
+ * env_logger's per-line prefix for the helper's own modules (`mqvi_game_capture` and its
+ * submodules). Dropped from what gets reported: the log row carries its own timestamp, and the
+ * helper is always the one speaking, so this is ~45 characters of the 200 the server keeps spent on
+ * nothing. Other crates (livekit, libwebrtc) keep theirs — it names who failed. The level is read
+ * off the full line first — see `take`.
  */
-const LOG_PREFIX = /^\[[^\]]*mqvi_game_capture\]\s*/;
+const LOG_PREFIX = /^\[[^\]]*\bmqvi_game_capture(?:::\w+)*\]\s*/;
 
 export function createOutputTracker(): OutputTracker {
   // Every distinct error, oldest first. NOT just the newest: the helper reports a failure twice —

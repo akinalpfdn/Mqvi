@@ -17,7 +17,7 @@ frames dropped in a minute of game-menu toggling, 0 keyframe requests from viewe
 
 | File | Change |
 |---|---|
-| `src/passthrough_video_encoder.cpp` | `has_trusted_rate_controller = true`, so the media-optimisation frame dropper stays off. A skip in the frame sequence (a drop elsewhere in `VideoStreamEncoder`) holds deltas until a keyframe and asks for one, again every 300 ms while it waits. `InitEncode`/`Release` restart the sequence and wait for a keyframe. A frame the send path refuses (`OnEncodedImage` fails) is treated the same way. |
+| `src/passthrough_video_encoder.cpp` | `has_trusted_rate_controller = true`, so the media-optimisation frame dropper stays off. A skip in the frame sequence (a drop elsewhere in `VideoStreamEncoder`) holds deltas until a keyframe and asks for one, again every 300 ms while it waits. `InitEncode`/`Release` restart the sequence and wait for a keyframe. So is every frame that does not go out after its sequence was recorded: an empty payload, an AV1 frame WebRTC cannot packetize, or one the send path refuses (`OnEncodedImage` fails). |
 | `src/peer_connection_factory.cpp` | Field trial `WebRTC-CongestionWindow` = `QueueSize:350,MinBitrate:30000,DropFrame:false`: congestion lowers the target instead of dropping frames. Applies to every encoder this factory serves. |
 | `include/livekit/encoded_video_frame_buffer.h`, `src/encoded_video_frame_buffer.cpp` | The buffer carries a sequence number. |
 | `include/livekit/video_track.h`, `src/video_track.cpp` | The source numbers each encoded frame it emits. |

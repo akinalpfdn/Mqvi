@@ -677,7 +677,8 @@ async fn run() -> Result<()> {
         }
     }
 
-    // Smooth only: its frames are already encoded, so any frame libwebrtc drops is damage on screen.
+    // Smooth only: its frames are already encoded, so a frame libwebrtc drops costs viewers a freeze
+    // until the next keyframe, and nothing but these counters shows it.
     let delivery = (streaming && use_mf).then(|| tokio::spawn(delivery_watch::watch(watched_track)));
 
     if streaming {
@@ -930,6 +931,9 @@ fn encoded_pump(
     let mut deltas = 0u32;
     // libwebrtc's latest target, as it gave it.
     let mut last_estimate = 0u32;
+    // Whether the encoder refused the last bitrate: one without bitrate control refuses every value,
+    // and saying so five times a second says nothing new.
+    let mut refusing = false;
     // Slots dropped after a stall, and when the last frame went to livekit — see pump_timing.
     let mut skipped_slots = 0u64;
     let mut last_handoff: Option<std::time::Instant> = None;
@@ -979,10 +983,14 @@ fn encoded_pump(
         }
         let kept = rate.applied();
         if let Some(bps) = rate.next(last_estimate, std::time::Instant::now()) {
-            if !enc.set_bitrate(bps) {
+            let taken = enc.set_bitrate(bps);
+            if !taken {
                 rate.refused(kept);
-                log::warn!("{} refused {} kbps, keeping {} kbps", enc.name(), bps / 1000, kept / 1000);
+                if !refusing {
+                    log::warn!("{} refused {} kbps, keeping {} kbps", enc.name(), bps / 1000, kept / 1000);
+                }
             }
+            refusing = !taken;
         }
         if vbv_follow.should_rebuild(rate.applied(), std::time::Instant::now()) {
             log::info!(

@@ -119,6 +119,14 @@ describe("createOutputTracker", () => {
     expect(t.said()).toBe(STATS_MSG);
   });
 
+  it("should store an ERROR line from a helper submodule without its log prefix", () => {
+    const t = createOutputTracker();
+    t.push("[2026-10-23T19:13:16Z ERROR mqvi_game_capture::mf_encoder] encoder stopped: NoFrames\n");
+    t.push(STATS);
+
+    expect(t.said()).toBe("encoder stopped: NoFrames");
+  });
+
   it("should take an ERROR line from any module for the failure", () => {
     const t = createOutputTracker();
     t.push("[2026-10-23T19:13:16Z ERROR livekit::rtc_engine] signal connection lost\n");
