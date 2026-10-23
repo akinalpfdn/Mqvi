@@ -26,6 +26,10 @@ path = "src/bin/test_encode.rs"
 # format-compatible with our JS clients' ExternalE2EEKeyProvider. rustls avoids an
 # OpenSSL dependency on Windows MSVC.
 livekit = { version = "0.7", features = ["rustls-tls-native-roots"] }
+# Never used directly: pins the version the vendored, patched copy below is. A livekit that wants
+# another webrtc-sys then fails to resolve, instead of building against the unpatched crate with
+# only a "patch was not used" warning.
+webrtc-sys = "=0.3.38"
 tokio = { version = "1", features = ["full", "parking_lot"] }
 clap = { version = "4", features = ["derive", "env"] }
 # Already in the tree via livekit — no extra download. Used only to read the connection secrets
@@ -90,8 +94,9 @@ path = "src/bin/test_capture_encode.rs"
 name = "snapshot-capture"
 path = "src/bin/snapshot_capture.rs"
 
-# webrtc-sys with our pass-through encoder fixes: libwebrtc must never silently drop a frame our
-# hardware encoder already encoded. What changed and why: vendor/webrtc-sys/MQVI-PATCHES.md. Drop the
-# vendored copy once livekit/rust-sdks ships an equivalent.
+# webrtc-sys with our pass-through encoder fixes: a frame of our hardware encoder's that libwebrtc
+# drops or fails to send is noticed, and deltas wait for a keyframe instead of decoding against a
+# missing reference. What changed and why: vendor/webrtc-sys/MQVI-PATCHES.md. Drop the vendored
+# copy, and the pin above, once livekit/rust-sdks ships an equivalent.
 [patch.crates-io]
 webrtc-sys = { path = "vendor/webrtc-sys" }

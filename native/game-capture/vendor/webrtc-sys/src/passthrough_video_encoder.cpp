@@ -353,6 +353,9 @@ class PassthroughVideoEncoder final : public VideoEncoder {
     if (result.error != EncodedImageCallback::Result::OK) {
       RTC_LOG(LS_ERROR) << "PassthroughVideoEncoder callback failed "
                         << result.error;
+      // The frame never went out, but its sequence is already recorded: the
+      // next delta would pass the gap check and reference it. Hold instead.
+      awaiting_keyframe_ = true;
       return WEBRTC_VIDEO_CODEC_ERROR;
     }
     return WEBRTC_VIDEO_CODEC_OK;

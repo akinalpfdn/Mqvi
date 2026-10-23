@@ -1,9 +1,10 @@
 //! What libwebrtc does with the frames the hardware pump hands it.
 //!
-//! Those frames are already encoded, and each is the reference for the next. If libwebrtc drops one
-//! anyway (its frame dropper, congestion-window pushback, a paused encoder), viewers decode every
-//! frame after it against a picture they never got, until the next keyframe. The drop happens before
-//! RTP, so no viewer sees a gap to ask about — only these counters show it.
+//! Those frames are already encoded, and each is the reference for the next. libwebrtc can still
+//! drop one before the pass-through sees it (a paused encoder, a repeated capture time); the
+//! patched pass-through then holds every delta until a keyframe. "Dropped after our encoder" counts
+//! both: frames libwebrtc dropped and frames held for recovery. Viewers see a short freeze, not
+//! corruption, and no viewer can ask about it — only these counters show it.
 
 use std::time::Duration;
 

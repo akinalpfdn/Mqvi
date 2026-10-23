@@ -195,7 +195,7 @@ impl HwEncoder {
         let Some(sample) = sample else { return Ok(None) };
 
         let ts_100ns = sample.GetSampleTime().unwrap_or(0);
-        let keyframe = sample.GetUINT32(&MFSampleExtension_CleanPoint).unwrap_or(0) == 1;
+        let clean_point = sample.GetUINT32(&MFSampleExtension_CleanPoint).unwrap_or(0) == 1;
 
         let buffer = sample.ConvertToContiguousBuffer()?;
         let mut ptr: *mut u8 = std::ptr::null_mut();
@@ -206,6 +206,7 @@ impl HwEncoder {
         // structural difference from a normal stream and the prime ghosting suspect.
         let data = strip_aud(raw, self.hevc);
         buffer.Unlock()?;
+        let keyframe = clean_point || holds_keyframe(&data, self.hevc);
 
         Ok(Some(EncodedPacket { data, keyframe, timestamp_us: ts_100ns / 10 }))
     }
@@ -220,9 +221,8 @@ fn pack(hi: u32, lo: u32) -> u64 {
 /// The two codecs pack the NAL header differently: H.264 has a 5-bit type in the low bits (AUD =
 /// 9), HEVC a 6-bit type shifted up by one (AUD = 35). Reading an HEVC header the H.264 way always
 /// yields an even number, so it can never equal 9 — the filter would quietly pass everything.
-fn strip_aud(data: &[u8], hevc: bool) -> Vec<u8> {
-    let mut out = Vec::with_capacity(data.len());
-    // Collect start-code positions (0x000001 or 0x00000001).
+/// Start-code positions (0x000001 or 0x00000001) and their lengths.
+fn start_codes(data: &[u8]) -> Vec<(usize, usize)> {
     let mut starts = Vec::new();
     let mut i = 0;
     while i + 3 <= data.len() {
@@ -236,6 +236,23 @@ fn strip_aud(data: &[u8], hevc: bool) -> Vec<u8> {
             i += 1;
         }
     }
+    starts
+}
+
+/// Whether the access unit can be decoded on its own: an IDR slice (H.264) or an IRAP picture
+/// (H.265). Read from the bitstream because the pass-through holds every frame until it sees a
+/// keyframe, and `MFSampleExtension_CleanPoint` is an MFT's promise, not something every vendor keeps.
+fn holds_keyframe(data: &[u8], hevc: bool) -> bool {
+    start_codes(data).iter().any(|&(pos, sc)| match data.get(pos + sc) {
+        Some(&header) if hevc => (16..=21).contains(&((header >> 1) & 0x3F)),
+        Some(&header) => header & 0x1F == 5,
+        None => false,
+    })
+}
+
+fn strip_aud(data: &[u8], hevc: bool) -> Vec<u8> {
+    let mut out = Vec::with_capacity(data.len());
+    let starts = start_codes(data);
     if starts.is_empty() {
         return data.to_vec();
     }
@@ -543,7 +560,30 @@ unsafe fn create_hw_encoder(
 
 #[cfg(test)]
 mod tests {
-    use super::{strip_aud, vbv_bits};
+    use super::{holds_keyframe, strip_aud, vbv_bits};
+
+    #[test]
+    fn should_find_the_keyframe_when_an_h264_unit_carries_an_idr_slice() {
+        let mut stream = nal(7); // SPS
+        stream.extend(nal(8)); // PPS
+        stream.extend(nal(5)); // IDR slice
+        assert!(holds_keyframe(&stream, false));
+        assert!(!holds_keyframe(&nal(1), false), "a P slice is not one");
+    }
+
+    #[test]
+    fn should_find_the_keyframe_when_an_hevc_unit_carries_an_irap_picture() {
+        assert!(holds_keyframe(&nal(19 << 1), true), "IDR_W_RADL");
+        assert!(holds_keyframe(&nal(21 << 1), true), "CRA");
+        assert!(!holds_keyframe(&nal(1 << 1), true), "TRAIL_R");
+        // The H.264 reading of an HEVC header must not count: 5 << 1 is a RASL picture.
+        assert!(!holds_keyframe(&nal(5 << 1), true));
+    }
+
+    #[test]
+    fn should_not_find_a_keyframe_in_a_stream_that_ends_on_a_bare_start_code() {
+        assert!(!holds_keyframe(&[0, 0, 1], false));
+    }
 
     #[test]
     fn should_size_the_vbv_at_a_quarter_second_of_the_bitrate() {
