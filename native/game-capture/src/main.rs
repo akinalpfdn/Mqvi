@@ -909,7 +909,7 @@ fn encoded_pump(
 
     // Start at a third of what we reserved, and let WebRTC's feedback ramp it to what the link
     // really allows — starting at the ceiling floods the pipe before the first estimate arrives,
-    // which shows up as corruption in the opening seconds.
+    // and the opening seconds queue up behind it as delay.
     let bitrate = (target_bitrate(width, height, fps) / 3) as u32;
     HwEncoder::startup()?;
     let mut enc = HwEncoder::new(width, height, fps, bitrate, hevc)?;
