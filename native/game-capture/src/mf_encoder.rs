@@ -15,7 +15,8 @@ use windows::core::{Interface, GUID, PWSTR, VARIANT};
 use windows::Win32::Media::MediaFoundation::{
     eAVEncCommonRateControlMode_CBR, ICodecAPI, IMFActivate, IMFMediaEventGenerator, IMFSample,
     IMFTransform, MFCreateMediaType, MFCreateMemoryBuffer, MFCreateSample, MFStartup, MFTEnumEx,
-    CODECAPI_AVEncCommonMeanBitRate, CODECAPI_AVEncCommonRateControlMode, CODECAPI_AVEncVideoForceKeyFrame,
+    CODECAPI_AVEncCommonBufferSize, CODECAPI_AVEncCommonMaxBitRate, CODECAPI_AVEncCommonMeanBitRate,
+    CODECAPI_AVEncCommonRateControlMode, CODECAPI_AVEncMPVGOPSize, CODECAPI_AVEncVideoForceKeyFrame,
     CODECAPI_AVLowLatencyMode,
     METransformHaveOutput, METransformNeedInput,
     MFMediaType_Video, MFSampleExtension_CleanPoint, MFSTARTUP_LITE, MFT_CATEGORY_VIDEO_ENCODER,
@@ -61,15 +62,15 @@ impl HwEncoder {
         unsafe { MFStartup(MF_VERSION, MFSTARTUP_LITE).context("MFStartup") }
     }
 
+    /// The VBV is sized from `bitrate_bps`, once: an MFT fixes it with the output type, so it cannot
+    /// follow `set_bitrate`. A bitrate that moves far from it is met with a new encoder (vbv_follow).
     pub fn new(width: u32, height: u32, fps: u32, bitrate_bps: u32, hevc: bool) -> Result<Self> {
         unsafe {
             let subtype = if hevc { MFVideoFormat_HEVC } else { MFVideoFormat_H264 };
-            let (transform, name) = create_hw_encoder(subtype, width, height, fps, bitrate_bps)?;
+            let (transform, name) =
+                create_hw_encoder(subtype, width, height, fps, bitrate_bps, vbv_bits(bitrate_bps))?;
 
             let codec_api = transform.cast::<ICodecAPI>().ok();
-            // Keep the encoder's default periodic IDR interval (~1s). A very long GOP removes the
-            // recovery points, so any packet loss accumulates into runaway corruption — far worse
-            // than the small periodic keyframe hitch on a low-bitrate stream.
 
             // Real-time streaming config: low latency (also disables B-frames on NVENC) + CBR.
             match &codec_api {
@@ -82,6 +83,8 @@ impl HwEncoder {
                         "cbr",
                     );
                     log_set(api, &CODECAPI_AVEncCommonMeanBitRate, VARIANT::from(bitrate_bps), "bitrate");
+                    // What actually took: an MFT can answer ok and keep its own value.
+                    log_values(api, "now");
                 }
                 None => log::warn!("MFT exposes no ICodecAPI (no low-latency / keyframe control)"),
             }
@@ -103,14 +106,11 @@ impl HwEncoder {
         &self.name
     }
 
-    /// Update the target bitrate mid-stream — used to follow WebRTC's bandwidth estimate so the
-    /// stream doesn't flood the network (which shows as blocky corruption + endless keyframe asks).
-    pub fn set_bitrate(&self, bps: u32) {
-        if let Some(api) = &self.codec_api {
-            unsafe {
-                let _ = api.SetValue(&CODECAPI_AVEncCommonMeanBitRate, &VARIANT::from(bps));
-            }
-        }
+    /// Update the target bitrate mid-stream. Every frame above libwebrtc's target is one it may
+    /// drop after the frames behind it already reference it. False when the MFT refused it.
+    pub fn set_bitrate(&self, bps: u32) -> bool {
+        let Some(api) = &self.codec_api else { return false };
+        unsafe { api.SetValue(&CODECAPI_AVEncCommonMeanBitRate, &VARIANT::from(bps)).is_ok() }
     }
 
     /// Feed one NV12 frame; return any packets that became available. Output trails input by the
@@ -262,8 +262,47 @@ fn strip_aud(data: &[u8], hevc: bool) -> Vec<u8> {
 unsafe fn log_set(api: &ICodecAPI, guid: &GUID, val: VARIANT, name: &str) {
     match api.SetValue(guid, &val) {
         Ok(()) => log::info!("encoder cfg {name}: ok"),
-        Err(e) => log::warn!("encoder cfg {name}: FAILED ({e})"),
+        // The code, not the text: Windows words it in the machine's own language.
+        Err(e) => log::warn!("encoder cfg {name}: FAILED ({:#010x})", e.code().0),
     }
+}
+
+/// A quarter second of `bps`: room for one frame — a keyframe, a scene change — to take more, without
+/// a burst large enough to knock libwebrtc's link estimate down. In bits, as NVIDIA's MFT reads it —
+/// its default is one second at its peak rate. Microsoft documents bytes for H.264; an MFT that
+/// follows that gets a buffer 8× larger, so less protection, but no harm.
+fn vbv_bits(bps: u32) -> u32 {
+    bps / 4
+}
+
+/// Seconds between periodic IDRs. Loss, libwebrtc drops and late joiners all ask for a keyframe on
+/// their own (PLI, the pass-through's gap check, the keyframe watchdog), so the periodic one is only a
+/// safety net — and under CBR every IDR is a starved, bursty frame.
+const GOP_SECONDS: u32 = 4;
+
+/// One ICodecAPI value for the log, or the code that says why it could not be read.
+unsafe fn read_value(api: &ICodecAPI, guid: &GUID) -> String {
+    match api.GetValue(guid) {
+        Ok(v) => u32::try_from(&v)
+            .map(|n| n.to_string())
+            .or_else(|_| bool::try_from(&v).map(|b| b.to_string()))
+            .unwrap_or_else(|_| "?".to_string()),
+        Err(e) => format!("n/a ({:#010x})", e.code().0),
+    }
+}
+
+/// The rate-control values the MFT holds `when` we look. The VBV decides how far a scene change
+/// can burst past the bitrate, and nothing else in the log shows it.
+unsafe fn log_values(api: &ICodecAPI, when: &str) {
+    log::info!(
+        "encoder {when}: vbv {} bits, mean bitrate {}, max bitrate {}, rate control {}, low latency {}, gop {}",
+        read_value(api, &CODECAPI_AVEncCommonBufferSize),
+        read_value(api, &CODECAPI_AVEncCommonMeanBitRate),
+        read_value(api, &CODECAPI_AVEncCommonMaxBitRate),
+        read_value(api, &CODECAPI_AVEncCommonRateControlMode),
+        read_value(api, &CODECAPI_AVLowLatencyMode),
+        read_value(api, &CODECAPI_AVEncMPVGOPSize),
+    );
 }
 
 unsafe fn make_input_sample(nv12: &[u8], ts_us: i64, dur_us: i64) -> Result<IMFSample> {
@@ -400,12 +439,29 @@ unsafe fn activate_and_negotiate(
     height: u32,
     fps: u32,
     bitrate_bps: u32,
+    vbv: u32,
 ) -> Result<IMFTransform> {
     let transform: IMFTransform = act.ActivateObject().context("ActivateObject")?;
 
     // Unlock the async hardware MFT so we may drive it.
     let attrs = transform.GetAttributes().context("GetAttributes")?;
     attrs.SetUINT32(&MF_TRANSFORM_ASYNC_UNLOCK, 1).context("async unlock")?;
+
+    // Static settings go in before the output type, as Microsoft's encoder sequence has it: NVIDIA's
+    // MFT answered ok to a VBV set afterwards and kept its 3-second default (2026-10-23), as it does
+    // with the GOP. The bitrate is the exception — it follows the link mid-stream.
+    if let Ok(api) = transform.cast::<ICodecAPI>() {
+        log_values(&api, "defaults");
+        log_set(&api, &CODECAPI_AVLowLatencyMode, VARIANT::from(true), "low_latency before output type");
+        log_set(
+            &api,
+            &CODECAPI_AVEncCommonRateControlMode,
+            VARIANT::from(eAVEncCommonRateControlMode_CBR.0 as u32),
+            "cbr before output type",
+        );
+        log_set(&api, &CODECAPI_AVEncCommonBufferSize, VARIANT::from(vbv), "vbv before output type");
+        log_set(&api, &CODECAPI_AVEncMPVGOPSize, VARIANT::from(fps * GOP_SECONDS), "gop before output type");
+    }
 
     // Encoders want the OUTPUT type set before the input type.
     let out = MFCreateMediaType()?;
@@ -436,6 +492,7 @@ unsafe fn create_hw_encoder(
     height: u32,
     fps: u32,
     bitrate_bps: u32,
+    vbv: u32,
 ) -> Result<(IMFTransform, String)> {
     let out_type = MFT_REGISTER_TYPE_INFO { guidMajorType: MFMediaType_Video, guidSubtype: subtype };
     let mut activators: *mut Option<IMFActivate> = std::ptr::null_mut();
@@ -466,7 +523,7 @@ unsafe fn create_hw_encoder(
     for act in std::slice::from_raw_parts(activators, count as usize) {
         let Some(act) = act else { continue };
         let name = friendly_name(act);
-        match activate_and_negotiate(act, subtype, width, height, fps, bitrate_bps) {
+        match activate_and_negotiate(act, subtype, width, height, fps, bitrate_bps, vbv) {
             Ok(transform) => {
                 if !refused.is_empty() {
                     log::warn!("using {name} after {} refused: {}", refused.len(), refused.join("; "));
@@ -486,7 +543,12 @@ unsafe fn create_hw_encoder(
 
 #[cfg(test)]
 mod tests {
-    use super::strip_aud;
+    use super::{strip_aud, vbv_bits};
+
+    #[test]
+    fn should_size_the_vbv_at_a_quarter_second_of_the_bitrate() {
+        assert_eq!(vbv_bits(6_000_000), 1_500_000);
+    }
 
     /// start code + NAL header byte + one payload byte
     fn nal(header: u8) -> Vec<u8> {

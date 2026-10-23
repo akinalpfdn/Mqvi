@@ -14,8 +14,14 @@ export type OutputTracker = {
   said(): string;
 };
 
-/** Lines that look like a failure, so a later stats line cannot bury the error. */
+/** Unlogged output that reads as a failure — what `main` returned, a panic. */
 const ERROR_LINE = /error|panic|bail/i;
+/**
+ * The level env_logger writes at the start of every line, whatever the module. A logged line is a
+ * failure only at ERROR: a WARN line can quote the system's message ("Unspecified error") while the
+ * helper carries on, and would then head the report of a share that later died of something else.
+ */
+const LOG_LEVEL = /^\[(?:\S+ )?(ERROR|WARN|INFO|DEBUG|TRACE)\b[^\]]*\]/;
 /** anyhow's chain header. Carries no information of its own — the causes under it do. */
 const CHAIN_HEADER = /^caused by:?$/i;
 /** Enough for a deep cause chain; the server truncates the report at 200 anyway. */
@@ -73,10 +79,11 @@ export function createOutputTracker(): OutputTracker {
       return;
     }
 
-    // Matched against the full line on purpose: `log::error!("encoder stopped")` says nothing that
-    // looks like a failure, and the only evidence that it is one is the ERROR in the prefix that
-    // the next line strips.
-    inError = ERROR_LINE.test(full);
+    // A logged line is judged by its level, anything else by its wording. Read off the full line:
+    // `log::error!("encoder stopped")` says nothing that reads as a failure, and the ERROR that
+    // says it is one lives in the prefix the next line strips.
+    const level = LOG_LEVEL.exec(full)?.[1];
+    inError = level === undefined ? ERROR_LINE.test(full) : level === "ERROR";
     const line = full.replace(LOG_PREFIX, "");
     lastLine = line;
     if (inError) addError(line);

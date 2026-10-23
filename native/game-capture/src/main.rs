@@ -33,13 +33,21 @@ use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
 use livekit::{Room, RoomEvent, RoomOptions};
 use mqvi_game_capture::capture::{ScreenCapture, SourceGone};
 use mqvi_game_capture::display_light;
-use mqvi_game_capture::mf_encoder::{describe_hardware_encoders, hardware_encoder_count, HwEncoder};
+use mqvi_game_capture::mf_encoder::{
+    describe_hardware_encoders, hardware_encoder_count, EncodedPacket, HwEncoder,
+};
 use mqvi_game_capture::nv12;
 use tokio::sync::oneshot;
 #[cfg(windows)]
 use windows::core::PCWSTR;
 
+mod delivery_watch;
+mod encoder_swap;
+mod keyframe_watch;
+mod pump_timing;
+mod rate_policy;
 mod sharp_pump;
+mod vbv_follow;
 #[cfg(windows)]
 use windows::Win32::Foundation::HANDLE;
 #[cfg(windows)]
@@ -161,6 +169,52 @@ struct Args {
     /// paths stream the same. Ignored by smooth, which sizes its own.
     #[arg(long)]
     max_bitrate: Option<u64>,
+}
+
+/// The dev-only harness switches, as the hardware pump reads them. Off in every app run.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct DevHarness {
+    /// `MQVI_DEV_SAME_MS_EVERY`: hand every Nth encoded frame over in the same millisecond as the
+    /// next, which libwebrtc drops — the repeatable drop the pass-through must recover from.
+    same_ms_every: u64,
+    /// `MQVI_DEV_IGNORE_KEYFRAME_REQUESTS`: answer no keyframe request, so the watchdog has to
+    /// rebuild the encoder.
+    ignore_keyframe_requests: bool,
+    /// `MQVI_DEV_ONE_ENCODER_SESSION`: refuse an encoder built beside the running one, as a GPU
+    /// with a single free session does — the rebuild has to free the old one first.
+    one_encoder_session: bool,
+}
+
+impl DevHarness {
+    /// Read leniently and never as arguments: a value the parser rejected made every helper run
+    /// exit at once — the launch-time encoder probe included, which quietly switched "Smooth
+    /// Video" off. Anything unreadable means off.
+    fn from_values(
+        same_ms_every: Option<&str>,
+        ignore_keyframe_requests: Option<&str>,
+        one_encoder_session: Option<&str>,
+    ) -> Self {
+        let on = |v: Option<&str>| {
+            matches!(
+                v.map(|v| v.trim().to_ascii_lowercase()).as_deref(),
+                Some("1" | "true" | "yes" | "on")
+            )
+        };
+        Self {
+            same_ms_every: same_ms_every.and_then(|v| v.trim().parse().ok()).unwrap_or(0),
+            ignore_keyframe_requests: on(ignore_keyframe_requests),
+            one_encoder_session: on(one_encoder_session),
+        }
+    }
+
+    fn from_env() -> Self {
+        let var = |name: &str| std::env::var(name).ok();
+        Self::from_values(
+            var("MQVI_DEV_SAME_MS_EVERY").as_deref(),
+            var("MQVI_DEV_IGNORE_KEYFRAME_REQUESTS").as_deref(),
+            var("MQVI_DEV_ONE_ENCODER_SESSION").as_deref(),
+        )
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, clap::ValueEnum)]
@@ -511,6 +565,7 @@ async fn run() -> Result<()> {
     };
     let track_name = if sharp { TRACK_NAME_SHARP } else { TRACK_NAME_SMOOTH };
     let track = LocalVideoTrack::create_video_track(track_name, RtcVideoSource::Native(rtc_source.clone()));
+    let watched_track = track.clone();
 
     let backends: Vec<_> = VideoEncoderBackend::list_available().into_iter().collect();
     log::info!("available encoder backends: {backends:?}");
@@ -567,12 +622,21 @@ async fn run() -> Result<()> {
     // The cause as text, and whether it was the source going away rather than a fault.
     let (died_tx, mut died_rx) = oneshot::channel::<(String, bool)>();
     let cfg = VideoConfig { width, height, fps, hevc, max };
+    let dev = DevHarness::from_env();
+    if dev.same_ms_every > 0 || dev.ignore_keyframe_requests || dev.one_encoder_session {
+        log::warn!(
+            "dev harness on: same-ms pair every {} frames, ignore keyframe requests {}, one encoder session {}",
+            dev.same_ms_every,
+            dev.ignore_keyframe_requests,
+            dev.one_encoder_session
+        );
+    }
     let mf_thread = if use_mf || sharp {
         let (src, stop) = (rtc_source.clone(), stop.clone());
         Some(std::thread::spawn(move || {
             let result = match (sharp, capture) {
                 (true, Some(cap)) => sharp_pump::sharp_pump(src, cfg, cap, stop, ready_tx),
-                (_, capture) => encoded_pump(src, cfg, capture, stop, ready_tx),
+                (_, capture) => encoded_pump(src, cfg, capture, stop, ready_tx, dev),
             };
             if let Err(e) = result {
                 // Bare, with no prefix of its own: the error the app finally reports embeds this
@@ -612,6 +676,9 @@ async fn run() -> Result<()> {
             _ = &mut stop_signal => log::info!("asked to stop before the first frame"),
         }
     }
+
+    // Smooth only: its frames are already encoded, so any frame libwebrtc drops is damage on screen.
+    let delivery = (streaming && use_mf).then(|| tokio::spawn(delivery_watch::watch(watched_track)));
 
     if streaming {
         // The app waits for exactly this line before it commits to the native engine.
@@ -656,6 +723,9 @@ async fn run() -> Result<()> {
     stop.store(true, Ordering::Relaxed);
     if let Some(p) = raw_pump {
         p.abort();
+    }
+    if let Some(w) = delivery {
+        w.abort();
     }
     // Joining matters: the pump owns `capture`, so this is where the WGC session gets closed.
     log::info!("shutdown: joining encode thread");
@@ -786,6 +856,23 @@ impl Drop for MmcssHandle {
     }
 }
 
+/// The pump's next encoder, for `encoder_swap::replace`. `beside` says whether the current one
+/// still runs; the dev harness refuses that case the way a GPU with one free session does.
+fn next_encoder(
+    dev: DevHarness,
+    beside: bool,
+    width: u32,
+    height: u32,
+    fps: u32,
+    bps: u32,
+    hevc: bool,
+) -> Result<HwEncoder> {
+    if beside && dev.one_encoder_session {
+        bail!("dev harness: no second encoder session");
+    }
+    HwEncoder::new(width, height, fps, bps, hevc)
+}
+
 /// MF hardware-encode pump (dedicated OS thread): NV12 (synthetic or WGC-captured screen) →
 /// hardware H264/H265 → livekit PreEncoded. Blocking encode() lives off the tokio runtime.
 fn encoded_pump(
@@ -794,6 +881,7 @@ fn encoded_pump(
     mut capture: Option<ScreenCapture>,
     stop: Arc<AtomicBool>,
     ready: oneshot::Sender<String>,
+    dev: DevHarness,
 ) -> Result<()> {
     let VideoConfig { mut width, mut height, fps, hevc, max } = cfg;
 
@@ -831,12 +919,25 @@ fn encoded_pump(
     let mut keyframes = 0u32;
     let mut bytes = 0usize;
     let mut last_report = std::time::Instant::now();
-    // WebRTC bandwidth estimate: collected every tick, applied at most once a second. Reconfiguring
-    // the hardware encoder ~30x/s (with an oscillating estimate) makes it emit undecodable frames.
-    let mut pending_bitrate = 0u32;
-    let mut applied_bitrate = bitrate;
-    // WebRTC's raw estimate, reported as-is — see where it's taken.
+    // How the encoder's bitrate follows libwebrtc's target — see rate_policy.
+    let mut rate = rate_policy::RatePolicy::new(bitrate);
+    // When a new encoder is due so its VBV fits that bitrate — see vbv_follow.
+    let mut vbv_follow = vbv_follow::VbvFollow::new(bitrate, std::time::Instant::now());
+    // Keyframes out of the encoder this second, the largest, and the delta frames to compare it to.
+    let mut keyframes_out = 0u32;
+    let mut largest_keyframe = 0usize;
+    let mut delta_bytes = 0usize;
+    let mut deltas = 0u32;
+    // libwebrtc's latest target, as it gave it.
     let mut last_estimate = 0u32;
+    // Slots dropped after a stall, and when the last frame went to livekit — see pump_timing.
+    let mut skipped_slots = 0u64;
+    let mut last_handoff: Option<std::time::Instant> = None;
+    // An encoder that ignores keyframe requests is rebuilt — see keyframe_watch.
+    let mut keyframe_watch = keyframe_watch::KeyframeWatch::default();
+    // Dev harness only: a frame held back to go out with the next, and the handoffs so far.
+    let mut held: Option<EncodedPacket> = None;
+    let mut handoffs = 0u64;
     // Announced once, on the first frame the encoder really delivers.
     let mut ready = Some(ready);
     // A transient encode error must not kill the stream, but a dead MFT (driver reset) fails every
@@ -846,6 +947,11 @@ fn encoded_pump(
     let mut silent_reports = 0u32;
 
     while !stop.load(Ordering::Relaxed) {
+        // A pump a full frame behind (the game took the CPU) resumes at the current slot.
+        let (slot, skipped) =
+            pump_timing::skip_missed_slots(idx, t0.elapsed().as_micros() as u64, frame_us as u64);
+        idx = slot;
+        skipped_slots += skipped;
         // Absolute schedule: frame idx is due at t0 + idx*frame_us. Sleeping to an absolute target
         // (not interval-minus-work) keeps delivery even — relative sleeps accumulate drift/jitter
         // when encode() takes a variable time, which shows as the stream stretching then snapping.
@@ -857,19 +963,41 @@ fn encoded_pump(
         // The SFU raises a keyframe request (PLI/FIR) when a subscriber needs an IDR — e.g. after
         // packet loss, so the decoder recovers instead of ghosting. Force one this frame.
         // A rebuilt encoder needs one too, or subscribers can't decode the new size at all.
-        let force_key = source.take_keyframe_request() || rebuild_idr;
+        let requested = source.take_keyframe_request();
+        if requested {
+            keyframe_watch.requested();
+        }
+        let force_key = (requested && !dev.ignore_keyframe_requests) || rebuild_idr;
         if force_key {
             keyframes += 1;
         }
         rebuild_idr = false;
-        // Follow WebRTC's bandwidth estimate so the encoder doesn't flood the link (blocky
-        // corruption). Just record it here; apply at most once/second below.
+        // Follow libwebrtc's target: whatever the encoder makes above it, libwebrtc may drop after
+        // it is already a reference.
         if let Some(rc) = source.take_rate_control_request() {
-            // Keep the raw estimate for the stats line: what we *apply* is clamped, so a link
-            // WebRTC thinks is worth 200 kbps and one worth 800 look identical from the outside —
-            // and the difference between them is the whole picture quality.
             last_estimate = rc.target_bitrate_bps as u32;
-            pending_bitrate = last_estimate.clamp(800_000, 20_000_000);
+        }
+        let kept = rate.applied();
+        if let Some(bps) = rate.next(last_estimate, std::time::Instant::now()) {
+            if !enc.set_bitrate(bps) {
+                rate.refused(kept);
+                log::warn!("{} refused {} kbps, keeping {} kbps", enc.name(), bps / 1000, kept / 1000);
+            }
+        }
+        if vbv_follow.should_rebuild(rate.applied(), std::time::Instant::now()) {
+            log::info!(
+                "new encoder for the VBV: sized for {} kbps, running at {} kbps",
+                vbv_follow.basis() / 1000,
+                rate.applied() / 1000
+            );
+            enc = encoder_swap::replace(enc, |beside| {
+                next_encoder(dev, beside, width, height, fps, rate.applied(), hevc)
+            })
+            .context("rebuilding the encoder for a new VBV")?;
+            vbv_follow.rebuilt(rate.applied(), std::time::Instant::now());
+            // A fresh MFT opens with an IDR; asking keeps it to that one.
+            rebuild_idr = true;
+            continue;
         }
 
         // Frame source: real screen (reuse last on no-change) or the synthetic pattern. Both
@@ -910,8 +1038,11 @@ fn encoded_pump(
                         };
                         if settled {
                             log::info!("stream {width}x{height} → {}x{} (source settled)", want.0, want.1);
-                            enc = HwEncoder::new(want.0, want.1, fps, applied_bitrate, hevc)
-                                .context("rebuilding the encoder for the new size")?;
+                            enc = encoder_swap::replace(enc, |beside| {
+                                next_encoder(dev, beside, want.0, want.1, fps, rate.applied(), hevc)
+                            })
+                            .context("rebuilding the encoder for the new size")?;
+                            vbv_follow.rebuilt(rate.applied(), std::time::Instant::now());
                             (width, height) = want;
                             wanted = None;
                             // Subscribers need an IDR at the new size to decode anything at all.
@@ -951,18 +1082,42 @@ fn encoded_pump(
         };
         fed += 1;
         let delivered = !packets.is_empty();
+        let mut unanswered = false;
         for p in packets {
-            sent += 1;
-            bytes += p.data.len();
-            let ev = EncodedVideoFrame {
-                codec,
-                payload: &p.data,
-                timestamp_us: p.timestamp_us,
-                frame_type: if p.keyframe { EncodedFrameType::Key } else { EncodedFrameType::Delta },
-                resolution: VideoResolution { width, height },
-                frame_metadata: None,
-            };
-            source.capture_encoded_frame(&ev);
+            unanswered |= keyframe_watch.delivered(p.keyframe);
+            if p.keyframe {
+                keyframes_out += 1;
+                largest_keyframe = largest_keyframe.max(p.data.len());
+            } else {
+                delta_bytes += p.data.len();
+                deltas += 1;
+            }
+            if held.is_none() && pump_timing::holds_for_same_ms_pair(handoffs, dev.same_ms_every) {
+                held = Some(p);
+                continue;
+            }
+            let wait = pump_timing::handoff_wait(last_handoff.map(|t| t.elapsed()));
+            if !wait.is_zero() {
+                std::thread::sleep(wait);
+            }
+            // A held frame goes out right before this one, inside the same millisecond.
+            for q in held.take().into_iter().chain(std::iter::once(p)) {
+                sent += 1;
+                bytes += q.data.len();
+                hand_over(&source, codec, &q, width, height);
+                handoffs += 1;
+            }
+            last_handoff = Some(std::time::Instant::now());
+        }
+        if unanswered {
+            log::warn!("{} ignored a keyframe request for 10 frames; rebuilding it", enc.name());
+            enc = encoder_swap::replace(enc, |beside| {
+                next_encoder(dev, beside, width, height, fps, rate.applied(), hevc)
+            })
+            .context("rebuilding an encoder that ignored a keyframe request")?;
+            vbv_follow.rebuilt(rate.applied(), std::time::Instant::now());
+            // A fresh MFT opens with an IDR; asking for one makes sure of it.
+            rebuild_idr = true;
         }
         if delivered {
             if let Some(tx) = ready.take() {
@@ -972,22 +1127,30 @@ fn encoded_pump(
         idx += 1;
 
         if last_report.elapsed() >= Duration::from_secs(1) {
-            // Apply the latest bandwidth estimate at most once/second.
-            if pending_bitrate != 0 && pending_bitrate != applied_bitrate {
-                enc.set_bitrate(pending_bitrate);
-                applied_bitrate = pending_bitrate;
-            }
             let secs = last_report.elapsed().as_secs_f64();
+            // How much of a second at the current bitrate the largest keyframe took — the burst the
+            // link had to absorb — and how it compares to an ordinary frame.
+            let keyframe_seconds = largest_keyframe as f64 * 8.0 / f64::from(rate.applied().max(1));
+            let keyframe_vs_delta = if deltas > 0 && delta_bytes > 0 {
+                largest_keyframe as f64 / (delta_bytes as f64 / f64::from(deltas))
+            } else {
+                0.0
+            };
             log::info!(
-                "encode: fed {:.1} fps, sent {:.1} fps, {:.0} kbps out | {}x{}, encoder at {} kbps,                  link estimate {} kbps, {} keyframes",
+                "encode: fed {:.1} fps, sent {:.1} fps, {:.0} kbps out | {}x{}, encoder at {} kbps, link estimate {} kbps, {} keyframes asked, {} slots skipped | {} keyframes out, largest {} KB = {:.2} s of bitrate, {:.1}x a delta frame",
                 fed as f64 / secs,
                 sent as f64 / secs,
                 (bytes as f64 * 8.0 / 1000.0) / secs,
                 width,
                 height,
-                applied_bitrate / 1000,
+                rate.applied() / 1000,
                 last_estimate / 1000,
-                keyframes
+                keyframes,
+                skipped_slots,
+                keyframes_out,
+                largest_keyframe / 1024,
+                keyframe_seconds,
+                keyframe_vs_delta
             );
             // An encoder can also fail without ever erroring: keep accepting frames and simply
             // stop producing. `fed` climbs, `sent` sits at 0, viewers hold the last picture and
@@ -1010,10 +1173,34 @@ fn encoded_pump(
             sent = 0;
             bytes = 0;
             keyframes = 0;
+            skipped_slots = 0;
+            keyframes_out = 0;
+            largest_keyframe = 0;
+            delta_bytes = 0;
+            deltas = 0;
             last_report = std::time::Instant::now();
         }
     }
     Ok(())
+}
+
+/// Hands one encoded access unit to livekit.
+fn hand_over(
+    source: &NativeVideoSource,
+    codec: EncodedVideoCodec,
+    p: &EncodedPacket,
+    width: u32,
+    height: u32,
+) {
+    let ev = EncodedVideoFrame {
+        codec,
+        payload: &p.data,
+        timestamp_us: p.timestamp_us,
+        frame_type: if p.keyframe { EncodedFrameType::Key } else { EncodedFrameType::Delta },
+        resolution: VideoResolution { width, height },
+        frame_metadata: None,
+    };
+    source.capture_encoded_frame(&ev);
 }
 
 /// Feeds an animated I420 test pattern into the source at `fps`.
@@ -1092,6 +1279,36 @@ mod tests {
         let wrapped: anyhow::Result<()> = Err(anyhow::Error::new(SourceGone)).context("capturing");
         assert!(is_source_gone(&wrapped.unwrap_err()));
         assert!(!is_source_gone(&anyhow::anyhow!("the encoder died")));
+    }
+
+    #[test]
+    fn should_turn_the_dev_switches_on_when_they_hold_common_truthy_values() {
+        use super::DevHarness;
+
+        for on in ["1", "true", " YES ", "on"] {
+            let dev = DevHarness::from_values(Some("90"), Some(on), Some(on));
+            let all_on = DevHarness {
+                same_ms_every: 90,
+                ignore_keyframe_requests: true,
+                one_encoder_session: true,
+            };
+            assert_eq!(dev, all_on, "{on}");
+        }
+    }
+
+    #[test]
+    fn should_keep_the_dev_switches_off_when_a_value_cannot_be_read() {
+        use super::DevHarness;
+        let off = DevHarness {
+            same_ms_every: 0,
+            ignore_keyframe_requests: false,
+            one_encoder_session: false,
+        };
+
+        // A bad value must never stop the helper from starting — it switches the harness off.
+        assert_eq!(DevHarness::from_values(Some("ninety"), Some("maybe"), Some("2")), off);
+        assert_eq!(DevHarness::from_values(Some("-5"), Some("0"), Some("off")), off);
+        assert_eq!(DevHarness::from_values(None, None, None), off);
     }
 
     const CAP_720: (u32, u32) = (1280, 720);
