@@ -29,10 +29,7 @@ fn main() -> anyhow::Result<()> {
 
     let source = Source::find(target)?;
     log::info!("{}: {}x{} pixels", source.label(), source.width(), source.height());
-    // Measured at a size a share really streams: at most 1080 high, aspect kept.
-    let height = source.height().min(1080);
-    let width = (u64::from(source.width()) * u64::from(height) / u64::from(source.height())) as u32;
-    let canvas = (width & !1, height & !1);
+    let canvas = fit_1080((source.width(), source.height()));
     log::info!("capturing at {}x{}", canvas.0, canvas.1);
     let video = NativeVideoSource::new(VideoResolution { width: canvas.0, height: canvas.1 }, true);
     let capture = MacCapture::start(
@@ -40,6 +37,7 @@ fn main() -> anyhow::Result<()> {
         canvas,
         30,
         video,
+        fit_1080,
         || log::info!("first frame handed over"),
         |ended| log::warn!("capture ended: {ended:?}"),
     )?;
@@ -47,6 +45,14 @@ fn main() -> anyhow::Result<()> {
     drop(capture);
     log::info!("stopped");
     Ok(())
+}
+
+/// Measured at a size a share really streams: at most 1080 high, aspect kept.
+#[cfg(target_os = "macos")]
+fn fit_1080((w, h): (u32, u32)) -> (u32, u32) {
+    let height = h.min(1080);
+    let width = (u64::from(w) * u64::from(height) / u64::from(h.max(1))) as u32;
+    (width & !1, height & !1)
 }
 
 #[cfg(not(target_os = "macos"))]

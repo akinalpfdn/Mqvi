@@ -44,7 +44,7 @@ use mqvi_game_capture::mf_encoder::{
 #[cfg(windows)]
 use mqvi_game_capture::nv12;
 use mqvi_game_capture::source::SourceGone;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 #[cfg(windows)]
 use windows::core::PCWSTR;
 
@@ -726,8 +726,10 @@ async fn run() -> Result<()> {
     // this machine) or die later (a GPU driver reset — routine for our workload, a fullscreen
     // game), and neither shows up as a process exit.
     let (ready_tx, ready_rx) = oneshot::channel::<String>();
-    // The cause as text, and whether it was the source going away rather than a fault.
-    let (died_tx, mut died_rx) = oneshot::channel::<(String, bool)>();
+    // The cause as text, and whether it was the source going away rather than a fault. Several
+    // senders on the mac (the capture, and the check that its encoder is really hardware); one on
+    // Windows. The first reason sent is the one reported.
+    let (died_tx, mut died_rx) = mpsc::unbounded_channel::<(String, bool)>();
     #[cfg(windows)]
     let mf_thread = start_windows_pump(
         use_mf || sharp,
@@ -740,11 +742,16 @@ async fn run() -> Result<()> {
         died_tx,
     );
     // ScreenCaptureKit runs on its own queue; there is no thread of ours to start or join. Ready
-    // here is "the first frame reached libwebrtc", not yet "VideoToolbox encoded it" (MSC-02).
+    // waits for proof that VideoToolbox, in hardware, encoded the first frame.
     #[cfg(target_os = "macos")]
-    let mac_stream = match capture {
-        Some(src) => Some(start_mac_capture(&src, (width, height), fps, rtc_source.clone(), ready_tx, died_tx)?),
-        None => None,
+    let (mac_stream, encode_check) = match capture {
+        Some(src) => {
+            let (frame_tx, frame_rx) = oneshot::channel::<()>();
+            let check = tokio::spawn(confirm_hardware_encode(watched_track.clone(), frame_rx, ready_tx, died_tx.clone()));
+            let stream = start_mac_capture(&src, (width, height), fps, max, rtc_source.clone(), frame_tx, died_tx)?;
+            (Some(stream), Some(check))
+        }
+        None => (None, None),
     };
     let raw_pump = (!use_mf && !sharp && !has_capture)
         .then(|| tokio::spawn(frame_pump(rtc_source, width, height, fps)));
@@ -791,11 +798,11 @@ async fn run() -> Result<()> {
                     log::info!("shutting down");
                     break;
                 }
-                reason = &mut died_rx => {
+                reason = died_rx.recv() => {
                     // The same trap as the startup path: `reason` IS the cause, so putting a
                     // generic sentence in the error throws away the only line that names the fault.
                     // Exiting is the only way the app learns: it watches for our process to end.
-                    let (cause, gone) = reason.unwrap_or_else(|_| ("no reason given".into(), false));
+                    let (cause, gone) = reason.unwrap_or_else(|| ("no reason given".into(), false));
                     startup_error = Some(if gone {
                         anyhow::Error::new(SourceGone)
                     } else {
@@ -829,8 +836,8 @@ async fn run() -> Result<()> {
         w.abort();
     }
     #[cfg(target_os = "macos")]
-    if let Some(w) = encoder {
-        w.abort();
+    for task in [encoder, encode_check].into_iter().flatten() {
+        task.abort();
     }
     // Joining matters: the pump owns `capture`, so this is where the WGC session gets closed.
     #[cfg(windows)]
@@ -891,7 +898,7 @@ fn start_windows_pump(
     src: NativeVideoSource,
     stop: Arc<AtomicBool>,
     ready_tx: oneshot::Sender<String>,
-    died_tx: oneshot::Sender<(String, bool)>,
+    died_tx: mpsc::UnboundedSender<(String, bool)>,
 ) -> Option<std::thread::JoinHandle<()>> {
     if !pumped {
         return None;
@@ -920,24 +927,27 @@ fn start_windows_pump(
     }))
 }
 
-/// macOS: starts ScreenCaptureKit into `video`, wired to the same ready/died channels the Windows
-/// pump answers on.
+/// macOS: starts ScreenCaptureKit into `video`. `first_frame` fires on the first frame handed
+/// over, and a share that ends by itself reports on the same died channel the Windows pump uses.
 #[cfg(target_os = "macos")]
 fn start_mac_capture(
     src: &mac_capture::Source,
     canvas: (u32, u32),
     fps: u32,
+    max: (u32, u32),
     video: NativeVideoSource,
-    ready_tx: oneshot::Sender<String>,
-    died_tx: oneshot::Sender<(String, bool)>,
+    first_frame: oneshot::Sender<()>,
+    died_tx: mpsc::UnboundedSender<(String, bool)>,
 ) -> Result<mac_capture::MacCapture> {
     mac_capture::MacCapture::start(
         src,
         canvas,
         fps,
         video,
+        // A resized source streams at what the quality cap allows for its new size, as at start.
+        move |(w, h)| canvas_for(w, h, max),
         move || {
-            let _ = ready_tx.send("VideoToolbox (libwebrtc)".to_string());
+            let _ = first_frame.send(());
         },
         move |ended| {
             let report = match ended {
@@ -950,6 +960,46 @@ fn start_mac_capture(
             let _ = died_tx.send(report);
         },
     )
+}
+
+/// How long after the first captured frame VideoToolbox has to show an encoded one.
+#[cfg(target_os = "macos")]
+const ENCODE_CONFIRM_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// macOS: announces ready only once the sender's stats show a frame encoded in hardware. Asking
+/// libwebrtc for VideoToolbox is not getting it: it can fall back to a software H.264 encoder without
+/// saying so, and a software "Smooth Video" is the CPU-bound share this engine exists to avoid. The
+/// app then falls back to "Sharp Video", whose software VP9 does that job better.
+#[cfg(target_os = "macos")]
+async fn confirm_hardware_encode(
+    track: LocalVideoTrack,
+    first_frame: oneshot::Receiver<()>,
+    ready: oneshot::Sender<String>,
+    died: mpsc::UnboundedSender<(String, bool)>,
+) {
+    // The capture ended before a frame: it has reported why, and dropping `ready` says none came.
+    if first_frame.await.is_err() {
+        return;
+    }
+    let deadline = std::time::Instant::now() + ENCODE_CONFIRM_TIMEOUT;
+    loop {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        // Absent briefly while the sender comes up; the deadline below bounds the wait.
+        let reading = track.get_stats().await.ok().and_then(|s| encoder_watch::EncoderReading::from_stats(&s));
+        if let Some(r) = reading.filter(|r| r.frames_encoded > 0) {
+            let name = if r.implementation.is_empty() { "an unnamed encoder".to_string() } else { r.implementation };
+            if r.hardware {
+                let _ = ready.send(name);
+            } else {
+                let _ = died.send((format!("libwebrtc encoded with {name}, which is not a hardware encoder"), false));
+            }
+            return;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = died.send((format!("no frame encoded within {}s of the first capture", ENCODE_CONFIRM_TIMEOUT.as_secs()), false));
+            return;
+        }
+    }
 }
 
 /// What the pump encodes: frame geometry and codec, settled before it starts.
