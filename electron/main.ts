@@ -40,7 +40,13 @@ import { createCredentialStore } from "./credentialStore";
 import { createRedactor } from "./redact";
 import { createOutputTracker } from "./helperOutput";
 import { hdrActiveFrom, runProbe, smoothSupportFrom, type ProbeAnswer } from "./helperProbe";
-import { engineArgs, type CaptureEngine } from "./captureArgs";
+import {
+  captureHelperName,
+  engineArgs,
+  hasCaptureHelper,
+  macCaptureTarget,
+  type CaptureEngine,
+} from "./captureArgs";
 
 /** Main application window reference */
 let mainWindow: BrowserWindow | null = null;
@@ -440,6 +446,7 @@ async function handleProbeLine(line: string, generation: number): Promise<void> 
  * screen by its physical bounds (the picked monitor is not necessarily the primary one).
  */
 async function resolveCaptureTarget(sourceId?: string): Promise<string[]> {
+  if (process.platform === "darwin") return macCaptureTarget(sourceId);
   if (sourceId?.startsWith("window:")) {
     return ["--window-handle", sourceId.split(":")[1]];
   }
@@ -1389,8 +1396,8 @@ function setupIPC(): void {
   // ─── Native Game Capture ───
   const gameCaptureExePath = () =>
     process.env.NODE_ENV === "development" || !app.isPackaged
-      ? path.join(app.getAppPath(), "native", "mqvi-game-capture.exe")
-      : path.join(process.resourcesPath, "native", "mqvi-game-capture.exe");
+      ? path.join(app.getAppPath(), "native", captureHelperName(process.platform))
+      : path.join(process.resourcesPath, "native", captureHelperName(process.platform));
 
   // Runs the helper with a `--probe-*` flag and resolves its answer, or null if it gave none.
   const runHelperProbe = (args: string | string[], timeoutMs: number): Promise<ProbeAnswer | null> =>
@@ -1408,7 +1415,7 @@ function setupIPC(): void {
   let smoothCaptureProbe: Promise<boolean | null> | null = null;
 
   ipcMain.handle("get-smooth-capture-support", () => {
-    if (process.platform !== "win32") return false;
+    if (!hasCaptureHelper(process.platform)) return false;
     if (smoothCaptureSupport !== null) return smoothCaptureSupport;
     // Generous: it builds real encoders, off any path a user waits on.
     smoothCaptureProbe ??= runHelperProbe("--probe-encoders", 10_000)
@@ -1443,8 +1450,9 @@ function setupIPC(): void {
     return hdrActiveFrom(await runHelperProbe(["--probe-hdr", ...target], 3_000));
   });
 
-  // Spawns mqvi-game-capture.exe (WGC capture + hardware encode, or software VP9 for a sharp share
-  // on an HDR display — see captureArgs). It joins the LiveKit room as
+  // Spawns the game-capture helper: on Windows WGC capture + hardware encode, or software VP9 for a
+  // sharp share on an HDR display (see captureArgs); on macOS ScreenCaptureKit + VideoToolbox. It
+  // joins the LiveKit room as
   // the "{userId}_ss" screen-share identity using the screen-token, so other clients subscribe
   // to it exactly like any screen share. Connection + capture params come from the renderer.
   ipcMain.handle(
@@ -1461,7 +1469,7 @@ function setupIPC(): void {
         maxBitrate?: number;
       }
     ): Promise<{ started: boolean; error?: string }> => {
-      if (process.platform !== "win32") return { started: false, error: "windows only" };
+      if (!hasCaptureHelper(process.platform)) return { started: false, error: "no capture helper on this platform" };
       const engine = engineArgs(opts.engine, opts.maxBitrate);
       if (!engine) return { started: false, error: "invalid engine or bitrate" };
 
@@ -1477,6 +1485,9 @@ function setupIPC(): void {
       try {
         target = await resolveCaptureTarget(opts.sourceId);
       } catch (err) {
+        // Logged: this return falls back to the browser before the helper is ever spawned, so
+        // without it the dev log shows a fallback with no cause anywhere.
+        console.error(`[main] Game capture target for '${opts.sourceId ?? ""}' failed:`, err);
         return { started: false, error: err instanceof Error ? err.message : String(err) };
       }
       if (thisGen !== gameCaptureGeneration) return { started: false, error: "superseded" };

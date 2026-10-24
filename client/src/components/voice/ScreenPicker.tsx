@@ -15,7 +15,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useVoiceStore, type NativeCaptureResult } from "../../stores/voiceStore";
-import { resolvePublishEngine } from "../../utils/publishEngine";
+import { hasCaptureHelper, resolvePublishEngine } from "../../utils/publishEngine";
 
 interface PickerSource {
   id: string;
@@ -55,10 +55,10 @@ function ScreenPicker() {
   const smoothCaptureSupported = useVoiceStore((s) => s.smoothCaptureSupported);
   const loadSmoothCaptureSupport = useVoiceStore((s) => s.loadSmoothCaptureSupport);
 
-  // The helper is Windows-only. Offering the choice everywhere meant a macOS or Linux user could
-  // pick "Smooth Video", get "Sharp Video" on every single share, and never be told why — the
+  // The helper ships on Windows and macOS only. Offering the choice everywhere meant a Linux user
+  // could pick "Smooth Video", get "Sharp Video" on every single share, and never be told why — the
   // same silent lie this whole arc has been closing, just on a platform nobody here tests on.
-  const smoothOffered = window.electronAPI?.platform === "win32";
+  const smoothOffered = hasCaptureHelper(window.electronAPI?.platform);
   // A Windows machine with no hardware encoder is the same lie: every share tried the helper,
   // waited for it to fail, and fell back with a warning. It is shown disabled there, with why.
   const smoothAvailable = smoothOffered && smoothCaptureSupported !== false;

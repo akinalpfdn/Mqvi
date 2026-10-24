@@ -51,7 +51,12 @@ import {
   createVoiceScreenShareSlice,
   type VoiceScreenShareSlice,
 } from "./slices/voiceScreenShareSlice";
-import { HELPER_EXIT_SOURCE_GONE, sharpShareEncoding, type NativeEngine } from "../utils/publishEngine";
+import {
+  HELPER_EXIT_SOURCE_GONE,
+  hasCaptureHelper,
+  sharpShareEncoding,
+  type NativeEngine,
+} from "../utils/publishEngine";
 
 export type { InputMode, ScreenShareQuality };
 
@@ -463,10 +468,11 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
     const channelId = get().currentVoiceChannelId;
     // Not reportable: nothing was attempted, and no share is routed to the helper without these.
     if (!serverId || !channelId || !window.electronAPI) return { ok: false };
-    // Before the token round-trip, not after: the helper is Windows-only, so anywhere else this
-    // would mint a screen-share token and hand the room passphrase to a path that only rejects it.
-    // Also not reportable: shares are only routed to the helper on Windows, so nothing was attempted.
-    if (window.electronAPI.platform !== "win32") return { ok: false };
+    // Before the token round-trip, not after: the helper ships only on Windows and macOS, so
+    // anywhere else this would mint a screen-share token and hand the room passphrase to a path that
+    // only rejects it. Also not reportable: shares are only routed to the helper where it exists, so
+    // nothing was attempted.
+    if (!hasCaptureHelper(window.electronAPI.platform)) return { ok: false };
 
     // Screen-token = the {userId}_ss identity + the room's E2EE passphrase; the native helper
     // publishes with these, so it decrypts on every client exactly like any screen share.
@@ -500,7 +506,7 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
 
   loadSmoothCaptureSupport: async () => {
     const api = window.electronAPI;
-    if (api?.platform !== "win32") {
+    if (!api || !hasCaptureHelper(api.platform)) {
       set({ smoothCaptureSupported: false });
       return;
     }

@@ -8,6 +8,28 @@
 
 export type CaptureEngine = "smooth" | "sharp";
 
+/** The platforms that ship the helper: Windows (WGC + Media Foundation) and macOS (ScreenCaptureKit + VideoToolbox). */
+export function hasCaptureHelper(platform: string): boolean {
+  return platform === "win32" || platform === "darwin";
+}
+
+/** The helper binary's file name: an .exe on Windows, a plain executable on macOS. */
+export function captureHelperName(platform: string): string {
+  return platform === "win32" ? "mqvi-game-capture.exe" : "mqvi-game-capture";
+}
+
+/**
+ * macOS: the helper's target for a picked desktopCapturer source. A screen is "screen:<id>:<n>"
+ * with the display's CGDirectDisplayID, a window "window:<id>:<n>" with its CGWindowID; the helper
+ * matches either exactly in ScreenCaptureKit. Anything else throws, and the share falls back to the
+ * browser rather than capturing something other than what was picked.
+ */
+export function macCaptureTarget(sourceId: string | undefined): string[] {
+  const m = /^(screen|window):(\d+):\d+$/.exec(sourceId ?? "");
+  if (!m) throw new Error(`cannot capture source '${sourceId ?? ""}' on macOS`);
+  return [m[1] === "screen" ? "--display-id" : "--window-id", m[2]];
+}
+
 /** Bounds for the sharp bitrate: wider than any setting the app offers, so only nonsense is refused. */
 const MIN_BITRATE = 100_000;
 const MAX_BITRATE = 20_000_000;

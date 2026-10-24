@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { engineArgs } from "./captureArgs";
+import { captureHelperName, engineArgs, hasCaptureHelper, macCaptureTarget } from "./captureArgs";
 
 // These flags go from the renderer straight onto the helper's command line. A value the helper does
 // not understand ends the share with a usage error, so it is refused here, where the reason is known.
@@ -26,6 +26,38 @@ describe("engineArgs", () => {
     "should refuse a bitrate that is not a sane integer: %s",
     (bitrate) => {
       expect(engineArgs("sharp", bitrate)).toBeNull();
+    }
+  );
+});
+
+describe("the helper per platform", () => {
+  it("should exist on Windows and macOS only", () => {
+    expect(hasCaptureHelper("win32")).toBe(true);
+    expect(hasCaptureHelper("darwin")).toBe(true);
+    expect(hasCaptureHelper("linux")).toBe(false);
+  });
+
+  it("should be an .exe on Windows and a plain executable on macOS", () => {
+    expect(captureHelperName("win32")).toBe("mqvi-game-capture.exe");
+    expect(captureHelperName("darwin")).toBe("mqvi-game-capture");
+  });
+});
+
+describe("macCaptureTarget", () => {
+  it("should address a screen by its CGDirectDisplayID", () => {
+    expect(macCaptureTarget("screen:69733632:0")).toEqual(["--display-id", "69733632"]);
+  });
+
+  it("should address a window by its CGWindowID", () => {
+    expect(macCaptureTarget("window:12345:0")).toEqual(["--window-id", "12345"]);
+  });
+
+  // Throwing is what sends the share back to the browser instead of capturing something other than
+  // what was picked.
+  it.each(["screen:abc:0", "window:12345", "tab:1:0", "", undefined])(
+    "should refuse a source it cannot address exactly: %s",
+    (sourceId) => {
+      expect(() => macCaptureTarget(sourceId)).toThrow();
     }
   );
 });

@@ -25,29 +25,46 @@ use livekit::e2ee::{E2eeOptions, EncryptionType};
 use livekit::options::{TrackPublishOptions, VideoCodec, VideoEncoding};
 use livekit::track::{LocalTrack, LocalVideoTrack, TrackSource};
 use livekit::webrtc::rtp_sender::VideoEncoderBackend;
-use livekit::webrtc::video_frame::{
-    EncodedFrameType, EncodedVideoCodec, EncodedVideoFrame, I420Buffer, VideoFrame, VideoRotation,
-};
+#[cfg(windows)]
+use livekit::webrtc::video_frame::{EncodedFrameType, EncodedVideoCodec, EncodedVideoFrame};
+use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
 use livekit::{Room, RoomEvent, RoomOptions};
-use mqvi_game_capture::capture::{ScreenCapture, SourceGone};
+#[cfg(windows)]
+use mqvi_game_capture::capture::ScreenCapture;
+#[cfg(windows)]
 use mqvi_game_capture::display_light;
+#[cfg(target_os = "macos")]
+use mqvi_game_capture::mac_capture;
+#[cfg(windows)]
 use mqvi_game_capture::mf_encoder::{
     describe_hardware_encoders, hardware_encoder_count, EncodedPacket, HwEncoder,
 };
+#[cfg(windows)]
 use mqvi_game_capture::nv12;
+use mqvi_game_capture::source::SourceGone;
 use tokio::sync::oneshot;
 #[cfg(windows)]
 use windows::core::PCWSTR;
 
 mod delivery_watch;
+#[cfg(target_os = "macos")]
+mod encoder_watch;
+// The hardware pump's parts. Windows-only in a build; their tests are plain Rust and run anywhere.
+#[cfg(any(windows, test))]
 mod encoder_swap;
+#[cfg(any(windows, test))]
 mod keyframe_watch;
+#[cfg(any(windows, test))]
 mod pump_stats;
+#[cfg(any(windows, test))]
 mod pump_timing;
+#[cfg(any(windows, test))]
 mod rate_policy;
+#[cfg(windows)]
 mod sharp_pump;
+#[cfg(any(windows, test))]
 mod vbv_follow;
 #[cfg(windows)]
 use windows::Win32::Foundation::HANDLE;
@@ -73,10 +90,12 @@ fn is_source_gone(err: &anyhow::Error) -> bool {
 }
 
 /// Consecutive encode failures that mean the encoder is gone for good, not glitching (1s at 30fps).
+#[cfg(windows)]
 const MAX_CONSECUTIVE_ENCODE_ERRORS: u32 = 30;
 /// Seconds of "accepting frames, producing nothing" that mean the same. Encoder death has three
 /// shapes — erroring, silent, and hung — and this is the silent one. (Hung is bounded inside
 /// HwEncoder::encode, which turns it into an error and lands on the counter above.)
+#[cfg(windows)]
 const MAX_SILENT_REPORTS: u32 = 3;
 
 /// NGC-01 spike: publish a synthetic E2EE video track to a LiveKit room.
@@ -155,6 +174,16 @@ struct Args {
     #[arg(long)]
     monitor_rect: Option<String>,
 
+    /// macOS: capture the display with this CGDirectDisplayID — the number in a desktopCapturer
+    /// "screen:<id>:<n>" source id.
+    #[arg(long)]
+    display_id: Option<u32>,
+
+    /// macOS: capture the window with this CGWindowID — the number in a desktopCapturer
+    /// "window:<id>:<n>" source id.
+    #[arg(long)]
+    window_id: Option<u32>,
+
     /// Largest height the stream may use, from the app's screen-share quality setting. The source's
     /// own size wins when it's smaller — we never upscale. Omit to stream at the source's size.
     #[arg(long)]
@@ -173,6 +202,7 @@ struct Args {
 }
 
 /// The dev-only harness switches, as the hardware pump reads them. Off in every app run.
+#[cfg(any(windows, test))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct DevHarness {
     /// `MQVI_DEV_SAME_MS_EVERY`: hand every Nth encoded frame over in the same millisecond as the
@@ -186,6 +216,7 @@ struct DevHarness {
     one_encoder_session: bool,
 }
 
+#[cfg(any(windows, test))]
 impl DevHarness {
     /// Read leniently and never as arguments: a value the parser rejected made every helper run
     /// exit at once — the launch-time encoder probe included, which quietly switched "Smooth
@@ -208,6 +239,7 @@ impl DevHarness {
         }
     }
 
+    #[cfg(windows)]
     fn from_env() -> Self {
         let var = |name: &str| std::env::var(name).ok();
         Self::from_values(
@@ -296,6 +328,7 @@ impl Connection {
 /// lists none at all, `null` if one is listed but would not start. Only `false` is a fact about the
 /// machine; a listed encoder that refuses may just be busy (NVENC's session limit while OBS or
 /// ShadowPlay holds one), and the app must not switch "Smooth Video" off for the session over it.
+#[cfg(windows)]
 fn probe_encoders() -> String {
     if HwEncoder::startup().is_err() {
         return r#"{"h264":false,"h265":false}"#.to_string();
@@ -312,10 +345,22 @@ fn probe_encoders() -> String {
     format!(r#"{{"h264":{},"h265":{}}}"#, probe(false), probe(true))
 }
 
+/// macOS: libwebrtc's VideoToolbox backend is the encoder. It is listed only when this build has it;
+/// whether a session really comes up is proven by the share's own first encoded frame, not here.
+/// H.264 only: the smooth engine never asks the mac for H.265.
+#[cfg(target_os = "macos")]
+fn probe_encoders() -> String {
+    let videotoolbox = VideoEncoderBackend::list_available()
+        .into_iter()
+        .any(|b| matches!(b, VideoEncoderBackend::VideoToolbox));
+    format!(r#"{{"h264":{videotoolbox},"h265":false}}"#)
+}
+
 /// Whether the monitor at `rect` is in HDR — or, without one, whether any monitor is. A screen share
 /// asks about its own monitor; a window asks about all of them, since it can be dragged to the HDR
 /// one mid-share and only the helper follows that. `{"hdr":null}` when the displays cannot be asked:
 /// the app then keeps the share in the browser, as before.
+#[cfg(windows)]
 fn probe_hdr(rect: Option<&str>) -> String {
     let answer = match rect {
         Some(r) => parse_rect(r).and_then(|(x, y, w, h)| display_light::hdr_at_rect(x, y, w, h)),
@@ -330,7 +375,15 @@ fn probe_hdr(rect: Option<&str>) -> String {
     }
 }
 
+/// macOS: the HDR route (a sharp share tone-mapped by this helper) is Windows-only, so the answer
+/// that keeps a sharp share in the browser is the only one to give.
+#[cfg(target_os = "macos")]
+fn probe_hdr(_rect: Option<&str>) -> String {
+    r#"{"hdr":false}"#.to_string()
+}
+
 /// "x,y,width,height" → (x, y, width, height).
+#[cfg(windows)]
 fn parse_rect(s: &str) -> Result<(i32, i32, i32, i32)> {
     let n: Vec<i32> = s
         .split(',')
@@ -345,7 +398,10 @@ fn parse_rect(s: &str) -> Result<(i32, i32, i32, i32)> {
 #[derive(Clone, Copy, Debug, PartialEq, clap::ValueEnum)]
 enum Source {
     Synthetic,
+    /// Windows: the primary monitor through Windows.Graphics.Capture.
     Wgc,
+    /// macOS: the main display through ScreenCaptureKit.
+    Sck,
 }
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]
@@ -390,6 +446,59 @@ impl Encoder {
             Encoder::Mf => VideoEncoderBackend::PreEncoded,
         }
     }
+}
+
+/// Windows: WGC, encoded by our MF encoder. The app addresses its picked source exactly
+/// (--window-handle / --monitor-rect); the title and primary-monitor forms are dev conveniences.
+#[cfg(windows)]
+fn open_capture(args: &Args) -> Result<Option<ScreenCapture>> {
+    if args.source == Source::Sck || args.display_id.is_some() || args.window_id.is_some() {
+        bail!("--source sck, --display-id and --window-id are macOS-only");
+    }
+    let cap = if let Some(handle) = args.window_handle {
+        let cap = ScreenCapture::window_by_handle(handle)?;
+        log::info!("WGC window capture hwnd={handle}: {}x{}", cap.width() & !1, cap.height() & !1);
+        cap
+    } else if let Some(rect) = &args.monitor_rect {
+        let (x, y, w, h) = parse_rect(rect)?;
+        let cap = ScreenCapture::monitor_by_rect(x, y, w, h)?;
+        log::info!("WGC monitor capture at {x},{y}: {}x{}", cap.width() & !1, cap.height() & !1);
+        cap
+    } else if let Some(title) = &args.window {
+        let cap = ScreenCapture::window_by_title(title)?;
+        log::info!("WGC window capture '{title}': {}x{}", cap.width() & !1, cap.height() & !1);
+        cap
+    } else if args.source == Source::Wgc {
+        let cap = ScreenCapture::primary_monitor()?;
+        log::info!("WGC monitor capture: {}x{}", cap.width() & !1, cap.height() & !1);
+        cap
+    } else {
+        return Ok(None);
+    };
+    Ok(Some(cap))
+}
+
+/// macOS: ScreenCaptureKit, encoded by libwebrtc's VideoToolbox backend. Found and measured here,
+/// started once the track is published.
+#[cfg(target_os = "macos")]
+fn open_capture(args: &Args) -> Result<Option<mac_capture::Source>> {
+    if args.window_handle.is_some()
+        || args.monitor_rect.is_some()
+        || args.window.is_some()
+        || args.source == Source::Wgc
+    {
+        bail!("--window-handle, --monitor-rect, --window and --source wgc are Windows-only");
+    }
+    let target = match (args.window_id, args.display_id, args.source) {
+        (Some(_), Some(_), _) => bail!("--window-id and --display-id are exclusive"),
+        (Some(id), None, _) => mac_capture::Target::Window(id),
+        (None, Some(id), _) => mac_capture::Target::Display(id),
+        (None, None, Source::Sck) => mac_capture::Target::MainDisplay,
+        _ => return Ok(None),
+    };
+    let src = mac_capture::Source::find(target)?;
+    log::info!("ScreenCaptureKit {}: {}x{}", src.label(), src.width() & !1, src.height() & !1);
+    Ok(Some(src))
 }
 
 fn main() -> Result<()> {
@@ -448,37 +557,13 @@ async fn run() -> Result<()> {
     let mut height = args.height & !1;
     let fps = args.fps.max(1);
 
-    // WGC capture: dimensions come from the source (window or monitor), and it goes through our MF
-    // encoder. The app addresses its picked source exactly (--window-handle / --monitor-rect); the
-    // title and primary-monitor forms are dev conveniences.
-    let capture = if let Some(handle) = args.window_handle {
-        let cap = ScreenCapture::window_by_handle(handle)?;
+    // Real capture: dimensions come from the source (window or monitor).
+    let capture = open_capture(&args)?;
+    if let Some(cap) = &capture {
         width = cap.width() & !1;
         height = cap.height() & !1;
-        log::info!("WGC window capture hwnd={handle}: {width}x{height}");
-        Some(cap)
-    } else if let Some(rect) = &args.monitor_rect {
-        let (x, y, w, h) = parse_rect(rect)?;
-        let cap = ScreenCapture::monitor_by_rect(x, y, w, h)?;
-        width = cap.width() & !1;
-        height = cap.height() & !1;
-        log::info!("WGC monitor capture at {x},{y}: {width}x{height}");
-        Some(cap)
-    } else if let Some(title) = &args.window {
-        let cap = ScreenCapture::window_by_title(title)?;
-        width = cap.width() & !1;
-        height = cap.height() & !1;
-        log::info!("WGC window capture '{title}': {width}x{height}");
-        Some(cap)
-    } else if args.source == Source::Wgc {
-        let cap = ScreenCapture::primary_monitor()?;
-        width = cap.width() & !1;
-        height = cap.height() & !1;
-        log::info!("WGC monitor capture: {width}x{height}");
-        Some(cap)
-    } else {
-        None
-    };
+    }
+    let has_capture = capture.is_some();
 
     // Sizing is settled here, with the capture and before anything network: the stream's size is a
     // function of the source and the app's quality cap, and nothing later gets to disagree.
@@ -539,7 +624,13 @@ async fn run() -> Result<()> {
     if sharp && capture.is_none() {
         bail!("--engine sharp needs a capture source");
     }
-    let use_mf = !sharp && (args.encoder == Encoder::Mf || capture.is_some());
+    // The mac has neither our MF encoder nor the HDR sharp route: its capture feeds libwebrtc raw
+    // frames, which VideoToolbox encodes.
+    if cfg!(target_os = "macos") && (sharp || args.encoder == Encoder::Mf) {
+        bail!("--engine sharp and --encoder mf are Windows-only");
+    }
+    let use_mf = cfg!(windows) && !sharp && (args.encoder == Encoder::Mf || capture.is_some());
+    let mac_capture = cfg!(target_os = "macos") && has_capture;
     // WGC smooth always hardware-encodes; default its codec (otherwise vp8) to h264. Sharp is VP9,
     // the browser engine's codec, whatever was asked.
     let codec = if sharp {
@@ -549,6 +640,7 @@ async fn run() -> Result<()> {
     } else {
         args.codec
     };
+    #[cfg(windows)]
     let hevc = matches!(codec, Codec::H265);
     if use_mf && !matches!(codec, Codec::H264 | Codec::H265) {
         bail!("hardware encode (--encoder mf) needs --codec h264 or h265");
@@ -578,6 +670,8 @@ async fn run() -> Result<()> {
     // (the SDK's default), the SDK declares a half-size 3fps layer beside it and the rate allocator
     // budgets our single stream as that layer: a flat 150 kbps, whatever the link can really do.
     // A 1080p game at 150 kbps is the mush this looked like from NGC-01 onwards.
+    // The mac's VideoToolbox could encode real layers, but stays single-layer like Windows: one
+    // encoder session, and viewers get the same stream from either platform.
     publish_opts.simulcast = false;
     // And say what the stream is worth, rather than letting the SDK guess from a track that hasn't
     // encoded a frame yet. WebRTC still pulls it down to what the link takes; this is the ceiling.
@@ -593,6 +687,8 @@ async fn run() -> Result<()> {
         VideoEncoderBackend::PreEncoded
     } else if sharp {
         VideoEncoderBackend::Software
+    } else if mac_capture {
+        VideoEncoderBackend::VideoToolbox
     } else {
         args.encoder.to_lk()
     };
@@ -608,8 +704,18 @@ async fn run() -> Result<()> {
         .await
         .context("publish_track failed")?;
     log::info!(
-        "published track '{track_name}' ({width}x{height}@{fps}, codec={:?}, hw_encode={}, source={:?}, E2EE/GCM)",
-        codec, use_mf, args.source
+        "published track '{track_name}' ({width}x{height}@{fps}, codec={:?}, encoder={}, capture={}, E2EE/GCM)",
+        codec,
+        if use_mf {
+            "hardware MFT (pre-encoded)"
+        } else if mac_capture {
+            "VideoToolbox"
+        } else if sharp {
+            "libwebrtc software"
+        } else {
+            "libwebrtc"
+        },
+        if has_capture { "screen" } else { "synthetic" },
     );
 
     // Capture and MF encoding make blocking calls → dedicated OS thread (smooth and sharp alike).
@@ -622,43 +728,33 @@ async fn run() -> Result<()> {
     let (ready_tx, ready_rx) = oneshot::channel::<String>();
     // The cause as text, and whether it was the source going away rather than a fault.
     let (died_tx, mut died_rx) = oneshot::channel::<(String, bool)>();
-    let cfg = VideoConfig { width, height, fps, hevc, max };
-    let dev = DevHarness::from_env();
-    if dev.same_ms_every > 0 || dev.ignore_keyframe_requests || dev.one_encoder_session {
-        log::warn!(
-            "dev harness on: same-ms pair every {} frames, ignore keyframe requests {}, one encoder session {}",
-            dev.same_ms_every,
-            dev.ignore_keyframe_requests,
-            dev.one_encoder_session
-        );
-    }
-    let mf_thread = if use_mf || sharp {
-        let (src, stop) = (rtc_source.clone(), stop.clone());
-        Some(std::thread::spawn(move || {
-            let result = match (sharp, capture) {
-                (true, Some(cap)) => sharp_pump::sharp_pump(src, cfg, cap, stop, ready_tx),
-                (_, capture) => encoded_pump(src, cfg, capture, stop, ready_tx, dev),
-            };
-            if let Err(e) = result {
-                // Bare, with no prefix of its own: the error the app finally reports embeds this
-                // same text, so an identical opening lets the reporter fold the two into one line
-                // instead of spending its length budget saying it twice.
-                log::error!("{e:#}");
-                let _ = died_tx.send((format!("{e:#}"), is_source_gone(&e)));
-            }
-        }))
-    } else {
-        None
+    #[cfg(windows)]
+    let mf_thread = start_windows_pump(
+        use_mf || sharp,
+        sharp,
+        VideoConfig { width, height, fps, hevc, max },
+        capture,
+        rtc_source.clone(),
+        stop.clone(),
+        ready_tx,
+        died_tx,
+    );
+    // ScreenCaptureKit runs on its own queue; there is no thread of ours to start or join. Ready
+    // here is "the first frame reached libwebrtc", not yet "VideoToolbox encoded it" (MSC-02).
+    #[cfg(target_os = "macos")]
+    let mac_stream = match capture {
+        Some(src) => Some(start_mac_capture(&src, (width, height), fps, rtc_source.clone(), ready_tx, died_tx)?),
+        None => None,
     };
-    let raw_pump =
-        (!use_mf && !sharp).then(|| tokio::spawn(frame_pump(rtc_source, width, height, fps)));
+    let raw_pump = (!use_mf && !sharp && !has_capture)
+        .then(|| tokio::spawn(frame_pump(rtc_source, width, height, fps)));
 
     // "Published" is not "streaming": the track exists, but nothing is on it until the encoder
     // delivers. Announcing readiness before that is how a machine with no hardware encoder ends up
     // with the app committed to a stream that stays black forever.
     let mut startup_error = None;
     let mut no_frames = false;
-    let waits_for_first_frame = use_mf || sharp;
+    let waits_for_first_frame = use_mf || sharp || mac_capture;
     let mut streaming = !waits_for_first_frame;
     if waits_for_first_frame {
         tokio::select! {
@@ -680,7 +776,10 @@ async fn run() -> Result<()> {
 
     // Smooth only: its frames are already encoded, so a frame libwebrtc drops costs viewers a freeze
     // until the next keyframe, and nothing but these counters shows it.
-    let delivery = (streaming && use_mf).then(|| tokio::spawn(delivery_watch::watch(watched_track)));
+    let delivery = (streaming && use_mf).then(|| tokio::spawn(delivery_watch::watch(watched_track.clone())));
+    // The mac asks libwebrtc for VideoToolbox; only the sender's stats show whether it got it.
+    #[cfg(target_os = "macos")]
+    let encoder = (streaming && mac_capture).then(|| tokio::spawn(encoder_watch::watch(watched_track.clone())));
 
     if streaming {
         // The app waits for exactly this line before it commits to the native engine.
@@ -729,10 +828,23 @@ async fn run() -> Result<()> {
     if let Some(w) = delivery {
         w.abort();
     }
+    #[cfg(target_os = "macos")]
+    if let Some(w) = encoder {
+        w.abort();
+    }
     // Joining matters: the pump owns `capture`, so this is where the WGC session gets closed.
-    log::info!("shutdown: joining encode thread");
-    if let Some(t) = mf_thread {
-        let _ = t.join();
+    #[cfg(windows)]
+    {
+        log::info!("shutdown: joining encode thread");
+        if let Some(t) = mf_thread {
+            let _ = t.join();
+        }
+    }
+    // Dropping the stream stops ScreenCaptureKit; no frame reaches the track after this.
+    #[cfg(target_os = "macos")]
+    {
+        log::info!("shutdown: stopping capture");
+        drop(mac_stream);
     }
     // Every failure inside the pump funnels through `died_tx` — encoder creation, a rejected input
     // type, frames refused, frames accepted but never returned. The join above is what makes this
@@ -746,7 +858,10 @@ async fn run() -> Result<()> {
         // no H264 encoder at all" and "the encoder is right there and refused our settings" reach
         // the operator as the same failed share otherwise.
         // Only the hardware path has encoders to describe; sharp's encoder is libwebrtc's own.
+        #[cfg(windows)]
         let encoders = if sharp { sharp_pump::ENCODER_NAME.to_string() } else { describe_hardware_encoders() };
+        #[cfg(target_os = "macos")]
+        let encoders = "VideoToolbox (libwebrtc)".to_string();
         startup_error = Some(match died_rx.try_recv() {
             Ok((cause, _)) => anyhow!("{cause} (no frames produced; {encoders})"),
             // The pump only returns Ok once `stop` is set, and that happens above — so reaching
@@ -764,7 +879,81 @@ async fn run() -> Result<()> {
     }
 }
 
+/// Windows: capture and MF encoding make blocking calls, so they run on a dedicated OS thread
+/// (smooth and sharp alike). None when there is nothing to pump (the synthetic raw path).
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+fn start_windows_pump(
+    pumped: bool,
+    sharp: bool,
+    cfg: VideoConfig,
+    capture: Option<ScreenCapture>,
+    src: NativeVideoSource,
+    stop: Arc<AtomicBool>,
+    ready_tx: oneshot::Sender<String>,
+    died_tx: oneshot::Sender<(String, bool)>,
+) -> Option<std::thread::JoinHandle<()>> {
+    if !pumped {
+        return None;
+    }
+    let dev = DevHarness::from_env();
+    if dev.same_ms_every > 0 || dev.ignore_keyframe_requests || dev.one_encoder_session {
+        log::warn!(
+            "dev harness on: same-ms pair every {} frames, ignore keyframe requests {}, one encoder session {}",
+            dev.same_ms_every,
+            dev.ignore_keyframe_requests,
+            dev.one_encoder_session
+        );
+    }
+    Some(std::thread::spawn(move || {
+        let result = match (sharp, capture) {
+            (true, Some(cap)) => sharp_pump::sharp_pump(src, cfg, cap, stop, ready_tx),
+            (_, capture) => encoded_pump(src, cfg, capture, stop, ready_tx, dev),
+        };
+        if let Err(e) = result {
+            // Bare, with no prefix of its own: the error the app finally reports embeds this
+            // same text, so an identical opening lets the reporter fold the two into one line
+            // instead of spending its length budget saying it twice.
+            log::error!("{e:#}");
+            let _ = died_tx.send((format!("{e:#}"), is_source_gone(&e)));
+        }
+    }))
+}
+
+/// macOS: starts ScreenCaptureKit into `video`, wired to the same ready/died channels the Windows
+/// pump answers on.
+#[cfg(target_os = "macos")]
+fn start_mac_capture(
+    src: &mac_capture::Source,
+    canvas: (u32, u32),
+    fps: u32,
+    video: NativeVideoSource,
+    ready_tx: oneshot::Sender<String>,
+    died_tx: oneshot::Sender<(String, bool)>,
+) -> Result<mac_capture::MacCapture> {
+    mac_capture::MacCapture::start(
+        src,
+        canvas,
+        fps,
+        video,
+        move || {
+            let _ = ready_tx.send("VideoToolbox (libwebrtc)".to_string());
+        },
+        move |ended| {
+            let report = match ended {
+                mac_capture::Ended::Gone => (SourceGone.to_string(), true),
+                mac_capture::Ended::Failed(why) => {
+                    log::error!("{why}");
+                    (why, false)
+                }
+            };
+            let _ = died_tx.send(report);
+        },
+    )
+}
+
 /// What the pump encodes: frame geometry and codec, settled before it starts.
+#[cfg(windows)]
 #[derive(Clone, Copy)]
 struct VideoConfig {
     width: u32,
@@ -794,6 +983,7 @@ fn canvas_for(src_w: u32, src_h: u32, max: (u32, u32)) -> (u32, u32) {
 
 /// How long the source must hold a size before the stream follows it. Without this, dragging a
 /// window's edge would rebuild the encoder on every mouse move.
+#[cfg(windows)]
 const RESIZE_SETTLE: Duration = Duration::from_millis(500);
 
 /// The ceiling we reserve for the stream: roughly 0.1 bits per pixel per frame — 1080p30 ≈ 6 Mbps,
@@ -859,6 +1049,7 @@ impl Drop for MmcssHandle {
 }
 
 /// What every encoder in one pump shares; a rebuild changes only the size and the bitrate.
+#[cfg(windows)]
 #[derive(Clone, Copy)]
 struct EncoderSpec {
     fps: u32,
@@ -866,6 +1057,7 @@ struct EncoderSpec {
     dev: DevHarness,
 }
 
+#[cfg(windows)]
 impl EncoderSpec {
     /// The encoder that replaces `enc` at `size` and `bps` — see encoder_swap — with the VBV rule
     /// restarted from it. Every rebuild comes through here, so none can forget that restart.
@@ -892,6 +1084,7 @@ impl EncoderSpec {
 
 /// MF hardware-encode pump (dedicated OS thread): NV12 (synthetic or WGC-captured screen) →
 /// hardware H264/H265 → livekit PreEncoded. Blocking encode() lives off the tokio runtime.
+#[cfg(windows)]
 fn encoded_pump(
     source: NativeVideoSource,
     cfg: VideoConfig,
@@ -1154,6 +1347,7 @@ fn encoded_pump(
 }
 
 /// Hands one encoded access unit to livekit.
+#[cfg(windows)]
 fn hand_over(
     source: &NativeVideoSource,
     codec: EncodedVideoCodec,

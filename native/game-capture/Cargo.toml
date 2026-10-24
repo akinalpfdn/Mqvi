@@ -72,6 +72,16 @@ features = [
     "Win32_UI_WindowsAndMessaging",
 ]
 
+# macOS: ScreenCaptureKit. Safe bindings over a Swift bridge it builds with SwiftPM, so the build
+# needs the Xcode toolchain. Pinned exactly: the crate moves fast (v9 to v11 in a month), and a
+# capture API that shifts under a minor bump is not one to float. macos_14_0 for
+# SCShareableContentInfo, the only source of a filter's real pixel size.
+[target.'cfg(target_os = "macos")'.dependencies]
+screencapturekit = { version = "=11.0.0", features = ["macos_14_0"] }
+# Already in the tree under screencapturekit, at this version. Used directly for one call:
+# `cg::Display::main()`, a safe CGMainDisplayID — see mac_capture::Source::find.
+apple-cf = { version = "=0.11.3", features = ["cg"] }
+
 [[bin]]
 name = "probe-encoders"
 path = "src/bin/probe_encoders.rs"
@@ -88,6 +98,11 @@ path = "src/bin/probe_lifecycle.rs"
 [[bin]]
 name = "test-capture-encode"
 path = "src/bin/test_capture_encode.rs"
+
+# macOS: the ScreenCaptureKit capture with no room — permission, real frame size, frame rate.
+[[bin]]
+name = "probe-sck"
+path = "src/bin/probe_sck.rs"
 
 # One frame through the shipping capture path to a BMP: checks the HDR tone-map on a real display.
 [[bin]]

@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useVoiceStore } from "../stores/voiceStore";
-import { resolvePublishEngine } from "../utils/publishEngine";
+import { hasCaptureHelper, resolvePublishEngine } from "../utils/publishEngine";
 import type { DetectedGame } from "../types/electron";
 
 export function useGameDetection(isInVoice: boolean) {
@@ -62,7 +62,7 @@ export function useGameDetection(isInVoice: boolean) {
         const engine = await resolvePublishEngine({
           mode: screenShareMode,
           smoothSupported: smoothCaptureSupported,
-          hasHelper: api?.platform === "win32",
+          hasHelper: hasCaptureHelper(api?.platform),
           askHdr: () => api?.getHdrActive() ?? Promise.resolve(null),
         });
         if (engine !== "browser") {

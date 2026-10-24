@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { choosePublishEngine, resolvePublishEngine, sharpShareEncoding } from "./publishEngine";
+import { choosePublishEngine, hasCaptureHelper, resolvePublishEngine, sharpShareEncoding } from "./publishEngine";
 
 // The routing decides whether an HDR streamer's viewers get a correct picture or a blown-out one,
 // and whether a machine without a hardware encoder ever tries the helper. Every branch is a real
@@ -71,5 +71,15 @@ describe("sharpShareEncoding", () => {
   it("should match the browser engine's ceilings", () => {
     expect(sharpShareEncoding("1080p")).toEqual({ maxBitrate: 3_000_000, maxFramerate: 30 });
     expect(sharpShareEncoding("720p")).toEqual({ maxBitrate: 1_500_000, maxFramerate: 30 });
+  });
+});
+
+describe("hasCaptureHelper", () => {
+  it("should offer the helper in the Windows and macOS desktop apps only", () => {
+    expect(hasCaptureHelper("win32")).toBe(true);
+    expect(hasCaptureHelper("darwin")).toBe(true);
+    expect(hasCaptureHelper("linux")).toBe(false);
+    // The browser has no electronAPI at all.
+    expect(hasCaptureHelper(undefined)).toBe(false);
   });
 });
