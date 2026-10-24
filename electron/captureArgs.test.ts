@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { captureHelperName, engineArgs, hasCaptureHelper, macAudioArgs, macCaptureTarget } from "./captureArgs";
+import {
+  captureHelperName,
+  engineArgs,
+  hasCaptureHelper,
+  macAudioArgs,
+  macCaptureTarget,
+  macMajor,
+  shareAudioSupported,
+  smoothCaptureOffered,
+} from "./captureArgs";
 
 // These flags go from the renderer straight onto the helper's command line. A value the helper does
 // not understand ends the share with a usage error, so it is refused here, where the reason is known.
@@ -74,5 +83,28 @@ describe("macAudioArgs", () => {
   // The browser path can start audio without a picked source; it still must not echo the call.
   it.each([null, undefined, "", "tab:1:0"])("should fall back to everything but mqvi without a usable source: %s", (sourceId) => {
     expect(macAudioArgs(sourceId, 900)).toEqual(["--audio-capture", "--self-pid", "900"]);
+  });
+});
+
+describe("what each platform can share", () => {
+  it("should read the major macOS version", () => {
+    expect(macMajor("14.5.0")).toBe(14);
+    expect(macMajor("26.6.2")).toBe(26);
+    expect(macMajor("")).toBe(0);
+    expect(macMajor("garbage")).toBe(0);
+  });
+
+  it("should offer Smooth Video on Windows and on macOS 14 or later only", () => {
+    expect(smoothCaptureOffered("win32", "10.0.26100")).toBe(true);
+    expect(smoothCaptureOffered("darwin", "14.0.0")).toBe(true);
+    expect(smoothCaptureOffered("darwin", "13.6.1")).toBe(false);
+    expect(smoothCaptureOffered("linux", "6.8.0")).toBe(false);
+  });
+
+  it("should offer share audio on Windows and on macOS 13 or later only", () => {
+    expect(shareAudioSupported("win32", "10.0.26100")).toBe(true);
+    expect(shareAudioSupported("darwin", "13.0.0")).toBe(true);
+    expect(shareAudioSupported("darwin", "12.7.6")).toBe(false);
+    expect(shareAudioSupported("linux", "6.8.0")).toBe(false);
   });
 });

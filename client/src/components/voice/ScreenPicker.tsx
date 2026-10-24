@@ -15,6 +15,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useVoiceStore, type NativeCaptureResult } from "../../stores/voiceStore";
+import { useToastStore } from "../../stores/toastStore";
 import { hasCaptureHelper, resolvePublishEngine } from "../../utils/publishEngine";
 
 interface PickerSource {
@@ -54,6 +55,8 @@ function ScreenPicker() {
   const reportNativeFallback = useVoiceStore((s) => s.reportNativeFallback);
   const smoothCaptureSupported = useVoiceStore((s) => s.smoothCaptureSupported);
   const loadSmoothCaptureSupport = useVoiceStore((s) => s.loadSmoothCaptureSupport);
+  const shareAudioSupported = useVoiceStore((s) => s.shareAudioSupported);
+  const loadShareAudioSupport = useVoiceStore((s) => s.loadShareAudioSupport);
 
   // The helper ships on Windows and macOS only. Offering the choice everywhere meant a Linux user
   // could pick "Smooth Video", get "Sharp Video" on every single share, and never be told why — the
@@ -68,7 +71,18 @@ function ScreenPicker() {
   // the first share. An answer that could not be had is asked again on the next opening, below.
   useEffect(() => {
     void loadSmoothCaptureSupport();
-  }, [loadSmoothCaptureSupport]);
+    void loadShareAudioSupport();
+  }, [loadSmoothCaptureSupport, loadShareAudioSupport]);
+
+  // macOS without Screen Recording: no picker can open, so this is the only thing the user sees.
+  useEffect(() => {
+    const api = window.electronAPI;
+    if (!api) return;
+    api.onScreenPermissionDenied(() => {
+      useToastStore.getState().addToast("error", t("screenPermissionDenied"), 10_000);
+    });
+    return () => api.removeScreenPermissionListener();
+  }, [t]);
 
   useEffect(() => {
     const api = window.electronAPI;
@@ -280,7 +294,10 @@ function ScreenPicker() {
                 >
                   <span className="sp-mode-name">{t("screenModeSmooth")}</span>
                   <span className="sp-mode-hint">
-                    {smoothAvailable ? t("screenModeSmoothHint") : t("screenModeSmoothUnavailable")}
+                    {smoothAvailable
+                      ? t("screenModeSmoothHint")
+                      : // Every Apple Silicon Mac has the hardware encoder; what a Mac can lack is macOS 14.
+                        t(window.electronAPI?.platform === "darwin" ? "screenModeSmoothNeedsMacos" : "screenModeSmoothUnavailable")}
                   </span>
                 </button>
                 <button
@@ -296,21 +313,25 @@ function ScreenPicker() {
               </div>
             </div>
           )}
-          <label className="sp-audio-toggle">
-            <span className="sp-audio-label">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-              </svg>
-              {t("screenPickerShareAudio")}
-            </span>
-            <div className={`sp-switch${screenShareAudio ? " sp-switch-on" : ""}`}
-              onClick={() => setScreenShareAudio(!screenShareAudio)}
-            >
-              <div className="sp-switch-thumb" />
-            </div>
-          </label>
+          {/* Hidden where the share's audio cannot be captured (Linux, macOS before 13): a switch
+              that promises sound which never goes is worse than none. */}
+          {shareAudioSupported !== false && (
+            <label className="sp-audio-toggle">
+              <span className="sp-audio-label">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                </svg>
+                {t("screenPickerShareAudio")}
+              </span>
+              <div className={`sp-switch${screenShareAudio ? " sp-switch-on" : ""}`}
+                onClick={() => setScreenShareAudio(!screenShareAudio)}
+              >
+                <div className="sp-switch-thumb" />
+              </div>
+            </label>
+          )}
         </div>
       </div>
     </div>

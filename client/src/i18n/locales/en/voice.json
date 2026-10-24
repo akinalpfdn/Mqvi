@@ -11,6 +11,8 @@
   "screenModeSmooth": "Smooth Video",
   "screenModeSmoothHint": "games, films, video",
   "screenModeSmoothUnavailable": "no hardware encoder on this computer",
+  "screenModeSmoothNeedsMacos": "needs macOS 14 or later",
+  "screenPermissionDenied": "mqvi can't record your screen. Turn mqvi on in System Settings → Privacy & Security → Screen & System Audio Recording, then reopen mqvi.",
   "screenModeSharp": "Sharp Video",
   "screenModeSharpHint": "text, code, presentations",
   "smoothCaptureStopped": "Smooth Video stopped unexpectedly. Screen sharing has ended.",

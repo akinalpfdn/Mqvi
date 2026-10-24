@@ -106,6 +106,11 @@ interface ElectronAPI {
   stopGameCapture: () => Promise<void>;
   /** Whether this machine can hardware-encode ("Smooth Video"); null if it could not be told. */
   getSmoothCaptureSupport: () => Promise<boolean | null>;
+  /** Whether a share's audio can be captured on this system ("share audio" does anything). */
+  getShareAudioSupport: () => Promise<boolean>;
+  /** macOS: a share failed because Screen Recording is not granted to the app. */
+  onScreenPermissionDenied: (cb: () => void) => void;
+  removeScreenPermissionListener: () => void;
   /**
    * Whether a monitor is in HDR right now — a screen source's own monitor if one is given, any
    * monitor otherwise; null if it could not be told.

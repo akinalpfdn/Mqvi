@@ -13,6 +13,31 @@ export function hasCaptureHelper(platform: string): boolean {
   return platform === "win32" || platform === "darwin";
 }
 
+/** The major number of a macOS version string ("14.5.0" → 14); 0 when it cannot be read. */
+export function macMajor(version: string): number {
+  const major = Number.parseInt(version.split(".")[0] ?? "", 10);
+  return Number.isFinite(major) ? major : 0;
+}
+
+/**
+ * Whether "Smooth Video" can run here. Windows: yes, and the encoder probe has the final say. macOS:
+ * from 14, because the helper sizes its capture with SCShareableContentInfo, which 13 lacks (there
+ * the helper fails and every share would fall back with a warning). Linux: no helper.
+ */
+export function smoothCaptureOffered(platform: string, osVersion: string): boolean {
+  if (platform === "darwin") return macMajor(osVersion) >= 14;
+  return platform === "win32";
+}
+
+/**
+ * Whether a share's audio can be captured here: Windows (audio-capture.exe) and macOS from 13
+ * (ScreenCaptureKit audio). Elsewhere the "share audio" switch would promise sound that never goes.
+ */
+export function shareAudioSupported(platform: string, osVersion: string): boolean {
+  if (platform === "darwin") return macMajor(osVersion) >= 13;
+  return platform === "win32";
+}
+
 /** The helper binary's file name: an .exe on Windows, a plain executable on macOS. */
 export function captureHelperName(platform: string): string {
   return platform === "win32" ? "mqvi-game-capture.exe" : "mqvi-game-capture";

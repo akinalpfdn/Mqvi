@@ -15,6 +15,7 @@ vi.mock("../../i18n", () => ({ default: { t: (k: string) => k, language: "en" } 
 
 import ScreenPicker from "./ScreenPicker";
 import { useVoiceStore, type NativeCaptureResult } from "../../stores/voiceStore";
+import { useToastStore } from "../../stores/toastStore";
 
 type HdrAnswer = boolean | null | Promise<boolean | null>;
 
@@ -29,13 +30,18 @@ const getHdrActive = vi.fn((sourceId?: string) =>
   sourceId ? Promise.resolve(monitorHdr) : Promise.resolve(hdrAnswers.shift() ?? false)
 );
 
-function installElectron(smooth: boolean | null) {
+let permissionDenied: () => void = () => {};
+
+function installElectron(smooth: boolean | null, platform = "win32", shareAudio = true) {
   (window as unknown as { electronAPI: unknown }).electronAPI = {
-    platform: "win32",
+    platform,
     onShowScreenPicker: (cb: typeof showPicker) => (showPicker = cb),
     removeScreenPickerListener: () => {},
     sendScreenPickerResult,
     getSmoothCaptureSupport: () => Promise.resolve(smooth),
+    getShareAudioSupport: () => Promise.resolve(shareAudio),
+    onScreenPermissionDenied: (cb: () => void) => (permissionDenied = cb),
+    removeScreenPermissionListener: () => {},
     getHdrActive,
   };
 }
@@ -75,6 +81,7 @@ beforeEach(() => {
   reportNativeFallback.mockReset();
   useVoiceStore.setState({
     smoothCaptureSupported: null,
+    shareAudioSupported: null,
     screenShareMode: "sharp",
     startNativeCapture,
     reportNativeFallback,
@@ -191,5 +198,39 @@ describe("ScreenPicker sharing smooth", () => {
     await pick();
 
     await waitFor(() => expect(startNativeCapture).toHaveBeenCalledWith("screen:1:0", "sharp_hdr"));
+  });
+});
+
+describe("ScreenPicker on what the system can share", () => {
+  async function mountMac(smooth: boolean | null, shareAudio: boolean) {
+    installElectron(smooth, "darwin", shareAudio);
+    render(<ScreenPicker />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await open();
+  }
+
+  it("should hide share audio where the system cannot capture it", async () => {
+    await mountMac(true, false);
+    expect(screen.queryByText("screenPickerShareAudio")).toBeNull();
+  });
+
+  it("should offer share audio where the system can capture it", async () => {
+    await mountMac(true, true);
+    expect(screen.getByText("screenPickerShareAudio")).toBeTruthy();
+  });
+
+  it("should tell a Mac without Smooth Video that it needs a newer macOS, not a hardware encoder", async () => {
+    await mountMac(false, true);
+    expect(screen.getByText("screenModeSmoothNeedsMacos")).toBeTruthy();
+    expect(screen.queryByText("screenModeSmoothUnavailable")).toBeNull();
+  });
+
+  it("should say why nothing opened when Screen Recording is not granted", async () => {
+    useToastStore.setState({ toasts: [] });
+    await mountMac(true, true);
+    act(() => permissionDenied());
+    expect(useToastStore.getState().toasts.map((t) => t.message)).toContain("screenPermissionDenied");
   });
 });

@@ -137,6 +137,12 @@ type VoiceCoreState = {
    */
   smoothCaptureSupported: boolean | null;
   loadSmoothCaptureSupport: () => Promise<void>;
+  /**
+   * Whether this system can capture a share's audio: Windows, and macOS from 13. null until asked.
+   * Where it is false the picker hides "share audio" rather than offer sound that never goes.
+   */
+  shareAudioSupported: boolean | null;
+  loadShareAudioSupport: () => Promise<void>;
   /** desktopCapturer id of the source being shared ("window:<HWND>:0" / "screen:<id>:0").
    *  Set by the picker; the audio capture needs it to scope itself to the share. */
   pickedShareSourceId: string | null;
@@ -231,6 +237,7 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
   isNativeCapturing: false,
   nativeCapture: null,
   smoothCaptureSupported: null,
+  shareAudioSupported: null,
   pickedShareSourceId: null,
   isServerMuted: false,
   isServerDeafened: false,
@@ -502,6 +509,17 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
     // sharing concept, two engines — so nothing to broadcast here.
     set({ isNativeCapturing: true, nativeCapture: { engine, startedAt: Date.now() } });
     return { ok: true };
+  },
+
+  loadShareAudioSupport: async () => {
+    const api = window.electronAPI;
+    if (!api) {
+      set({ shareAudioSupported: false });
+      return;
+    }
+    // A failed ask keeps the switch, as before: hiding it over an IPC hiccup would lose a feature.
+    const supported = await api.getShareAudioSupport().catch(() => null);
+    set({ shareAudioSupported: supported });
   },
 
   loadSmoothCaptureSupport: async () => {

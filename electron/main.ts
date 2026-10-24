@@ -20,6 +20,7 @@ import {
   safeStorage,
   screen,
   shell,
+  systemPreferences,
 } from "electron";
 import { autoUpdater } from "electron-updater";
 import { uIOhook, UiohookKey } from "uiohook-napi";
@@ -46,6 +47,8 @@ import {
   hasCaptureHelper,
   macAudioArgs,
   macCaptureTarget,
+  shareAudioSupported,
+  smoothCaptureOffered,
   type CaptureEngine,
 } from "./captureArgs";
 
@@ -988,6 +991,11 @@ function setupPermissions(): void {
         }
       } catch (err) {
         console.error("[main] Screen picker failed:", err);
+        // On macOS this is what a missing Screen Recording grant looks like: getSources throws and
+        // no picker opens. Say so in the app, or the share button just does nothing.
+        if (process.platform === "darwin" && systemPreferences.getMediaAccessStatus("screen") !== "granted") {
+          mainWindow?.webContents.send("screen-permission-denied");
+        }
         answer({});
       }
     }
@@ -1142,7 +1150,7 @@ function setupIPC(): void {
   ipcMain.handle("start-system-capture", (_event, sourceId?: string | null) => {
     // Windows: audio-capture.exe (WASAPI process loopback). macOS: the game-capture helper's
     // --audio-capture mode (ScreenCaptureKit). Both write the same header + PCM to stdout.
-    if (!hasCaptureHelper(process.platform)) {
+    if (!shareAudioSupported(process.platform, process.getSystemVersion())) {
       console.log("[main] System audio capture not available on this platform");
       return null;
     }
@@ -1423,8 +1431,11 @@ function setupIPC(): void {
   let smoothCaptureSupport: boolean | null = null;
   let smoothCaptureProbe: Promise<boolean | null> | null = null;
 
+  // Whether "share audio" does anything here; the picker hides the switch where it would not.
+  ipcMain.handle("get-share-audio-support", () => shareAudioSupported(process.platform, process.getSystemVersion()));
+
   ipcMain.handle("get-smooth-capture-support", () => {
-    if (!hasCaptureHelper(process.platform)) return false;
+    if (!smoothCaptureOffered(process.platform, process.getSystemVersion())) return false;
     if (smoothCaptureSupport !== null) return smoothCaptureSupport;
     // Generous: it builds real encoders, off any path a user waits on.
     smoothCaptureProbe ??= runHelperProbe("--probe-encoders", 10_000)
@@ -1479,6 +1490,9 @@ function setupIPC(): void {
       }
     ): Promise<{ started: boolean; error?: string }> => {
       if (!hasCaptureHelper(process.platform)) return { started: false, error: "no capture helper on this platform" };
+      if (!smoothCaptureOffered(process.platform, process.getSystemVersion())) {
+        return { started: false, error: `the capture helper needs macOS 14, this is ${process.getSystemVersion()}` };
+      }
       const engine = engineArgs(opts.engine, opts.maxBitrate);
       if (!engine) return { started: false, error: "invalid engine or bitrate" };
 
