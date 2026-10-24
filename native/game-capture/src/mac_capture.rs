@@ -10,6 +10,7 @@
 //! stream follows a resized window, and whether the source still exists at all.
 
 use std::mem::ManuallyDrop;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -56,14 +57,16 @@ pub struct Source {
 
 impl Source {
     pub fn find(target: Target) -> Result<Self> {
-        // Connects this process to the window server. A window filter asserts that connection
-        // exists (CGS_REQUIRE_INIT) and aborts the helper without it: we are a command-line process,
-        // so nothing has made one. A display filter happens not to need it.
-        let _ = apple_cf::cg::Display::main();
-        let Located { filter, label, .. } =
-            locate(target)?.with_context(|| format!("no display or window matches {target:?}"))?;
-        let pixel_size = pixel_size(&filter, &label)?;
-        Ok(Self { target, filter, pixel_size, label })
+        within("the content listing", move || {
+            // Connects this process to the window server. A window filter asserts that connection
+            // exists (CGS_REQUIRE_INIT) and aborts the helper without it: we are a command-line
+            // process, so nothing has made one. A display filter happens not to need it.
+            let _ = apple_cf::cg::Display::main();
+            let Located { filter, label, .. } =
+                locate(target)?.with_context(|| format!("no display or window matches {target:?}"))?;
+            let pixel_size = pixel_size(&filter, &label)?;
+            Ok(Self { target, filter, pixel_size, label })
+        })
     }
 
     pub fn width(&self) -> u32 {
@@ -77,6 +80,27 @@ impl Source {
     pub fn label(&self) -> &str {
         &self.label
     }
+}
+
+/// How long ScreenCaptureKit gets to answer a listing or a start. Its service (replayd) can wedge,
+/// measured 2026-10-24: every request then queues forever, and a helper waiting on one is killed by
+/// the app after 15 s without leaving the room. Failing here instead ends the share cleanly, with
+/// a reason.
+const SCK_ANSWER_LIMIT: Duration = Duration::from_secs(5);
+
+/// Runs a ScreenCaptureKit call on its own thread and gives up after `SCK_ANSWER_LIMIT`. A call
+/// that never returns is left behind; the process ends soon after.
+pub(crate) fn within<T: Send + 'static>(what: &str, f: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(f());
+    });
+    rx.recv_timeout(SCK_ANSWER_LIMIT).map_err(|_| {
+        anyhow!(
+            "ScreenCaptureKit did not answer {what} within {}s; the system capture service (replayd) may be stuck",
+            SCK_ANSWER_LIMIT.as_secs()
+        )
+    })?
 }
 
 /// Where a source was found.
@@ -245,6 +269,9 @@ fn area((w, h): (u32, u32)) -> u64 {
 struct Ending {
     ended: Mutex<Option<EndedFn>>,
     first_frame: Arc<Mutex<Option<FirstFrame>>>,
+    /// ScreenCaptureKit stopped the stream itself. Stopping it again then waits for a completion
+    /// that never comes (measured: the helper hung on the way out and was killed, room left open).
+    system_stopped: AtomicBool,
 }
 
 impl Ending {
@@ -261,6 +288,7 @@ impl Ending {
 /// A running capture. Dropping it stops the follower, then the stream.
 pub struct MacCapture {
     stream: SCStream,
+    ending: Arc<Ending>,
     stop_follower: Option<mpsc::Sender<()>>,
     follower: Option<JoinHandle<()>>,
 }
@@ -280,7 +308,11 @@ impl MacCapture {
         ended: impl FnOnce(Ended) + Send + 'static,
     ) -> Result<Self> {
         let first_frame: Arc<Mutex<Option<FirstFrame>>> = Arc::new(Mutex::new(Some(Box::new(first_frame))));
-        let ending = Arc::new(Ending { ended: Mutex::new(Some(Box::new(ended))), first_frame: first_frame.clone() });
+        let ending = Arc::new(Ending {
+            ended: Mutex::new(Some(Box::new(ended))),
+            first_frame: first_frame.clone(),
+            system_stopped: AtomicBool::new(false),
+        });
         let delegate = StopWatch { ending: ending.clone() };
         let mut stream = SCStream::new_with_delegate(&source.filter, &stream_config(canvas, fps), delegate)
             .map_err(|e| anyhow!("creating the capture stream: {e}"))?;
@@ -293,9 +325,10 @@ impl MacCapture {
         stream
             .add_output_handler(frames, SCStreamOutputType::Screen)
             .map_err(|e| anyhow!("adding the frame handler: {e}"))?;
-        stream
-            .start_capture()
-            .map_err(|e| anyhow!("starting the capture stream: {e}"))?;
+        let starting = stream.clone();
+        within("the capture start", move || {
+            starting.start_capture().map_err(|e| anyhow!("starting the capture stream: {e}"))
+        })?;
         log::info!("ScreenCaptureKit capturing {} at {}x{}@{fps}", source.label, canvas.0, canvas.1);
 
         let (stop_tx, stop_rx) = mpsc::channel();
@@ -306,27 +339,53 @@ impl MacCapture {
             fps,
             size: SizeFollower::new(canvas),
             fit: Box::new(fit),
-            ending,
+            ending: ending.clone(),
         };
         let follower = std::thread::Builder::new()
             .name("mqvi-sck-follow".into())
             .spawn(move || follower.run(stop_rx))
             .context("starting the capture follower")?;
-        Ok(Self { stream, stop_follower: Some(stop_tx), follower: Some(follower) })
+        Ok(Self { stream, ending, stop_follower: Some(stop_tx), follower: Some(follower) })
+    }
+}
+
+/// How long the way out waits on any one ScreenCaptureKit call. The process ends right after, and
+/// a share stuck on its way out is worse than an abandoned call: the app kills a helper that does
+/// not exit within 3 s, and a killed helper never leaves the room.
+pub(crate) const SHUTDOWN_STEP_LIMIT: Duration = Duration::from_secs(1);
+
+/// Runs `f` on its own thread and waits at most `limit` for it.
+pub(crate) fn bounded(what: &str, limit: Duration, f: impl FnOnce() + Send + 'static) {
+    let (done_tx, done_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        f();
+        let _ = done_tx.send(());
+    });
+    if done_rx.recv_timeout(limit).is_err() {
+        log::warn!("{what} did not finish within {limit:?}; leaving it behind");
     }
 }
 
 impl Drop for MacCapture {
     fn drop(&mut self) {
         // The follower first, so it can neither reconfigure a stream being stopped nor report a
-        // source "gone" that we are only letting go of. Dropping the sender wakes it at once.
+        // source "gone" that we are only letting go of. Dropping the sender wakes it, unless it is
+        // inside a listing ScreenCaptureKit is slow to answer.
         drop(self.stop_follower.take());
         if let Some(f) = self.follower.take() {
-            let _ = f.join();
+            bounded("the capture follower", SHUTDOWN_STEP_LIMIT, move || {
+                let _ = f.join();
+            });
         }
-        if let Err(e) = self.stream.stop_capture() {
-            log::warn!("stopping the capture stream: {e}");
+        if self.ending.system_stopped.load(Ordering::Acquire) {
+            return;
         }
+        let stream = self.stream.clone();
+        bounded("stopping the capture stream", SHUTDOWN_STEP_LIMIT, move || {
+            if let Err(e) = stream.stop_capture() {
+                log::warn!("stopping the capture stream: {e}");
+            }
+        });
     }
 }
 
@@ -498,6 +557,7 @@ impl SCStreamDelegateTrait for StopWatch {
             error.stream_error_code(),
             Some(SCStreamErrorCode::NoCaptureSource | SCStreamErrorCode::UserStopped)
         );
+        self.ending.system_stopped.store(true, Ordering::Release);
         self.ending.report(if gone { Ended::Gone } else { Ended::Failed(format!("capture stream stopped: {error}")) });
     }
 }
@@ -509,6 +569,22 @@ mod tests {
     const START: (u32, u32) = (1280, 720);
     const BIGGER: (u32, u32) = (1856, 1080);
     const SMALLER: (u32, u32) = (828, 420);
+
+    #[test]
+    fn should_give_up_on_a_shutdown_step_that_never_returns() {
+        // The hang this replaces: stop_capture on a stream the system had already stopped.
+        let started = Instant::now();
+        bounded("a stuck call", Duration::from_millis(50), || std::thread::sleep(Duration::from_secs(5)));
+        assert!(started.elapsed() < Duration::from_secs(1), "waited {:?}", started.elapsed());
+    }
+
+    #[test]
+    fn should_wait_for_a_shutdown_step_that_finishes_in_time() {
+        let done = Arc::new(AtomicBool::new(false));
+        let flag = done.clone();
+        bounded("a quick call", Duration::from_secs(1), move || flag.store(true, Ordering::Release));
+        assert!(done.load(Ordering::Acquire));
+    }
 
     #[test]
     fn should_leave_the_stream_alone_while_the_source_keeps_its_size() {

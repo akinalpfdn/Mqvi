@@ -529,6 +529,8 @@ fn open_capture(args: &Args) -> Result<Option<mac_capture::Source>> {
         (None, None, Source::Sck) => mac_capture::Target::MainDisplay,
         _ => return Ok(None),
     };
+    // Logged before asking: if ScreenCaptureKit never answers, this is the last line.
+    log::info!("asking ScreenCaptureKit for {target:?}");
     let src = mac_capture::Source::find(target)?;
     log::info!("ScreenCaptureKit {}: {}x{}", src.label(), src.width() & !1, src.height() & !1);
     Ok(Some(src))
@@ -767,16 +769,14 @@ async fn run() -> Result<()> {
     // Windows. The first reason sent is the one reported.
     let (died_tx, mut died_rx) = mpsc::unbounded_channel::<(String, bool)>();
     #[cfg(windows)]
-    let mf_thread = start_windows_pump(
-        use_mf || sharp,
-        sharp,
-        VideoConfig { width, height, fps, hevc, max },
-        capture,
-        rtc_source.clone(),
-        stop.clone(),
-        ready_tx,
-        died_tx,
-    );
+    let (mf_thread, _synthetic_died_tx) = if use_mf || sharp {
+        let cfg = VideoConfig { width, height, fps, hevc, max };
+        (Some(start_windows_pump(sharp, cfg, capture, rtc_source.clone(), stop.clone(), ready_tx, died_tx)), None)
+    } else {
+        // Nothing reports a death on the synthetic path. Holding the sender keeps the loop below
+        // waiting on stop and room events: a closed channel reads as an encoder that died.
+        (None, Some(died_tx))
+    };
     // ScreenCaptureKit runs on its own queue; there is no thread of ours to start or join. Ready
     // waits for proof that VideoToolbox, in hardware, encoded the first frame.
     #[cfg(target_os = "macos")]
@@ -784,8 +784,17 @@ async fn run() -> Result<()> {
         Some(src) => {
             let (frame_tx, frame_rx) = oneshot::channel::<()>();
             let check = tokio::spawn(confirm_hardware_encode(watched_track.clone(), frame_rx, ready_tx, died_tx.clone()));
-            let stream = start_mac_capture(&src, (width, height), fps, max, rtc_source.clone(), frame_tx, died_tx)?;
-            (Some(stream), Some(check))
+            match start_mac_capture(&src, (width, height), fps, max, rtc_source.clone(), frame_tx, died_tx.clone()) {
+                Ok(stream) => (Some(stream), Some(check)),
+                // The track is already published. Reported on the died channel, the failure goes
+                // through the shutdown below and closes the room; returning here would leave
+                // viewers a ghost share until the SFU timed us out.
+                Err(e) => {
+                    log::error!("{e:#}");
+                    let _ = died_tx.send((format!("{e:#}"), false));
+                    (None, Some(check))
+                }
+            }
         }
         None => (None, None),
     };
@@ -923,11 +932,10 @@ async fn run() -> Result<()> {
 }
 
 /// Windows: capture and MF encoding make blocking calls, so they run on a dedicated OS thread
-/// (smooth and sharp alike). None when there is nothing to pump (the synthetic raw path).
+/// (smooth and sharp alike). The thread owns `died_tx`: if it ends without sending, the channel
+/// closes and the stream loop treats that as the encoder dying.
 #[cfg(windows)]
-#[allow(clippy::too_many_arguments)]
 fn start_windows_pump(
-    pumped: bool,
     sharp: bool,
     cfg: VideoConfig,
     capture: Option<ScreenCapture>,
@@ -935,10 +943,7 @@ fn start_windows_pump(
     stop: Arc<AtomicBool>,
     ready_tx: oneshot::Sender<String>,
     died_tx: mpsc::UnboundedSender<(String, bool)>,
-) -> Option<std::thread::JoinHandle<()>> {
-    if !pumped {
-        return None;
-    }
+) -> std::thread::JoinHandle<()> {
     let dev = DevHarness::from_env();
     if dev.same_ms_every > 0 || dev.ignore_keyframe_requests || dev.one_encoder_session {
         log::warn!(
@@ -948,7 +953,7 @@ fn start_windows_pump(
             dev.one_encoder_session
         );
     }
-    Some(std::thread::spawn(move || {
+    std::thread::spawn(move || {
         let result = match (sharp, capture) {
             (true, Some(cap)) => sharp_pump::sharp_pump(src, cfg, cap, stop, ready_tx),
             (_, capture) => encoded_pump(src, cfg, capture, stop, ready_tx, dev),
@@ -960,7 +965,7 @@ fn start_windows_pump(
             log::error!("{e:#}");
             let _ = died_tx.send((format!("{e:#}"), is_source_gone(&e)));
         }
-    }))
+    })
 }
 
 /// macOS: starts ScreenCaptureKit into `video`. `first_frame` fires on the first frame handed
@@ -998,7 +1003,10 @@ fn start_mac_capture(
     )
 }
 
-/// How long after the first captured frame VideoToolbox has to show an encoded one.
+/// How long VideoToolbox has, once the transport is connected, to show an encoded frame. Counted
+/// from the connection, not from publish: libwebrtc encodes nothing before it, and the connection
+/// alone took about 3 s on a good network (measured) and can take longer over TURN/TLS or a long
+/// RTT. A transport that never connects is bounded by the app's own ready timeout (15 s).
 #[cfg(target_os = "macos")]
 const ENCODE_CONFIRM_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -1017,23 +1025,34 @@ async fn confirm_hardware_encode(
     if first_frame.await.is_err() {
         return;
     }
-    let deadline = std::time::Instant::now() + ENCODE_CONFIRM_TIMEOUT;
+    use encoder_watch::EncodeCheck;
+    let first_frame_at = std::time::Instant::now();
+    let mut connected_at = None;
     loop {
         tokio::time::sleep(Duration::from_millis(100)).await;
-        // Absent briefly while the sender comes up; the deadline below bounds the wait.
-        let reading = track.get_stats().await.ok().and_then(|s| encoder_watch::EncoderReading::from_stats(&s));
-        if let Some(r) = reading.filter(|r| r.frames_encoded > 0) {
-            let name = if r.implementation.is_empty() { "an unnamed encoder".to_string() } else { r.implementation };
-            if r.hardware {
+        // Absent briefly while the sender comes up; nothing is decided on a missing reading.
+        let Ok(stats) = track.get_stats().await else { continue };
+        match encoder_watch::check_encode(&stats, connected_at, std::time::Instant::now(), ENCODE_CONFIRM_TIMEOUT) {
+            EncodeCheck::Hardware(name) => {
                 let _ = ready.send(name);
-            } else {
-                let _ = died.send((format!("libwebrtc encoded with {name}, which is not a hardware encoder"), false));
+                return;
             }
-            return;
-        }
-        if std::time::Instant::now() >= deadline {
-            let _ = died.send((format!("no frame encoded within {}s of the first capture", ENCODE_CONFIRM_TIMEOUT.as_secs()), false));
-            return;
+            EncodeCheck::Software(name) => {
+                let _ = died.send((format!("libwebrtc encoded with {name}, which is not a hardware encoder"), false));
+                return;
+            }
+            EncodeCheck::TimedOut => {
+                let secs = ENCODE_CONFIRM_TIMEOUT.as_secs();
+                let _ = died.send((format!("connected, but no frame encoded within {secs}s"), false));
+                return;
+            }
+            EncodeCheck::Waiting(since) => {
+                // Once: how long the connection took, which is what the encode budget waits out.
+                if let (None, Some(at)) = (connected_at, since) {
+                    log::info!("transport connected {:.1}s after the first frame", at.duration_since(first_frame_at).as_secs_f64());
+                }
+                connected_at = since;
+            }
         }
     }
 }

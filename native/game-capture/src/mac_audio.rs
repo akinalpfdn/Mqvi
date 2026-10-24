@@ -88,6 +88,68 @@ pub fn reshape_interleaved(data: &[u8], in_channels: usize, out_channels: usize)
 /// Captures until stdin closes (the app's stop) or the stream ends, writing the header and then PCM
 /// to stdout. `our_pid` is the app's main process, whose applications are left out.
 pub fn run(target: AudioTarget, our_pid: Option<i32>) -> Result<()> {
+    let filter = crate::mac_capture::within("the audio filter", move || build_filter(target, our_pid))?;
+
+    let config = SCStreamConfiguration::new()
+        .with_captures_audio(true)
+        .with_sample_rate(SAMPLE_RATE as i32)
+        .with_channel_count(i32::from(CHANNELS))
+        .with_excludes_current_process_audio(true)
+        // Audio only: the video side is the smallest the stream takes, at a frame a second, and has
+        // no output handler.
+        .with_width(16)
+        .with_height(16)
+        .with_fps(1);
+
+    // The header goes out first, before any audio: the app waits for it, and a share with nothing
+    // playing may not deliver a buffer for a while.
+    let out = Arc::new(Mutex::new(std::io::stdout()));
+    {
+        let mut o = out.lock().map_err(|_| anyhow!("stdout lock poisoned"))?;
+        o.write_all(&header(SAMPLE_RATE, CHANNELS)).context("writing the audio header")?;
+        o.flush().context("flushing the audio header")?;
+    }
+
+    // Whatever ends the capture first: None is the app closing our stdin (its stop), Some is the
+    // stream or stdout failing, with why.
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<Option<String>>();
+    let mut stream = SCStream::new_with_delegate(&filter, &config, AudioStopWatch { done: Mutex::new(Some(done_tx.clone())) })
+        .map_err(|e| anyhow!("creating the audio stream: {e}"))?;
+    stream
+        .add_output_handler(
+            AudioOut { out, done: Mutex::new(Some(done_tx.clone())), warned: Mutex::new(false) },
+            SCStreamOutputType::Audio,
+        )
+        .map_err(|e| anyhow!("adding the audio handler: {e}"))?;
+    let starting = stream.clone();
+    crate::mac_capture::within("the audio start", move || {
+        starting.start_capture().map_err(|e| anyhow!("starting the audio stream: {e}"))
+    })?;
+    log::info!("audio: capturing at {SAMPLE_RATE} Hz, {CHANNELS} channels");
+
+    // Not joined: a blocking stdin read cannot be cancelled, and the process exits right after.
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 64];
+        let mut stdin = std::io::stdin();
+        while matches!(stdin.read(&mut buf), Ok(n) if n > 0) {}
+        let _ = done_tx.send(None);
+    });
+    let why = done_rx.recv().unwrap_or(None);
+    // Bounded like the video side's: a stream the system already stopped never answers a stop.
+    let stopping = stream.clone();
+    crate::mac_capture::bounded("stopping the audio stream", crate::mac_capture::SHUTDOWN_STEP_LIMIT, move || {
+        if let Err(e) = stopping.stop_capture() {
+            log::warn!("audio: stopping the stream: {e}");
+        }
+    });
+    match why {
+        Some(w) => Err(anyhow!(w)),
+        None => Ok(()),
+    }
+}
+
+/// The audio filter for `target`: one application, or everything but ours.
+fn build_filter(target: AudioTarget, our_pid: Option<i32>) -> Result<SCContentFilter> {
     // A window or app filter needs a window-server connection; see mac_capture::Source::find.
     let _ = apple_cf::cg::Display::main();
     let content = SCShareableContent::get().map_err(|e| anyhow!("listing shareable content: {e}"))?;
@@ -144,57 +206,7 @@ pub fn run(target: AudioTarget, our_pid: Option<i32>) -> Result<()> {
             }
         }
     };
-    let filter = builder.build().map_err(|e| anyhow!("building the audio filter: {e}"))?;
-
-    let config = SCStreamConfiguration::new()
-        .with_captures_audio(true)
-        .with_sample_rate(SAMPLE_RATE as i32)
-        .with_channel_count(i32::from(CHANNELS))
-        .with_excludes_current_process_audio(true)
-        // Audio only: the video side is the smallest the stream takes, at a frame a second, and has
-        // no output handler.
-        .with_width(16)
-        .with_height(16)
-        .with_fps(1);
-
-    // The header goes out first, before any audio: the app waits for it, and a share with nothing
-    // playing may not deliver a buffer for a while.
-    let out = Arc::new(Mutex::new(std::io::stdout()));
-    {
-        let mut o = out.lock().map_err(|_| anyhow!("stdout lock poisoned"))?;
-        o.write_all(&header(SAMPLE_RATE, CHANNELS)).context("writing the audio header")?;
-        o.flush().context("flushing the audio header")?;
-    }
-
-    // Whatever ends the capture first: None is the app closing our stdin (its stop), Some is the
-    // stream or stdout failing, with why.
-    let (done_tx, done_rx) = std::sync::mpsc::channel::<Option<String>>();
-    let mut stream = SCStream::new_with_delegate(&filter, &config, AudioStopWatch { done: Mutex::new(Some(done_tx.clone())) })
-        .map_err(|e| anyhow!("creating the audio stream: {e}"))?;
-    stream
-        .add_output_handler(
-            AudioOut { out, done: Mutex::new(Some(done_tx.clone())), warned: Mutex::new(false) },
-            SCStreamOutputType::Audio,
-        )
-        .map_err(|e| anyhow!("adding the audio handler: {e}"))?;
-    stream.start_capture().map_err(|e| anyhow!("starting the audio stream: {e}"))?;
-    log::info!("audio: capturing at {SAMPLE_RATE} Hz, {CHANNELS} channels");
-
-    // Not joined: a blocking stdin read cannot be cancelled, and the process exits right after.
-    std::thread::spawn(move || {
-        let mut buf = [0u8; 64];
-        let mut stdin = std::io::stdin();
-        while matches!(stdin.read(&mut buf), Ok(n) if n > 0) {}
-        let _ = done_tx.send(None);
-    });
-    let why = done_rx.recv().unwrap_or(None);
-    if let Err(e) = stream.stop_capture() {
-        log::warn!("audio: stopping the stream: {e}");
-    }
-    match why {
-        Some(w) => Err(anyhow!(w)),
-        None => Ok(()),
-    }
+    builder.build().map_err(|e| anyhow!("building the audio filter: {e}"))
 }
 
 struct AudioOut {

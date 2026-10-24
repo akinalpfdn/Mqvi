@@ -6,6 +6,7 @@ import {
   macAudioArgs,
   macCaptureTarget,
   macMajor,
+  screenPermissionMissing,
   shareAudioSupported,
   smoothCaptureOffered,
 } from "./captureArgs";
@@ -106,5 +107,19 @@ describe("what each platform can share", () => {
     expect(shareAudioSupported("darwin", "13.0.0")).toBe(true);
     expect(shareAudioSupported("darwin", "12.7.6")).toBe(false);
     expect(shareAudioSupported("linux", "6.8.0")).toBe(false);
+  });
+});
+
+describe("screenPermissionMissing", () => {
+  it("should blame Screen Recording on macOS whenever the grant is not in place", () => {
+    for (const status of ["denied", "not-determined", "restricted", "unknown"]) {
+      expect(screenPermissionMissing("darwin", status)).toBe(true);
+    }
+  });
+
+  it("should not blame it when granted, or anywhere but macOS", () => {
+    expect(screenPermissionMissing("darwin", "granted")).toBe(false);
+    expect(screenPermissionMissing("win32", "denied")).toBe(false);
+    expect(screenPermissionMissing("linux", "denied")).toBe(false);
   });
 });

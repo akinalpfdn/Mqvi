@@ -38,6 +38,16 @@ export function shareAudioSupported(platform: string, osVersion: string): boolea
   return platform === "win32";
 }
 
+/**
+ * Whether a picker that could not open should be blamed on Screen Recording: macOS only, and only
+ * when the grant is not in place. Covers both shapes a missing grant takes, a getSources that
+ * throws and one that returns nothing. "not-determined" counts: macOS is asking at that moment, and
+ * the message points to the same setting.
+ */
+export function screenPermissionMissing(platform: string, status: string): boolean {
+  return platform === "darwin" && status !== "granted";
+}
+
 /** The helper binary's file name: an .exe on Windows, a plain executable on macOS. */
 export function captureHelperName(platform: string): string {
   return platform === "win32" ? "mqvi-game-capture.exe" : "mqvi-game-capture";

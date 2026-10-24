@@ -37,6 +37,29 @@ Requires the Rust MSVC toolchain (installed: rustc 1.93.0) and MSVC build tools.
 
 Binary: `native\game-capture\target\debug\mqvi-game-capture.exe`.
 
+### macOS (Apple Silicon)
+
+Requires Rust and Xcode: the ScreenCaptureKit bindings build a Swift bridge with SwiftPM.
+
+```bash
+cargo build --manifest-path native/game-capture/Cargo.toml --bin mqvi-game-capture
+```
+
+- Capture is ScreenCaptureKit (`src/mac_capture.rs`). Encoding is libwebrtc's own VideoToolbox
+  backend, fed `CVPixelBuffer`s without a copy. Share audio is the same binary with
+  `--audio-capture` (`src/mac_audio.rs`). It writes `audio-capture.exe`'s format to stdout.
+- `npm run electron:dev` runs `target/debug/mqvi-game-capture` directly, so a rebuild needs no copy.
+- `build.rs` repeats our dependencies' link args, which cargo does not pass on to our binary:
+  `-ObjC` (libwebrtc's categories) and the `/usr/lib/swift` rpath. Without them the helper aborts
+  at the first peer connection or at launch.
+- Packaging: the release build is copied to `native/mqvi-game-capture` (a real file, not a link)
+  and shipped through `build.mac.extraResources`. electron-builder signs it with the app.
+- Screen Recording permission belongs to the app responsible for the helper: mqvi when packaged.
+  In development it is whatever launched `npm run electron:dev` (VS Code's terminal, Terminal),
+  not Electron's own entry, so resetting Electron's grant changes nothing there. Smooth video needs
+  macOS 14 and share audio macOS 13.
+- `probe-sck [seconds] [display-id]` captures with no room and logs frame size and rate.
+
 ## Live test
 
 The native publisher joins as `{userId}_ss` and publishes an encrypted track. To prove **our JS

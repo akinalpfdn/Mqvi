@@ -29,7 +29,8 @@ release/
 # ========================
 native/*.exe
 native/*.obj
-# macOS helper binary (dev: a symlink into native/game-capture/target)
+# macOS helper binary, staged here for packaging only (CI copies the release build in; dev runs
+# native/game-capture/target/debug directly). Must be a real file: a link would ship dangling.
 native/mqvi-game-capture
 *.obj
 

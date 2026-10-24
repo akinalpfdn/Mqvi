@@ -7,7 +7,7 @@
 use std::time::{Duration, Instant};
 
 use livekit::track::LocalVideoTrack;
-use livekit::webrtc::stats::{QualityLimitationReason, RtcStats};
+use livekit::webrtc::stats::{DtlsTransportState, QualityLimitationReason, RtcStats};
 
 /// One reading of the published video sender.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -42,6 +42,39 @@ impl EncoderReading {
     }
 }
 
+/// What the startup check makes of one stats reading (see `confirm_hardware_encode` in main).
+#[derive(Debug, PartialEq)]
+pub enum EncodeCheck {
+    /// A frame was encoded in hardware: ready, with the encoder's name.
+    Hardware(String),
+    /// A frame was encoded, but by a software encoder.
+    Software(String),
+    /// Connected for longer than the budget, and still nothing encoded.
+    TimedOut,
+    /// Keep waiting. Some once the transport has connected, from then on.
+    Waiting(Option<Instant>),
+}
+
+/// One step of the startup check. The budget runs from the transport connecting, not from publish:
+/// libwebrtc encodes nothing before the connection, which alone can take seconds.
+pub fn check_encode(stats: &[RtcStats], connected_at: Option<Instant>, now: Instant, budget: Duration) -> EncodeCheck {
+    if let Some(r) = EncoderReading::from_stats(stats).filter(|r| r.frames_encoded > 0) {
+        let name = if r.implementation.is_empty() { "an unnamed encoder".to_string() } else { r.implementation };
+        return if r.hardware { EncodeCheck::Hardware(name) } else { EncodeCheck::Software(name) };
+    }
+    let connected_at = connected_at.or_else(|| transport_connected(stats).then_some(now));
+    match connected_at {
+        Some(since) if now.duration_since(since) >= budget => EncodeCheck::TimedOut,
+        waiting => EncodeCheck::Waiting(waiting),
+    }
+}
+
+fn transport_connected(stats: &[RtcStats]) -> bool {
+    stats
+        .iter()
+        .any(|s| matches!(s, RtcStats::Transport(t) if t.transport.dtls_state == Some(DtlsTransportState::Connected)))
+}
+
 /// The log line for the interval between two readings. Saturating: the counters restart when the
 /// sender is rebuilt on a reconnect.
 pub fn describe(last: &EncoderReading, now: &EncoderReading, secs: f64) -> String {
@@ -65,16 +98,18 @@ pub fn describe(last: &EncoderReading, now: &EncoderReading, secs: f64) -> Strin
 /// Logs one line every two seconds until the task is aborted.
 pub async fn watch(track: LocalVideoTrack) {
     let mut tick = tokio::time::interval(Duration::from_secs(2));
-    let mut last = EncoderReading::default();
-    let mut at = Instant::now();
+    // The first reading is only a baseline: its counters run from the start of the stream, not
+    // from one interval ago, and dividing them by two seconds printed nonsense rates.
+    let mut last: Option<(EncoderReading, Instant)> = None;
     loop {
         tick.tick().await;
         // The sender is briefly absent during a reconnect; a missed reading is not worth a line.
         let Ok(stats) = track.get_stats().await else { continue };
         let Some(now) = EncoderReading::from_stats(&stats) else { continue };
-        log::info!("{}", describe(&last, &now, at.elapsed().as_secs_f64()));
-        last = now;
-        at = Instant::now();
+        if let Some((prev, at)) = &last {
+            log::info!("{}", describe(prev, &now, at.elapsed().as_secs_f64()));
+        }
+        last = Some((now, Instant::now()));
     }
 }
 
@@ -114,6 +149,55 @@ mod tests {
         let line = describe(&last, &now, 2.0);
         assert!(line.contains("sent 1000 kbps"), "{line}");
         assert!(line.contains("qp 25.0"), "{line}");
+    }
+
+    fn transport(dtls: DtlsTransportState) -> RtcStats {
+        use livekit::webrtc::stats::TransportStats;
+        RtcStats::Transport(TransportStats {
+            transport: dictionaries::TransportStats { dtls_state: Some(dtls), ..Default::default() },
+            ..Default::default()
+        })
+    }
+
+    const BUDGET: Duration = Duration::from_secs(5);
+
+    #[test]
+    fn should_be_ready_on_a_frame_encoded_in_hardware() {
+        let stats = [outbound("video", "VideoToolbox", 10, 1, 1)];
+        assert_eq!(check_encode(&stats, None, Instant::now(), BUDGET), EncodeCheck::Hardware("VideoToolbox".into()));
+    }
+
+    #[test]
+    fn should_refuse_a_frame_encoded_in_software() {
+        let mut stats = outbound("video", "OpenH264", 10, 1, 1);
+        if let RtcStats::OutboundRtp(o) = &mut stats {
+            o.outbound.power_efficient_encoder = false;
+        }
+        assert_eq!(check_encode(&[stats], None, Instant::now(), BUDGET), EncodeCheck::Software("OpenH264".into()));
+    }
+
+    #[test]
+    fn should_not_start_the_clock_before_the_transport_connects() {
+        // A slow network: long after publish, still connecting. No verdict; the app's own ready
+        // timeout bounds this case.
+        let t0 = Instant::now();
+        let stats = [outbound("video", "", 0, 0, 0), transport(DtlsTransportState::Connecting)];
+        assert_eq!(check_encode(&stats, None, t0 + Duration::from_secs(30), BUDGET), EncodeCheck::Waiting(None));
+    }
+
+    #[test]
+    fn should_start_the_clock_when_the_transport_connects() {
+        let t0 = Instant::now();
+        let stats = [outbound("video", "", 0, 0, 0), transport(DtlsTransportState::Connected)];
+        assert_eq!(check_encode(&stats, None, t0, BUDGET), EncodeCheck::Waiting(Some(t0)));
+    }
+
+    #[test]
+    fn should_time_out_only_once_connected_for_the_whole_budget() {
+        let t0 = Instant::now();
+        let stats = [outbound("video", "", 0, 0, 0), transport(DtlsTransportState::Connected)];
+        assert_eq!(check_encode(&stats, Some(t0), t0 + BUDGET - Duration::from_millis(1), BUDGET), EncodeCheck::Waiting(Some(t0)));
+        assert_eq!(check_encode(&stats, Some(t0), t0 + BUDGET, BUDGET), EncodeCheck::TimedOut);
     }
 
     #[test]

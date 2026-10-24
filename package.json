@@ -91,7 +91,13 @@
       "gatekeeperAssess": false,
       "entitlements": "entitlements.mac.plist",
       "entitlementsInherit": "entitlements.mac.plist",
-      "notarize": true
+      "notarize": true,
+      "extraResources": [
+        {
+          "from": "native/mqvi-game-capture",
+          "to": "native/mqvi-game-capture"
+        }
+      ]
     },
     "dmg": {
       "background": "build/dmg-background.png",
