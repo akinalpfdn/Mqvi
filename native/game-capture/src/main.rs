@@ -120,17 +120,28 @@ struct Args {
     #[arg(long)]
     probe_hdr: bool,
 
+    /// macOS: capture the share's audio instead of video, and write it to stdout in
+    /// audio-capture.exe's format (12-byte header, then interleaved float32). With --window-id it
+    /// is that window's application, with --display-id or no target everything but mqvi.
+    #[arg(long)]
+    audio_capture: bool,
+
+    /// macOS, with --audio-capture: the app's main process, whose applications (its Electron
+    /// helpers included) are left out of the audio.
+    #[arg(long)]
+    self_pid: Option<i32>,
+
     /// LiveKit server URL (from the screen-token response `url`).
-    #[arg(long, env = "LK_URL", required_unless_present_any = ["config_stdin", "probe_encoders", "probe_hdr"])]
+    #[arg(long, env = "LK_URL", required_unless_present_any = ["config_stdin", "probe_encoders", "probe_hdr", "audio_capture"])]
     url: Option<String>,
 
     /// LiveKit access token for the "{userId}_ss" identity (screen-token `token`).
-    #[arg(long, env = "LK_TOKEN", required_unless_present_any = ["config_stdin", "probe_encoders", "probe_hdr"])]
+    #[arg(long, env = "LK_TOKEN", required_unless_present_any = ["config_stdin", "probe_encoders", "probe_hdr", "audio_capture"])]
     token: Option<String>,
 
     /// Room E2EE passphrase (screen-token `e2eePassphrase`). Must equal what the
     /// app clients passed to ExternalE2EEKeyProvider.setKey for this room.
-    #[arg(long, env = "LK_E2EE_KEY", required_unless_present_any = ["config_stdin", "probe_encoders", "probe_hdr"])]
+    #[arg(long, env = "LK_E2EE_KEY", required_unless_present_any = ["config_stdin", "probe_encoders", "probe_hdr", "audio_capture"])]
     e2ee_key: Option<String>,
 
     /// Frame width (kept even for I420 chroma subsampling).
@@ -448,6 +459,28 @@ impl Encoder {
     }
 }
 
+/// macOS: the share's audio on stdout, until the app closes our stdin. Blocking all the way
+/// through (ScreenCaptureKit, stdout, stdin), so off the async workers.
+#[cfg(target_os = "macos")]
+async fn run_audio_capture(args: &Args) -> Result<()> {
+    use mqvi_game_capture::mac_audio::{self, AudioTarget};
+    let target = match (args.window_id, args.display_id) {
+        (Some(id), _) => AudioTarget::Window(id),
+        (None, Some(id)) => AudioTarget::Display(id),
+        (None, None) => AudioTarget::AllButOurs,
+    };
+    let self_pid = args.self_pid;
+    tokio::task::spawn_blocking(move || mac_audio::run(target, self_pid))
+        .await
+        .context("audio capture thread")?
+}
+
+/// Windows has its own audio helper, audio-capture.exe.
+#[cfg(windows)]
+async fn run_audio_capture(_args: &Args) -> Result<()> {
+    bail!("--audio-capture is macOS-only; Windows uses audio-capture.exe")
+}
+
 /// Windows: WGC, encoded by our MF encoder. The app addresses its picked source exactly
 /// (--window-handle / --monitor-rect); the title and primary-monitor forms are dev conveniences.
 #[cfg(windows)]
@@ -550,6 +583,9 @@ async fn run() -> Result<()> {
     if args.probe_hdr {
         println!("{}", probe_hdr(args.monitor_rect.as_deref()));
         return Ok(());
+    }
+    if args.audio_capture {
+        return run_audio_capture(&args).await;
     }
     // Read before anything slow: the app writes this line right after spawning us.
     let conn = Connection::resolve(&args)?;

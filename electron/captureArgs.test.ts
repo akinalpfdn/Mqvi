@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { captureHelperName, engineArgs, hasCaptureHelper, macCaptureTarget } from "./captureArgs";
+import { captureHelperName, engineArgs, hasCaptureHelper, macAudioArgs, macCaptureTarget } from "./captureArgs";
 
 // These flags go from the renderer straight onto the helper's command line. A value the helper does
 // not understand ends the share with a usage error, so it is refused here, where the reason is known.
@@ -60,4 +60,19 @@ describe("macCaptureTarget", () => {
       expect(() => macCaptureTarget(sourceId)).toThrow();
     }
   );
+});
+
+describe("macAudioArgs", () => {
+  it("should scope a window share's audio to that window", () => {
+    expect(macAudioArgs("window:12345:0", 900)).toEqual(["--audio-capture", "--window-id", "12345", "--self-pid", "900"]);
+  });
+
+  it("should send everything but mqvi for a screen share", () => {
+    expect(macAudioArgs("screen:1:0", 900)).toEqual(["--audio-capture", "--display-id", "1", "--self-pid", "900"]);
+  });
+
+  // The browser path can start audio without a picked source; it still must not echo the call.
+  it.each([null, undefined, "", "tab:1:0"])("should fall back to everything but mqvi without a usable source: %s", (sourceId) => {
+    expect(macAudioArgs(sourceId, 900)).toEqual(["--audio-capture", "--self-pid", "900"]);
+  });
 });

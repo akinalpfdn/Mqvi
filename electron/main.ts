@@ -44,6 +44,7 @@ import {
   captureHelperName,
   engineArgs,
   hasCaptureHelper,
+  macAudioArgs,
   macCaptureTarget,
   type CaptureEngine,
 } from "./captureArgs";
@@ -1139,8 +1140,9 @@ function setupIPC(): void {
   // including voice chat audio, causing echo for remote participants.
 
   ipcMain.handle("start-system-capture", (_event, sourceId?: string | null) => {
-    // WASAPI process loopback is Windows-only
-    if (process.platform !== "win32") {
+    // Windows: audio-capture.exe (WASAPI process loopback). macOS: the game-capture helper's
+    // --audio-capture mode (ScreenCaptureKit). Both write the same header + PCM to stdout.
+    if (!hasCaptureHelper(process.platform)) {
       console.log("[main] System audio capture not available on this platform");
       return null;
     }
@@ -1162,21 +1164,28 @@ function setupIPC(): void {
     // Dev: native/audio-capture.exe (relative to project root)
     // Prod: resources/native/audio-capture.exe (inside asar extraResources)
     const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
-    const exePath = isDev
-      ? path.join(app.getAppPath(), "native", "audio-capture.exe")
-      : path.join(process.resourcesPath, "native", "audio-capture.exe");
+    const exePath =
+      process.platform === "darwin"
+        ? gameCaptureExePath()
+        : isDev
+          ? path.join(app.getAppPath(), "native", "audio-capture.exe")
+          : path.join(process.resourcesPath, "native", "audio-capture.exe");
 
     // Sharing one window shares only that window's audio; sharing a monitor shares
     // everything we hear except ourselves. desktopCapturer window ids are
     // "window:<HWND>:<n>" on Windows — the exe resolves the HWND to its process and
-    // degrades to exclude-mode if that window is stale or is one of ours.
+    // degrades to exclude-mode if that window is stale or is one of ours. On macOS the id is a
+    // CGWindowID and the helper does the same with the window's owning application.
     const hwnd =
       typeof sourceId === "string" && sourceId.startsWith("window:")
         ? sourceId.split(":")[1]
         : null;
-    const args = hwnd
-      ? ["--include-window", hwnd, "--self", process.pid.toString()]
-      : ["--exclude", process.pid.toString()];
+    const args =
+      process.platform === "darwin"
+        ? macAudioArgs(sourceId, process.pid)
+        : hwnd
+          ? ["--include-window", hwnd, "--self", process.pid.toString()]
+          : ["--exclude", process.pid.toString()];
 
     console.log(`[main] Starting audio capture gen=${thisGen}: ${exePath} ${args.join(" ")}`);
 
@@ -1342,7 +1351,7 @@ function setupIPC(): void {
   );
 
   ipcMain.handle("stop-system-capture", () => {
-    if (process.platform !== "win32") return;
+    if (!hasCaptureHelper(process.platform)) return;
     if (captureProcess) {
       console.log("[main] Stopping audio capture gen=" + captureGeneration);
       captureProcess.kill();

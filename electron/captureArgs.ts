@@ -30,6 +30,21 @@ export function macCaptureTarget(sourceId: string | undefined): string[] {
   return [m[1] === "screen" ? "--display-id" : "--window-id", m[2]];
 }
 
+/**
+ * macOS: the helper's arguments for a share's audio. A window sends only its application's sound, a
+ * screen (or a source we cannot address) everything except mqvi, whose processes the helper finds
+ * from `selfPid`, the app's main process.
+ */
+export function macAudioArgs(sourceId: string | null | undefined, selfPid: number): string[] {
+  let target: string[] = [];
+  try {
+    target = macCaptureTarget(sourceId ?? undefined);
+  } catch {
+    // No exact source: everything but mqvi, as Windows does for a monitor share.
+  }
+  return ["--audio-capture", ...target, "--self-pid", String(selfPid)];
+}
+
 /** Bounds for the sharp bitrate: wider than any setting the app offers, so only nonsense is refused. */
 const MIN_BITRATE = 100_000;
 const MAX_BITRATE = 20_000_000;

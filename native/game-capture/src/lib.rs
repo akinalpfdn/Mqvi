@@ -15,4 +15,6 @@ pub mod tonemap;
 
 // macOS: ScreenCaptureKit capture, encoded by libwebrtc's own VideoToolbox backend.
 #[cfg(target_os = "macos")]
+pub mod mac_audio;
+#[cfg(target_os = "macos")]
 pub mod mac_capture;
