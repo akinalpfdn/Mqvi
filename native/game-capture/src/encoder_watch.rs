@@ -42,7 +42,7 @@ impl EncoderReading {
     }
 }
 
-/// What the startup check makes of one stats reading (see `confirm_hardware_encode` in main).
+/// What the startup check makes of one stats reading (see `confirm_hardware_encode` in share_mac).
 #[derive(Debug, PartialEq)]
 pub enum EncodeCheck {
     /// A frame was encoded in hardware: ready, with the encoder's name.
