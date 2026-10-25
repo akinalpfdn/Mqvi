@@ -16,7 +16,10 @@ jobs:
         include:
           - platform: windows-latest
             label: windows-x64
-          - platform: macos-14
+          # macos-15, not 14: apple-metal's Swift bridge (under screencapturekit) names macOS 15
+          # Metal types, which only the Xcode 16 SDK has. It checks availability at run time, so
+          # the binaries still run on macOS 13 and 14.
+          - platform: macos-15
             label: macos-arm64
           - platform: ubuntu-22.04
             label: linux-x64
