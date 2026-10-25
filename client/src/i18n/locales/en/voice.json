@@ -18,6 +18,7 @@
   "smoothCaptureStopped": "Smooth Video stopped unexpectedly. Screen sharing has ended.",
   "sharpCaptureStopped": "Sharp Video stopped unexpectedly. Screen sharing has ended.",
   "shareAudioStopped": "Share audio stopped unexpectedly. Screen sharing continues; restart the share to bring the audio back.",
+  "shareAudioFailed": "Share audio couldn't start. Screen sharing continues without audio.",
   "smoothFellBackToSharp": "Smooth Video could not start — sharing with Sharp Video instead.",
   "hdrSharpFellBack": "HDR correction could not start — sharing with Sharp Video as is; HDR content may look overexposed.",
   "screenPickerStarting": "Starting…",

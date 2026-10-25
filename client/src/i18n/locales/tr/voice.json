@@ -18,6 +18,7 @@
   "smoothCaptureStopped": "Akıcı Görüntü beklenmedik şekilde durdu. Ekran paylaşımı sona erdi.",
   "sharpCaptureStopped": "Net Görüntü beklenmedik şekilde durdu. Ekran paylaşımı sona erdi.",
   "shareAudioStopped": "Ses paylaşımı beklenmedik şekilde durdu. Ekran paylaşımı sürüyor; sesi geri getirmek için paylaşımı yeniden başlatın.",
+  "shareAudioFailed": "Ses paylaşımı başlatılamadı. Ekran paylaşımı sessiz devam ediyor.",
   "smoothFellBackToSharp": "Akıcı Görüntü başlatılamadı — Net Görüntü ile paylaşılıyor.",
   "hdrSharpFellBack": "HDR düzeltmesi başlatılamadı — Net Görüntü olduğu gibi paylaşılıyor; HDR içerik aşırı parlak görünebilir.",
   "screenPickerStarting": "Başlatılıyor…",

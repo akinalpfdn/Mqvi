@@ -76,7 +76,8 @@ interface ElectronAPI {
 
   /** Start screen share audio capture for the picked source: a window captures only its
    *  own audio, a screen captures all system audio except ours. */
-  startSystemCapture: (sourceId?: string | null) => Promise<void>;
+  /** False: this platform has no share audio. */
+  startSystemCapture: (sourceId?: string | null) => Promise<boolean>;
   stopSystemCapture: () => Promise<void>;
   /** Remove all capture-related IPC listeners to prevent accumulation */
   removeCaptureListeners: () => void;

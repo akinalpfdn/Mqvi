@@ -64,8 +64,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // that belongs to the share, never our own — no voice echo.
 
   /** Start screen share audio capture. `sourceId` = the picked desktopCapturer source:
-   *  a window shares only its own audio, a screen shares all system audio but ours. */
-  startSystemCapture: (sourceId?: string | null): Promise<void> =>
+   *  a window shares only its own audio, a screen shares all system audio but ours.
+   *  False: this platform has no share audio. */
+  startSystemCapture: (sourceId?: string | null): Promise<boolean> =>
     ipcRenderer.invoke("start-system-capture", sourceId ?? null),
 
   /** Stop system audio capture */

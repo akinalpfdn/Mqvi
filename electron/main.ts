@@ -1175,12 +1175,14 @@ function setupIPC(): void {
   // This replaces Electron's built-in "loopback" which captures everything
   // including voice chat audio, causing echo for remote participants.
 
-  ipcMain.handle("start-system-capture", (_event, sourceId?: string | null) => {
+  // True once a capture process is spawned; false where share audio does not exist, so the renderer
+  // can tell "not here" (say nothing) from a capture that failed to start (warn).
+  ipcMain.handle("start-system-capture", (_event, sourceId?: string | null): boolean => {
     // Windows: audio-capture.exe (WASAPI process loopback). macOS: the game-capture helper's
     // --audio-capture mode (ScreenCaptureKit). Both write the same header + PCM to stdout.
     if (!shareAudioSupported(process.platform, process.getSystemVersion())) {
       console.log("[main] System audio capture not available on this platform");
-      return null;
+      return false;
     }
 
     // If a previous capture is still running, kill it first.
@@ -1302,6 +1304,7 @@ function setupIPC(): void {
       captureProcess = null;
       mainWindow?.webContents.send("capture-audio-stopped");
     });
+    return true;
   });
 
   // ─── Taskbar Badge (Windows Overlay Icon) ───
