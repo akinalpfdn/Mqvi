@@ -96,6 +96,10 @@
         {
           "from": "native/mqvi-game-capture",
           "to": "native/mqvi-game-capture"
+        },
+        {
+          "from": "native/mqvi-audio-capture",
+          "to": "native/mqvi-audio-capture"
         }
       ]
     },

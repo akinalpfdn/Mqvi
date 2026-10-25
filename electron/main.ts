@@ -42,6 +42,7 @@ import { createRedactor } from "./redact";
 import { createOutputTracker } from "./helperOutput";
 import { hdrActiveFrom, runProbe, smoothSupportFrom, type ProbeAnswer } from "./helperProbe";
 import {
+  audioHelperName,
   captureHelperName,
   engineArgs,
   hasCaptureHelper,
@@ -172,10 +173,23 @@ const GAME_CAPTURE_DRAIN_MS = 500;
 const GAME_CAPTURE_EXIT_TIMEOUT_MS = 3_000;
 
 /**
- * Stops a share's audio helper. macOS: asked through stdin first, killed only if it has not
- * exited in 2 s. A helper killed in the middle of a ScreenCaptureKit call can wedge the system's
- * capture service (replayd), and every later capture, the picker included, then hangs (2026-10-24).
- * Windows keeps the plain kill audio-capture.exe has always had.
+ * Where a native helper lives. Packaged: resources/native. macOS dev runs cargo's own debug output,
+ * so a rebuild is live with no copy step, and nothing in native/ can be a link that packaging would
+ * ship dangling. Windows dev keeps its copied exes in native/.
+ */
+function nativeHelperPath(name: string): string {
+  if (process.env.NODE_ENV !== "development" && app.isPackaged) {
+    return path.join(process.resourcesPath, "native", name);
+  }
+  return process.platform === "darwin"
+    ? path.join(app.getAppPath(), "native", "game-capture", "target", "debug", name)
+    : path.join(app.getAppPath(), "native", name);
+}
+
+/**
+ * Stops a share's audio helper. macOS: asked through stdin first, so it stops its stream itself,
+ * and killed only if it has not exited in 2 s. Windows keeps the plain kill audio-capture.exe has
+ * always had.
  */
 function stopAudioCapture(child: ChildProcess): void {
   if (process.platform !== "darwin") {
@@ -1198,16 +1212,7 @@ function setupIPC(): void {
     // processes will see a stale generation and skip their cleanup.
     const thisGen = ++captureGeneration;
 
-    // Resolve path to audio-capture.exe
-    // Dev: native/audio-capture.exe (relative to project root)
-    // Prod: resources/native/audio-capture.exe (inside asar extraResources)
-    const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
-    const exePath =
-      process.platform === "darwin"
-        ? gameCaptureExePath()
-        : isDev
-          ? path.join(app.getAppPath(), "native", "audio-capture.exe")
-          : path.join(process.resourcesPath, "native", "audio-capture.exe");
+    const exePath = nativeHelperPath(audioHelperName(process.platform));
 
     // Sharing one window shares only that window's audio; sharing a monitor shares
     // everything we hear except ourselves. desktopCapturer window ids are
@@ -1442,17 +1447,7 @@ function setupIPC(): void {
   });
 
   // ─── Native Game Capture ───
-  const gameCaptureExePath = () => {
-    const name = captureHelperName(process.platform);
-    if (process.env.NODE_ENV !== "development" && app.isPackaged) {
-      return path.join(process.resourcesPath, "native", name);
-    }
-    // macOS dev runs cargo's own debug output, so a rebuild is live with no copy step, and nothing
-    // in native/ can be a link that packaging would ship dangling. Windows keeps its copied exe.
-    return process.platform === "darwin"
-      ? path.join(app.getAppPath(), "native", "game-capture", "target", "debug", name)
-      : path.join(app.getAppPath(), "native", name);
-  };
+  const gameCaptureExePath = () => nativeHelperPath(captureHelperName(process.platform));
 
   // Runs the helper with a `--probe-*` flag and resolves its answer, or null if it gave none.
   const runHelperProbe = (args: string | string[], timeoutMs: number): Promise<ProbeAnswer | null> =>

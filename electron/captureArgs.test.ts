@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  audioHelperName,
   captureHelperName,
   engineArgs,
   hasCaptureHelper,
@@ -51,6 +52,13 @@ describe("the helper per platform", () => {
     expect(captureHelperName("win32")).toBe("mqvi-game-capture.exe");
     expect(captureHelperName("darwin")).toBe("mqvi-game-capture");
   });
+
+  // One binary for both would have replayd drop the two connections when a share starts them together.
+  it("should run share audio from a binary of its own, never the capture helper", () => {
+    expect(audioHelperName("win32")).toBe("audio-capture.exe");
+    expect(audioHelperName("darwin")).toBe("mqvi-audio-capture");
+    expect(audioHelperName("darwin")).not.toBe(captureHelperName("darwin"));
+  });
 });
 
 describe("macCaptureTarget", () => {
@@ -74,16 +82,16 @@ describe("macCaptureTarget", () => {
 
 describe("macAudioArgs", () => {
   it("should scope a window share's audio to that window", () => {
-    expect(macAudioArgs("window:12345:0", 900)).toEqual(["--audio-capture", "--window-id", "12345", "--self-pid", "900"]);
+    expect(macAudioArgs("window:12345:0", 900)).toEqual(["--window-id", "12345", "--self-pid", "900"]);
   });
 
   it("should send everything but mqvi for a screen share", () => {
-    expect(macAudioArgs("screen:1:0", 900)).toEqual(["--audio-capture", "--display-id", "1", "--self-pid", "900"]);
+    expect(macAudioArgs("screen:1:0", 900)).toEqual(["--display-id", "1", "--self-pid", "900"]);
   });
 
   // The browser path can start audio without a picked source; it still must not echo the call.
   it.each([null, undefined, "", "tab:1:0"])("should fall back to everything but mqvi without a usable source: %s", (sourceId) => {
-    expect(macAudioArgs(sourceId, 900)).toEqual(["--audio-capture", "--self-pid", "900"]);
+    expect(macAudioArgs(sourceId, 900)).toEqual(["--self-pid", "900"]);
   });
 });
 

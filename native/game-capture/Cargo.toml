@@ -13,6 +13,11 @@ path = "src/lib.rs"
 name = "mqvi-game-capture"
 path = "src/main.rs"
 
+# macOS share audio. A separate binary on purpose: see the file's header.
+[[bin]]
+name = "mqvi-audio-capture"
+path = "src/bin/mqvi_audio_capture.rs"
+
 [[bin]]
 name = "test-encode"
 path = "src/bin/test_encode.rs"

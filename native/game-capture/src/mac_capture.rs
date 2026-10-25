@@ -87,10 +87,11 @@ impl Source {
     }
 }
 
-/// How long ScreenCaptureKit gets to answer a listing or a start. Its service (replayd) can wedge,
-/// measured 2026-10-24: every request then queues forever, and a helper waiting on one is killed by
-/// the app after 15 s without leaving the room. Failing here instead ends the share cleanly, with
-/// a reason.
+/// How long ScreenCaptureKit gets to answer a listing or a start. A request can go unanswered: when
+/// replayd drops the connection under it, ScreenCaptureKit never completes it (seen 2026-10-24/25,
+/// two processes of one binary connecting at once; share audio has its own binary since). A helper
+/// waiting on one is killed by the app after 15 s without leaving the room. Failing here instead
+/// ends the share cleanly, with a reason.
 const SCK_ANSWER_LIMIT: Duration = Duration::from_secs(5);
 
 /// Runs a ScreenCaptureKit call on its own thread and gives up after `SCK_ANSWER_LIMIT`. A call
@@ -102,7 +103,7 @@ pub(crate) fn within<T: Send + 'static>(what: &str, f: impl FnOnce() -> Result<T
     });
     rx.recv_timeout(SCK_ANSWER_LIMIT).map_err(|_| {
         anyhow!(
-            "ScreenCaptureKit did not answer {what} within {}s; the system capture service (replayd) may be stuck",
+            "ScreenCaptureKit did not answer {what} within {}s",
             SCK_ANSWER_LIMIT.as_secs()
         )
     })?

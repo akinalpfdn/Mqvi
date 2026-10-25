@@ -55,6 +55,15 @@ export function captureHelperName(platform: string): string {
 }
 
 /**
+ * The share-audio helper's file name. On macOS it is its own binary rather than a mode of the
+ * capture helper: replayd drops both connections when two processes of one signed identity reach
+ * it at once, and a share starts video and audio together (measured 2026-10-25).
+ */
+export function audioHelperName(platform: string): string {
+  return platform === "win32" ? "audio-capture.exe" : "mqvi-audio-capture";
+}
+
+/**
  * macOS: the helper's target for a picked desktopCapturer source. A screen is "screen:<id>:<n>"
  * with the display's CGDirectDisplayID, a window "window:<id>:<n>" with its CGWindowID; the helper
  * matches either exactly in ScreenCaptureKit. Anything else throws, and the share falls back to the
@@ -67,7 +76,7 @@ export function macCaptureTarget(sourceId: string | undefined): string[] {
 }
 
 /**
- * macOS: the helper's arguments for a share's audio. A window sends only its application's sound, a
+ * macOS: the audio helper's arguments for a share. A window sends only its application's sound, a
  * screen (or a source we cannot address) everything except mqvi, whose processes the helper finds
  * from `selfPid`, the app's main process.
  */
@@ -78,7 +87,7 @@ export function macAudioArgs(sourceId: string | null | undefined, selfPid: numbe
   } catch {
     // No exact source: everything but mqvi, as Windows does for a monitor share.
   }
-  return ["--audio-capture", ...target, "--self-pid", String(selfPid)];
+  return [...target, "--self-pid", String(selfPid)];
 }
 
 /** Bounds for the sharp bitrate: wider than any setting the app offers, so only nonsense is refused. */
