@@ -42,10 +42,11 @@ export function shareAudioSupported(platform: string, osVersion: string): boolea
  * Whether a picker that could not open should be blamed on Screen Recording: macOS only, and only
  * when the grant is not in place. Covers both shapes a missing grant takes, a getSources that
  * throws and one that returns nothing. "not-determined" counts: macOS is asking at that moment, and
- * the message points to the same setting.
+ * the message points to the same setting. The status is read only on macOS: Electron's
+ * getMediaAccessStatus does not exist on Linux, and calling it there throws.
  */
-export function screenPermissionMissing(platform: string, status: string): boolean {
-  return platform === "darwin" && status !== "granted";
+export function screenPermissionMissing(platform: string, readStatus: () => string): boolean {
+  return platform === "darwin" && readStatus() !== "granted";
 }
 
 /** The helper binary's file name: an .exe on Windows, a plain executable on macOS. */

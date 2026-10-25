@@ -113,13 +113,22 @@ describe("what each platform can share", () => {
 describe("screenPermissionMissing", () => {
   it("should blame Screen Recording on macOS whenever the grant is not in place", () => {
     for (const status of ["denied", "not-determined", "restricted", "unknown"]) {
-      expect(screenPermissionMissing("darwin", status)).toBe(true);
+      expect(screenPermissionMissing("darwin", () => status)).toBe(true);
     }
   });
 
   it("should not blame it when granted, or anywhere but macOS", () => {
-    expect(screenPermissionMissing("darwin", "granted")).toBe(false);
-    expect(screenPermissionMissing("win32", "denied")).toBe(false);
-    expect(screenPermissionMissing("linux", "denied")).toBe(false);
+    expect(screenPermissionMissing("darwin", () => "granted")).toBe(false);
+    expect(screenPermissionMissing("win32", () => "denied")).toBe(false);
+    expect(screenPermissionMissing("linux", () => "denied")).toBe(false);
+  });
+
+  it("should not read the status when not on macOS", () => {
+    // Electron's getMediaAccessStatus is missing on Linux; reading it there would throw.
+    const missing = () => {
+      throw new TypeError("systemPreferences.getMediaAccessStatus is not a function");
+    };
+    expect(screenPermissionMissing("linux", missing)).toBe(false);
+    expect(screenPermissionMissing("win32", missing)).toBe(false);
   });
 });

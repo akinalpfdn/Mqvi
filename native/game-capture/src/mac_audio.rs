@@ -101,14 +101,8 @@ pub fn run(target: AudioTarget, our_pid: Option<i32>) -> Result<()> {
         .with_height(16)
         .with_fps(1);
 
-    // The header goes out first, before any audio: the app waits for it, and a share with nothing
-    // playing may not deliver a buffer for a while.
-    let out = Arc::new(Mutex::new(std::io::stdout()));
-    {
-        let mut o = out.lock().map_err(|_| anyhow!("stdout lock poisoned"))?;
-        o.write_all(&header(SAMPLE_RATE, CHANNELS)).context("writing the audio header")?;
-        o.flush().context("flushing the audio header")?;
-    }
+    // Closed until the stream has started; see `open_output`.
+    let out = Arc::new(Mutex::new(None));
 
     // Whatever ends the capture first: None is the app closing our stdin (its stop), Some is the
     // stream or stdout failing, with why.
@@ -117,7 +111,7 @@ pub fn run(target: AudioTarget, our_pid: Option<i32>) -> Result<()> {
         .map_err(|e| anyhow!("creating the audio stream: {e}"))?;
     stream
         .add_output_handler(
-            AudioOut { out, done: Mutex::new(Some(done_tx.clone())), warned: Mutex::new(false) },
+            AudioOut { out: out.clone(), done: Mutex::new(Some(done_tx.clone())), warned: Mutex::new(false) },
             SCStreamOutputType::Audio,
         )
         .map_err(|e| anyhow!("adding the audio handler: {e}"))?;
@@ -126,6 +120,9 @@ pub fn run(target: AudioTarget, our_pid: Option<i32>) -> Result<()> {
         starting.start_capture().map_err(|e| anyhow!("starting the audio stream: {e}"))
     })?;
     log::info!("audio: capturing at {SAMPLE_RATE} Hz, {CHANNELS} channels");
+    if let Err(e) = open_output(&out) {
+        let _ = done_tx.send(Some(format!("{e:#}")));
+    }
 
     // Not joined: a blocking stdin read cannot be cancelled, and the process exits right after.
     std::thread::spawn(move || {
@@ -209,8 +206,21 @@ fn build_filter(target: AudioTarget, our_pid: Option<i32>) -> Result<SCContentFi
     builder.build().map_err(|e| anyhow!("building the audio filter: {e}"))
 }
 
+/// Writes the header, then lets PCM through. Only once the stream has started: the app publishes a
+/// share-audio track when the header arrives, and a start that failed or never answered (a stuck
+/// capture service) would have left that track silent. A share with nothing playing may not deliver
+/// a buffer for a while, so the header does not wait for one.
+fn open_output(out: &Mutex<Option<std::io::Stdout>>) -> Result<()> {
+    let mut stdout = std::io::stdout();
+    stdout.write_all(&header(SAMPLE_RATE, CHANNELS)).context("writing the audio header")?;
+    stdout.flush().context("flushing the audio header")?;
+    *out.lock().map_err(|_| anyhow!("stdout lock poisoned"))? = Some(stdout);
+    Ok(())
+}
+
 struct AudioOut {
-    out: Arc<Mutex<std::io::Stdout>>,
+    /// None until `open_output`: buffers before the header are dropped, or they would garble it.
+    out: Arc<Mutex<Option<std::io::Stdout>>>,
     /// Told when stdout is gone: the app closed the pipe, so there is no one to write for.
     done: Mutex<Option<std::sync::mpsc::Sender<Option<String>>>>,
     /// An unusable format is said once, not once per buffer.
@@ -257,7 +267,13 @@ impl SCStreamOutputTrait for AudioOut {
         if bytes.is_empty() {
             return;
         }
-        let written = self.out.lock().map(|mut o| o.write_all(&bytes).and_then(|()| o.flush()).is_ok()).unwrap_or(false);
+        let written = match self.out.lock() {
+            Ok(mut o) => match o.as_mut() {
+                Some(o) => o.write_all(&bytes).and_then(|()| o.flush()).is_ok(),
+                None => return,
+            },
+            Err(_) => false,
+        };
         if !written {
             if let Some(tx) = self.done.lock().ok().and_then(|mut e| e.take()) {
                 let _ = tx.send(Some("stdout closed".into()));

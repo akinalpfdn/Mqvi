@@ -33,6 +33,11 @@ import { startNativeScreenShare, stopNativeScreenShare, onNativeScreenShareStopp
 import * as voiceApi from "../../api/voice";
 import { useServerStore } from "../../stores/serverStore";
 import { useToastStore } from "../../stores/toastStore";
+import i18n from "../../i18n";
+
+/** How long a share whose audio capture ended must stay on before the user is told. A closed window
+ *  ends its audio and its video together, and the video side can take about a second to see it. */
+const SHARE_AUDIO_END_GRACE_MS = 2_000;
 
 /** Both processors expose setMicSensitivity and setInputVolume */
 type AudioProcessor = RNNoiseProcessor | GtcrnProcessor | VadGateProcessor;
@@ -278,10 +283,28 @@ function VoiceStateManager() {
     const myRun = ++audioRunRef.current;
     const isCurrentOwner = () => audioRunRef.current === myRun;
 
+    // The capture ended on its own mid-share. The track comes off at once: left published, it
+    // stays on silent and the user believes viewers still hear the share. The toast waits, because
+    // closing a shared window ends its audio too, and the video side learns of that up to a second
+    // later; a share that ended meanwhile needs no "audio stopped".
+    let endedByHelper = false;
+    let endedToast: ReturnType<typeof setTimeout> | null = null;
+    function handleCaptureEnded() {
+      if (cancelled || !isCurrentOwner()) return;
+      endedByHelper = true;
+      stopAudio().catch((err: unknown) => {
+        console.error("[VoiceStateManager] Removing ended screen share audio failed:", err);
+      });
+      endedToast = setTimeout(() => {
+        if (cancelled) return;
+        useToastStore.getState().addToast("warning", i18n.t("voice:shareAudioStopped"), 10_000);
+      }, SHARE_AUDIO_END_GRACE_MS);
+    }
+
     async function startAudio() {
-      const track = await systemAudioCaptureRef.current.start(pickedShareSourceId);
+      const track = await systemAudioCaptureRef.current.start(pickedShareSourceId, handleCaptureEnded);
       if (!track) return;
-      if (cancelled) {
+      if (cancelled || endedByHelper) {
         if (isCurrentOwner()) systemAudioCaptureRef.current.stop();
         return;
       }
@@ -289,8 +312,8 @@ function VoiceStateManager() {
       const pub = await localParticipant.publishTrack(lkTrack, {
         source: Track.Source.ScreenShareAudio,
       });
-      if (cancelled) {
-        // Stopped mid-publish: stopAudio() saw no publication yet, so this one would
+      if (cancelled || endedByHelper) {
+        // Stopped or ended mid-publish: stopAudio() saw no publication yet, so this one would
         // outlive the share as a dead track nobody unpublishes.
         await localParticipant.unpublishTrack(lkTrack);
         if (isCurrentOwner()) systemAudioCaptureRef.current.stop();
@@ -322,6 +345,7 @@ function VoiceStateManager() {
     // the capture process outlives the share and keeps recording the machine's audio.
     return () => {
       cancelled = true;
+      if (endedToast) clearTimeout(endedToast);
       if (shouldCapture) {
         stopAudio().catch((err: unknown) => {
           console.error("[VoiceStateManager] Stopping screen share audio failed:", err);

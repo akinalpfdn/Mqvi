@@ -936,7 +936,7 @@ function setupPermissions(): void {
   // VIDEO ONLY — audio is handled by audio-capture.exe (WASAPI process loopback)
   // to exclude our own voice chat audio from capture.
   const reportScreenPermissionIfMissing = () => {
-    if (screenPermissionMissing(process.platform, systemPreferences.getMediaAccessStatus("screen"))) {
+    if (screenPermissionMissing(process.platform, () => systemPreferences.getMediaAccessStatus("screen"))) {
       mainWindow?.webContents.send("screen-permission-denied");
     }
   };
@@ -967,8 +967,9 @@ function setupPermissions(): void {
 
         if (sources.length === 0) {
           // The other shape a missing Screen Recording grant takes on macOS: no error, no sources.
-          reportScreenPermissionIfMissing();
+          // Answered first, so a report that fails cannot leave getDisplayMedia waiting.
           answer({});
+          reportScreenPermissionIfMissing();
           return;
         }
 
@@ -1022,8 +1023,8 @@ function setupPermissions(): void {
         console.error("[main] Screen picker failed:", err);
         // On macOS this is what a missing Screen Recording grant usually looks like: getSources
         // throws and no picker opens. Say so in the app, or the share button just does nothing.
-        reportScreenPermissionIfMissing();
         answer({});
+        reportScreenPermissionIfMissing();
       }
     }
   );

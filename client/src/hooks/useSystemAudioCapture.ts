@@ -31,8 +31,10 @@ import { isElectron } from "../utils/constants";
 /** Return type of useSystemAudioCapture hook */
 interface SystemAudioCapture {
   /** Start the native audio capture process for the picked share source
-   *  (a window captures only its own audio; a screen captures all but ours). */
-  start: (sourceId?: string | null) => Promise<MediaStreamTrack | null>;
+   *  (a window captures only its own audio; a screen captures all but ours).
+   *  `onEnded` fires if the capture ends on its own after its track was returned:
+   *  the track then carries nothing more. */
+  start: (sourceId?: string | null, onEnded?: () => void) => Promise<MediaStreamTrack | null>;
   /** Stop capture and clean up resources */
   stop: () => void;
   /** Whether capture is currently active */
@@ -49,7 +51,8 @@ export function useSystemAudioCapture(): SystemAudioCapture {
   const trackRef = useRef<MediaStreamTrack | null>(null);
 
   const start = useCallback(async (
-    sourceId?: string | null
+    sourceId?: string | null,
+    onEnded?: () => void
   ): Promise<MediaStreamTrack | null> => {
     if (!isElectron()) return null;
 
@@ -58,6 +61,8 @@ export function useSystemAudioCapture(): SystemAudioCapture {
 
     return new Promise<MediaStreamTrack | null>((resolve) => {
       let resolved = false;
+      // Whether the caller got a track (rather than null from a timeout or a failed setup).
+      let delivered = false;
 
       // Remove ALL previous capture listeners before registering new ones.
       // Without this, ipcRenderer.on() accumulates duplicate listeners
@@ -144,6 +149,7 @@ export function useSystemAudioCapture(): SystemAudioCapture {
           });
 
           setIsCapturing(true);
+          delivered = !resolved;
           resolved = true;
           resolve(track);
         } catch (err) {
@@ -153,8 +159,15 @@ export function useSystemAudioCapture(): SystemAudioCapture {
         }
       });
 
-      // Handle capture stop before header arrives
+      // The process ended on its own: stop() removes this listener first. Before the header the
+      // start failed; after a track was handed over, a running capture ended (the system stopped
+      // it, its capture service failed, the shared window closed) and the track went silent.
       api.onCaptureAudioStopped(() => {
+        if (delivered) {
+          console.error("[useSystemAudioCapture] Capture stopped after it started");
+          onEnded?.();
+          return;
+        }
         console.error("[useSystemAudioCapture] Capture stopped (exe exited before header)");
         if (!resolved) {
           resolved = true;

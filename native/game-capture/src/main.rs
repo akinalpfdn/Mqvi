@@ -22,7 +22,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use livekit::e2ee::key_provider::{KeyProvider, KeyProviderOptions};
 use livekit::e2ee::{E2eeOptions, EncryptionType};
-use livekit::options::{TrackPublishOptions, VideoCodec, VideoEncoding};
+use livekit::options::{DegradationPreference, TrackPublishOptions, VideoCodec, VideoEncoding};
 use livekit::track::{LocalTrack, LocalVideoTrack, TrackSource};
 use livekit::webrtc::rtp_sender::VideoEncoderBackend;
 #[cfg(windows)]
@@ -730,6 +730,15 @@ async fn run() -> Result<()> {
     } else {
         args.encoder.to_lk()
     };
+    // Smooth holds resolution and frame rate and lets quality give way on a narrow link, as the
+    // Windows encoder does by following libwebrtc's target (rate_policy). Left to the SDK, a screen
+    // share of raw frames gets MaintainResolution, which cuts the frame rate. MaintainFramerate would
+    // cut resolution, and start shares small while the estimate is still low. Encoded frames skip
+    // adaptation (vendor/webrtc-sys video_track.cpp); Sharp keeps the SDK's choice on purpose.
+    if !sharp && !use_mf {
+        publish_opts.degradation_preference = Some(DegradationPreference::MaintainFramerateAndResolution);
+    }
+    let degradation = publish_opts.degradation_preference;
     // The browser engine's exact shape: one spatial layer, three temporal, so the SFU can still thin
     // the frame rate for a weak viewer. More spatial layers is what livekit-client avoids for VP9
     // screen shares — it drops the publish resolution to the smallest layer.
@@ -742,7 +751,7 @@ async fn run() -> Result<()> {
         .await
         .context("publish_track failed")?;
     log::info!(
-        "published track '{track_name}' ({width}x{height}@{fps}, codec={:?}, encoder={}, capture={}, E2EE/GCM)",
+        "published track '{track_name}' ({width}x{height}@{fps}, codec={:?}, encoder={}, capture={}, degradation={}, E2EE/GCM)",
         codec,
         if use_mf {
             "hardware MFT (pre-encoded)"
@@ -754,6 +763,7 @@ async fn run() -> Result<()> {
             "libwebrtc"
         },
         if has_capture { "screen" } else { "synthetic" },
+        degradation.map_or_else(|| "SDK default".to_string(), |d| format!("{d:?}")),
     );
 
     // Capture and MF encoding make blocking calls → dedicated OS thread (smooth and sharp alike).
