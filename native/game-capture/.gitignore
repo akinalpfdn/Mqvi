@@ -1,1 +1,4 @@
 /target
+# Gradle state that LiveKit shipped inside the webrtc-sys crate; any Gradle run rewrites it.
+/vendor/webrtc-sys/libwebrtc/prefixed-jni/.gradle/
+/vendor/webrtc-sys/libwebrtc/prefixed-jni/build/
