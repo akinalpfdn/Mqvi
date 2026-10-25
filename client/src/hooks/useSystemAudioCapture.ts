@@ -13,13 +13,8 @@
  *   4. AudioWorklet → AudioContext.createMediaStreamDestination()
  *   5. The resulting MediaStreamTrack is returned for LiveKit to publish
  *
- * Usage in VoiceStateManager:
- *   const { start, stop, audioTrack } = useSystemAudioCapture();
- *   // When screen share starts with audio:
- *   await start();
- *   if (audioTrack) localParticipant.publishTrack(audioTrack, ...);
- *   // When screen share stops:
- *   stop();
+ * Usage: VoiceStateManager runs it through utils/shareAudioRun — start, publish the returned
+ * track, stop when the share ends or the capture ends on its own.
  *
  * This hook is only active in Electron (isElectron() === true).
  * In browser mode, screen share audio uses getDisplayMedia's built-in audio.
@@ -28,11 +23,25 @@
 import { useState, useRef, useCallback } from "react";
 import { isElectron } from "../utils/constants";
 
+/** How a start came out. "unavailable": this platform has no share audio, nothing to tell anyone.
+ *  "failed": it should have worked and did not — the capture may still be running. */
+export type ShareAudioStartResult =
+  | { status: "started"; track: MediaStreamTrack }
+  | { status: "unavailable" }
+  | { status: "failed" };
+
+/** How long to wait for the capture's header. Longer than the capture's own limits: the macOS
+ *  helper gives ScreenCaptureKit 5 s to list and 5 s to start, and either writes the header or
+ *  exits within them. Waiting less gave up on a capture that then started, unheard. */
+const HEADER_TIMEOUT_MS = 12_000;
+
 /** Return type of useSystemAudioCapture hook */
 interface SystemAudioCapture {
   /** Start the native audio capture process for the picked share source
-   *  (a window captures only its own audio; a screen captures all but ours). */
-  start: (sourceId?: string | null) => Promise<MediaStreamTrack | null>;
+   *  (a window captures only its own audio; a screen captures all but ours).
+   *  `onEnded` fires if the capture ends on its own after its track was returned:
+   *  the track then carries nothing more. */
+  start: (sourceId?: string | null, onEnded?: () => void) => Promise<ShareAudioStartResult>;
   /** Stop capture and clean up resources */
   stop: () => void;
   /** Whether capture is currently active */
@@ -49,15 +58,18 @@ export function useSystemAudioCapture(): SystemAudioCapture {
   const trackRef = useRef<MediaStreamTrack | null>(null);
 
   const start = useCallback(async (
-    sourceId?: string | null
-  ): Promise<MediaStreamTrack | null> => {
-    if (!isElectron()) return null;
+    sourceId?: string | null,
+    onEnded?: () => void
+  ): Promise<ShareAudioStartResult> => {
+    if (!isElectron()) return { status: "unavailable" };
 
     const api = window.electronAPI;
-    if (!api) return null;
+    if (!api) return { status: "unavailable" };
 
-    return new Promise<MediaStreamTrack | null>((resolve) => {
+    return new Promise<ShareAudioStartResult>((resolve) => {
       let resolved = false;
+      // Whether the caller got a track (rather than giving up on a timeout or a failed setup).
+      let delivered = false;
 
       // Remove ALL previous capture listeners before registering new ones.
       // Without this, ipcRenderer.on() accumulates duplicate listeners
@@ -144,41 +156,49 @@ export function useSystemAudioCapture(): SystemAudioCapture {
           });
 
           setIsCapturing(true);
-          resolved = true;
-          resolve(track);
+          delivered = !resolved;
+          settle({ status: "started", track });
         } catch (err) {
           console.error("[useSystemAudioCapture] Setup failed:", err);
-          resolved = true;
-          resolve(null);
+          settle({ status: "failed" });
         }
       });
 
-      // Handle capture stop before header arrives
+      // The process ended on its own: stop() removes this listener first. Before the header the
+      // start failed; after a track was handed over, a running capture ended (the system stopped
+      // it, its capture service failed, the shared window closed) and the track went silent.
       api.onCaptureAudioStopped(() => {
+        if (delivered) {
+          console.error("[useSystemAudioCapture] Capture stopped after it started");
+          onEnded?.();
+          return;
+        }
         console.error("[useSystemAudioCapture] Capture stopped (exe exited before header)");
-        if (!resolved) {
-          resolved = true;
-          resolve(null);
-        }
+        settle({ status: "failed" });
       });
 
-      // Tell main process to start the native capture
-      api.startSystemCapture(sourceId).catch((err: unknown) => {
-        console.error("[useSystemAudioCapture] Start failed:", err);
-        if (!resolved) {
-          resolved = true;
-          resolve(null);
-        }
-      });
+      // Tell main process to start the native capture. False: this platform has none.
+      api
+        .startSystemCapture(sourceId)
+        .then((spawned) => {
+          if (!spawned) settle({ status: "unavailable" });
+        })
+        .catch((err: unknown) => {
+          console.error("[useSystemAudioCapture] Start failed:", err);
+          settle({ status: "failed" });
+        });
 
-      // Timeout: if header doesn't arrive in 5 seconds, give up
-      setTimeout(() => {
-        if (!resolved) {
-          console.error("[useSystemAudioCapture] Timeout waiting for header");
-          resolved = true;
-          resolve(null);
-        }
-      }, 5000);
+      const timeout = setTimeout(() => {
+        if (!resolved) console.error("[useSystemAudioCapture] Timeout waiting for header");
+        settle({ status: "failed" });
+      }, HEADER_TIMEOUT_MS);
+
+      function settle(result: ShareAudioStartResult) {
+        clearTimeout(timeout);
+        if (resolved) return;
+        resolved = true;
+        resolve(result);
+      }
     });
   }, []);
 

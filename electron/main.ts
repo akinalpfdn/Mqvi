@@ -20,6 +20,7 @@ import {
   safeStorage,
   screen,
   shell,
+  systemPreferences,
 } from "electron";
 import { autoUpdater } from "electron-updater";
 import { uIOhook, UiohookKey } from "uiohook-napi";
@@ -40,7 +41,18 @@ import { createCredentialStore } from "./credentialStore";
 import { createRedactor } from "./redact";
 import { createOutputTracker } from "./helperOutput";
 import { hdrActiveFrom, runProbe, smoothSupportFrom, type ProbeAnswer } from "./helperProbe";
-import { engineArgs, type CaptureEngine } from "./captureArgs";
+import {
+  audioHelperName,
+  captureHelperName,
+  engineArgs,
+  hasCaptureHelper,
+  macAudioArgs,
+  macCaptureTarget,
+  screenPermissionMissing,
+  shareAudioSupported,
+  smoothCaptureOffered,
+  type CaptureEngine,
+} from "./captureArgs";
 
 /** Main application window reference */
 let mainWindow: BrowserWindow | null = null;
@@ -159,6 +171,39 @@ const GAME_CAPTURE_DRAIN_MS = 500;
 
 /** How long the helper gets to close its capture session and leave the room before we force it. */
 const GAME_CAPTURE_EXIT_TIMEOUT_MS = 3_000;
+
+/**
+ * Where a native helper lives. Packaged: resources/native. macOS dev runs cargo's own debug output,
+ * so a rebuild is live with no copy step, and nothing in native/ can be a link that packaging would
+ * ship dangling. Windows dev keeps its copied exes in native/.
+ */
+function nativeHelperPath(name: string): string {
+  if (process.env.NODE_ENV !== "development" && app.isPackaged) {
+    return path.join(process.resourcesPath, "native", name);
+  }
+  return process.platform === "darwin"
+    ? path.join(app.getAppPath(), "native", "game-capture", "target", "debug", name)
+    : path.join(app.getAppPath(), "native", name);
+}
+
+/**
+ * Stops a share's audio helper. macOS: asked through stdin first, so it stops its stream itself,
+ * and killed only if it has not exited in 2 s. Windows keeps the plain kill audio-capture.exe has
+ * always had.
+ */
+function stopAudioCapture(child: ChildProcess): void {
+  if (process.platform !== "darwin") {
+    child.kill();
+    return;
+  }
+  const timer = setTimeout(() => child.kill(), 2_000);
+  child.once("exit", () => clearTimeout(timer));
+  try {
+    child.stdin?.end();
+  } catch {
+    // Already gone; the timer above still covers a live one.
+  }
+}
 
 /**
  * Ask the helper to exit, forcing it only if it won't.
@@ -440,6 +485,7 @@ async function handleProbeLine(line: string, generation: number): Promise<void> 
  * screen by its physical bounds (the picked monitor is not necessarily the primary one).
  */
 async function resolveCaptureTarget(sourceId?: string): Promise<string[]> {
+  if (process.platform === "darwin") return macCaptureTarget(sourceId);
   if (sourceId?.startsWith("window:")) {
     return ["--window-handle", sourceId.split(":")[1]];
   }
@@ -903,6 +949,12 @@ function setupPermissions(): void {
   // Sources are sent to renderer via IPC, user picks, result comes back.
   // VIDEO ONLY — audio is handled by audio-capture.exe (WASAPI process loopback)
   // to exclude our own voice chat audio from capture.
+  const reportScreenPermissionIfMissing = () => {
+    if (screenPermissionMissing(process.platform, () => systemPreferences.getMediaAccessStatus("screen"))) {
+      mainWindow?.webContents.send("screen-permission-denied");
+    }
+  };
+
   session.defaultSession.setDisplayMediaRequestHandler(
     async (_request, callback) => {
       // Chromium allows exactly one answer, and it reports an empty one — our way of cancelling,
@@ -928,7 +980,10 @@ function setupPermissions(): void {
         });
 
         if (sources.length === 0) {
+          // The other shape a missing Screen Recording grant takes on macOS: no error, no sources.
+          // Answered first, so a report that fails cannot leave getDisplayMedia waiting.
           answer({});
+          reportScreenPermissionIfMissing();
           return;
         }
 
@@ -980,7 +1035,10 @@ function setupPermissions(): void {
         }
       } catch (err) {
         console.error("[main] Screen picker failed:", err);
+        // On macOS this is what a missing Screen Recording grant usually looks like: getSources
+        // throws and no picker opens. Say so in the app, or the share button just does nothing.
         answer({});
+        reportScreenPermissionIfMissing();
       }
     }
   );
@@ -1131,19 +1189,22 @@ function setupIPC(): void {
   // This replaces Electron's built-in "loopback" which captures everything
   // including voice chat audio, causing echo for remote participants.
 
-  ipcMain.handle("start-system-capture", (_event, sourceId?: string | null) => {
-    // WASAPI process loopback is Windows-only
-    if (process.platform !== "win32") {
+  // True once a capture process is spawned; false where share audio does not exist, so the renderer
+  // can tell "not here" (say nothing) from a capture that failed to start (warn).
+  ipcMain.handle("start-system-capture", (_event, sourceId?: string | null): boolean => {
+    // Windows: audio-capture.exe (WASAPI process loopback). macOS: the game-capture helper's
+    // --audio-capture mode (ScreenCaptureKit). Both write the same header + PCM to stdout.
+    if (!shareAudioSupported(process.platform, process.getSystemVersion())) {
       console.log("[main] System audio capture not available on this platform");
-      return null;
+      return false;
     }
 
     // If a previous capture is still running, kill it first.
     // This handles rapid stop→start cycles where the old process
     // hasn't exited yet.
     if (captureProcess) {
-      console.log("[main] Killing previous capture process before starting new one");
-      captureProcess.kill();
+      console.log("[main] Stopping previous capture process before starting new one");
+      stopAudioCapture(captureProcess);
       captureProcess = null;
     }
 
@@ -1151,25 +1212,23 @@ function setupIPC(): void {
     // processes will see a stale generation and skip their cleanup.
     const thisGen = ++captureGeneration;
 
-    // Resolve path to audio-capture.exe
-    // Dev: native/audio-capture.exe (relative to project root)
-    // Prod: resources/native/audio-capture.exe (inside asar extraResources)
-    const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
-    const exePath = isDev
-      ? path.join(app.getAppPath(), "native", "audio-capture.exe")
-      : path.join(process.resourcesPath, "native", "audio-capture.exe");
+    const exePath = nativeHelperPath(audioHelperName(process.platform));
 
     // Sharing one window shares only that window's audio; sharing a monitor shares
     // everything we hear except ourselves. desktopCapturer window ids are
     // "window:<HWND>:<n>" on Windows — the exe resolves the HWND to its process and
-    // degrades to exclude-mode if that window is stale or is one of ours.
+    // degrades to exclude-mode if that window is stale or is one of ours. On macOS the id is a
+    // CGWindowID and the helper does the same with the window's owning application.
     const hwnd =
       typeof sourceId === "string" && sourceId.startsWith("window:")
         ? sourceId.split(":")[1]
         : null;
-    const args = hwnd
-      ? ["--include-window", hwnd, "--self", process.pid.toString()]
-      : ["--exclude", process.pid.toString()];
+    const args =
+      process.platform === "darwin"
+        ? macAudioArgs(sourceId, process.pid)
+        : hwnd
+          ? ["--include-window", hwnd, "--self", process.pid.toString()]
+          : ["--exclude", process.pid.toString()];
 
     console.log(`[main] Starting audio capture gen=${thisGen}: ${exePath} ${args.join(" ")}`);
 
@@ -1250,6 +1309,7 @@ function setupIPC(): void {
       captureProcess = null;
       mainWindow?.webContents.send("capture-audio-stopped");
     });
+    return true;
   });
 
   // ─── Taskbar Badge (Windows Overlay Icon) ───
@@ -1335,10 +1395,10 @@ function setupIPC(): void {
   );
 
   ipcMain.handle("stop-system-capture", () => {
-    if (process.platform !== "win32") return;
+    if (!hasCaptureHelper(process.platform)) return;
     if (captureProcess) {
       console.log("[main] Stopping audio capture gen=" + captureGeneration);
-      captureProcess.kill();
+      stopAudioCapture(captureProcess);
       captureProcess = null;
       captureHeaderParsed = false;
       // Increment generation so the killed process's exit handler
@@ -1387,10 +1447,7 @@ function setupIPC(): void {
   });
 
   // ─── Native Game Capture ───
-  const gameCaptureExePath = () =>
-    process.env.NODE_ENV === "development" || !app.isPackaged
-      ? path.join(app.getAppPath(), "native", "mqvi-game-capture.exe")
-      : path.join(process.resourcesPath, "native", "mqvi-game-capture.exe");
+  const gameCaptureExePath = () => nativeHelperPath(captureHelperName(process.platform));
 
   // Runs the helper with a `--probe-*` flag and resolves its answer, or null if it gave none.
   const runHelperProbe = (args: string | string[], timeoutMs: number): Promise<ProbeAnswer | null> =>
@@ -1407,8 +1464,16 @@ function setupIPC(): void {
   let smoothCaptureSupport: boolean | null = null;
   let smoothCaptureProbe: Promise<boolean | null> | null = null;
 
+  // Whether "share audio" does anything here; the picker hides the switch where it would not.
+  ipcMain.handle("get-share-audio-support", () => shareAudioSupported(process.platform, process.getSystemVersion()));
+
   ipcMain.handle("get-smooth-capture-support", () => {
-    if (process.platform !== "win32") return false;
+    if (!smoothCaptureOffered(process.platform, process.getSystemVersion())) return false;
+    // macOS: nothing to probe. The helper there only reports that this build lists VideoToolbox,
+    // which every Apple Silicon build does; whether it really encodes is proven per share. Spawning
+    // it at launch also put a child's exit (SIGCHLD) beside uIOhook.start(), and libuiohook reads
+    // that early wake as a failed start and deadlocks the main process (sampled 2026-10-24).
+    if (process.platform === "darwin") return true;
     if (smoothCaptureSupport !== null) return smoothCaptureSupport;
     // Generous: it builds real encoders, off any path a user waits on.
     smoothCaptureProbe ??= runHelperProbe("--probe-encoders", 10_000)
@@ -1443,8 +1508,9 @@ function setupIPC(): void {
     return hdrActiveFrom(await runHelperProbe(["--probe-hdr", ...target], 3_000));
   });
 
-  // Spawns mqvi-game-capture.exe (WGC capture + hardware encode, or software VP9 for a sharp share
-  // on an HDR display — see captureArgs). It joins the LiveKit room as
+  // Spawns the game-capture helper: on Windows WGC capture + hardware encode, or software VP9 for a
+  // sharp share on an HDR display (see captureArgs); on macOS ScreenCaptureKit + VideoToolbox. It
+  // joins the LiveKit room as
   // the "{userId}_ss" screen-share identity using the screen-token, so other clients subscribe
   // to it exactly like any screen share. Connection + capture params come from the renderer.
   ipcMain.handle(
@@ -1461,7 +1527,10 @@ function setupIPC(): void {
         maxBitrate?: number;
       }
     ): Promise<{ started: boolean; error?: string }> => {
-      if (process.platform !== "win32") return { started: false, error: "windows only" };
+      if (!hasCaptureHelper(process.platform)) return { started: false, error: "no capture helper on this platform" };
+      if (!smoothCaptureOffered(process.platform, process.getSystemVersion())) {
+        return { started: false, error: `the capture helper needs macOS 14, this is ${process.getSystemVersion()}` };
+      }
       const engine = engineArgs(opts.engine, opts.maxBitrate);
       if (!engine) return { started: false, error: "invalid engine or bitrate" };
 
@@ -1477,6 +1546,9 @@ function setupIPC(): void {
       try {
         target = await resolveCaptureTarget(opts.sourceId);
       } catch (err) {
+        // Logged: this return falls back to the browser before the helper is ever spawned, so
+        // without it the dev log shows a fallback with no cause anywhere.
+        console.error(`[main] Game capture target for '${opts.sourceId ?? ""}' failed:`, err);
         return { started: false, error: err instanceof Error ? err.message : String(err) };
       }
       if (thisGen !== gameCaptureGeneration) return { started: false, error: "superseded" };
@@ -2058,5 +2130,5 @@ app.on("before-quit", (e) => {
   // Safety net: don't block shutdown longer than 2 seconds
   setTimeout(finish, 2000);
 
-  proc.kill();
+  stopAudioCapture(proc);
 });

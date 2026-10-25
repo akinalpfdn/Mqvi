@@ -28,6 +28,9 @@ function installElectron(support: boolean | null | "throws") {
     getSmoothCaptureSupport: () =>
       support === "throws" ? Promise.reject(new Error("ipc")) : Promise.resolve(support),
     getHdrActive: () => Promise.resolve(false),
+    getShareAudioSupport: () => Promise.resolve(true),
+    onScreenPermissionDenied: () => {},
+    removeScreenPermissionListener: () => {},
   };
 }
 

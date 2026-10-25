@@ -51,7 +51,12 @@ import {
   createVoiceScreenShareSlice,
   type VoiceScreenShareSlice,
 } from "./slices/voiceScreenShareSlice";
-import { HELPER_EXIT_SOURCE_GONE, sharpShareEncoding, type NativeEngine } from "../utils/publishEngine";
+import {
+  HELPER_EXIT_SOURCE_GONE,
+  hasCaptureHelper,
+  sharpShareEncoding,
+  type NativeEngine,
+} from "../utils/publishEngine";
 
 export type { InputMode, ScreenShareQuality };
 
@@ -132,6 +137,12 @@ type VoiceCoreState = {
    */
   smoothCaptureSupported: boolean | null;
   loadSmoothCaptureSupport: () => Promise<void>;
+  /**
+   * Whether this system can capture a share's audio: Windows, and macOS from 13. null until asked.
+   * Where it is false the picker hides "share audio" rather than offer sound that never goes.
+   */
+  shareAudioSupported: boolean | null;
+  loadShareAudioSupport: () => Promise<void>;
   /** desktopCapturer id of the source being shared ("window:<HWND>:0" / "screen:<id>:0").
    *  Set by the picker; the audio capture needs it to scope itself to the share. */
   pickedShareSourceId: string | null;
@@ -226,6 +237,7 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
   isNativeCapturing: false,
   nativeCapture: null,
   smoothCaptureSupported: null,
+  shareAudioSupported: null,
   pickedShareSourceId: null,
   isServerMuted: false,
   isServerDeafened: false,
@@ -463,10 +475,11 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
     const channelId = get().currentVoiceChannelId;
     // Not reportable: nothing was attempted, and no share is routed to the helper without these.
     if (!serverId || !channelId || !window.electronAPI) return { ok: false };
-    // Before the token round-trip, not after: the helper is Windows-only, so anywhere else this
-    // would mint a screen-share token and hand the room passphrase to a path that only rejects it.
-    // Also not reportable: shares are only routed to the helper on Windows, so nothing was attempted.
-    if (window.electronAPI.platform !== "win32") return { ok: false };
+    // Before the token round-trip, not after: the helper ships only on Windows and macOS, so
+    // anywhere else this would mint a screen-share token and hand the room passphrase to a path that
+    // only rejects it. Also not reportable: shares are only routed to the helper where it exists, so
+    // nothing was attempted.
+    if (!hasCaptureHelper(window.electronAPI.platform)) return { ok: false };
 
     // Screen-token = the {userId}_ss identity + the room's E2EE passphrase; the native helper
     // publishes with these, so it decrypts on every client exactly like any screen share.
@@ -498,9 +511,20 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
     return { ok: true };
   },
 
+  loadShareAudioSupport: async () => {
+    const api = window.electronAPI;
+    if (!api) {
+      set({ shareAudioSupported: false });
+      return;
+    }
+    // A failed ask keeps the switch, as before: hiding it over an IPC hiccup would lose a feature.
+    const supported = await api.getShareAudioSupport().catch(() => null);
+    set({ shareAudioSupported: supported });
+  },
+
   loadSmoothCaptureSupport: async () => {
     const api = window.electronAPI;
-    if (api?.platform !== "win32") {
+    if (!api || !hasCaptureHelper(api.platform)) {
       set({ smoothCaptureSupported: false });
       return;
     }

@@ -64,8 +64,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // that belongs to the share, never our own — no voice echo.
 
   /** Start screen share audio capture. `sourceId` = the picked desktopCapturer source:
-   *  a window shares only its own audio, a screen shares all system audio but ours. */
-  startSystemCapture: (sourceId?: string | null): Promise<void> =>
+   *  a window shares only its own audio, a screen shares all system audio but ours.
+   *  False: this platform has no share audio. */
+  startSystemCapture: (sourceId?: string | null): Promise<boolean> =>
     ipcRenderer.invoke("start-system-capture", sourceId ?? null),
 
   /** Stop system audio capture */
@@ -94,6 +95,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   /** Whether this machine can hardware-encode ("Smooth Video"); null if it could not be told. */
   getSmoothCaptureSupport: (): Promise<boolean | null> => ipcRenderer.invoke("get-smooth-capture-support"),
+
+  /** Whether a share's audio can be captured on this system ("share audio" does anything). */
+  getShareAudioSupport: (): Promise<boolean> => ipcRenderer.invoke("get-share-audio-support"),
+
+  /** macOS: a share failed because Screen Recording is not granted to the app. */
+  onScreenPermissionDenied: (cb: () => void): void => {
+    ipcRenderer.on("screen-permission-denied", () => cb());
+  },
+
+  removeScreenPermissionListener: (): void => {
+    ipcRenderer.removeAllListeners("screen-permission-denied");
+  },
 
   /** Whether any monitor is in HDR right now; null if it could not be told. */
   getHdrActive: (sourceId?: string): Promise<boolean | null> => ipcRenderer.invoke("get-hdr-active", sourceId),

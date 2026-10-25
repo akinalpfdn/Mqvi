@@ -20,6 +20,14 @@ export type PublishEngine = NativeEngine | "browser";
  */
 export const HELPER_EXIT_SOURCE_GONE = 3;
 
+/**
+ * Whether this desktop app ships the capture helper: Windows and macOS do, Linux and the browser do
+ * not. Kept in step with `hasCaptureHelper` in electron/captureArgs.ts.
+ */
+export function hasCaptureHelper(platform: string | undefined): boolean {
+  return platform === "win32" || platform === "darwin";
+}
+
 /** "Sharp Video"'s encoding. The browser publishes with it; the helper's sharp engine copies it. */
 export function sharpShareEncoding(quality: ScreenShareQuality): { maxBitrate: number; maxFramerate: number } {
   return { maxBitrate: quality === "720p" ? 1_500_000 : 3_000_000, maxFramerate: 30 };
@@ -31,7 +39,7 @@ export function choosePublishEngine(opts: {
   smoothSupported: boolean | null;
   /** From the HDR probe; null = could not tell, so the browser keeps sharp as before. */
   hdrActive: boolean | null;
-  /** The helper exists only in the Windows desktop app. */
+  /** The helper exists only in the Windows and macOS desktop apps. */
   hasHelper: boolean;
 }): PublishEngine {
   if (!opts.hasHelper) return "browser";

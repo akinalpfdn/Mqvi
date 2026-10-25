@@ -14,6 +14,8 @@
 //! POST /api/servers/{serverId}/voice/screen-token response {url, token, e2eePassphrase}.
 //! The identity baked into that token is "{userId}_ss", the screen-share sub-participant.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,32 +24,57 @@ use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use livekit::e2ee::key_provider::{KeyProvider, KeyProviderOptions};
 use livekit::e2ee::{E2eeOptions, EncryptionType};
-use livekit::options::{TrackPublishOptions, VideoCodec, VideoEncoding};
+use livekit::options::{DegradationPreference, TrackPublishOptions, VideoCodec, VideoEncoding};
+use livekit::participant::LocalParticipant;
 use livekit::track::{LocalTrack, LocalVideoTrack, TrackSource};
 use livekit::webrtc::rtp_sender::VideoEncoderBackend;
-use livekit::webrtc::video_frame::{
-    EncodedFrameType, EncodedVideoCodec, EncodedVideoFrame, I420Buffer, VideoFrame, VideoRotation,
-};
+#[cfg(windows)]
+use livekit::webrtc::video_frame::{EncodedFrameType, EncodedVideoCodec, EncodedVideoFrame};
+use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
 use livekit::{Room, RoomEvent, RoomOptions};
-use mqvi_game_capture::capture::{ScreenCapture, SourceGone};
+#[cfg(windows)]
+use mqvi_game_capture::capture::ScreenCapture;
+#[cfg(windows)]
 use mqvi_game_capture::display_light;
-use mqvi_game_capture::mf_encoder::{
-    describe_hardware_encoders, hardware_encoder_count, EncodedPacket, HwEncoder,
-};
+#[cfg(target_os = "macos")]
+use mqvi_game_capture::mac_capture;
+#[cfg(windows)]
+use mqvi_game_capture::mf_encoder::{hardware_encoder_count, EncodedPacket, HwEncoder};
+#[cfg(windows)]
 use mqvi_game_capture::nv12;
-use tokio::sync::oneshot;
+use mqvi_game_capture::source::SourceGone;
+use tokio::sync::{mpsc, oneshot};
 #[cfg(windows)]
 use windows::core::PCWSTR;
 
+#[cfg(any(windows, test))]
 mod delivery_watch;
+#[cfg(target_os = "macos")]
+mod encoder_watch;
+#[cfg(target_os = "macos")]
+mod share_mac;
+#[cfg(windows)]
+mod share_windows;
+#[cfg(target_os = "macos")]
+use share_mac::PlatformShare;
+#[cfg(windows)]
+use share_windows::PlatformShare;
+// The hardware pump's parts. Windows-only in a build; their tests are plain Rust and run anywhere.
+#[cfg(any(windows, test))]
 mod encoder_swap;
+#[cfg(any(windows, test))]
 mod keyframe_watch;
+#[cfg(any(windows, test))]
 mod pump_stats;
+#[cfg(any(windows, test))]
 mod pump_timing;
+#[cfg(any(windows, test))]
 mod rate_policy;
+#[cfg(windows)]
 mod sharp_pump;
+#[cfg(any(windows, test))]
 mod vbv_follow;
 #[cfg(windows)]
 use windows::Win32::Foundation::HANDLE;
@@ -73,10 +100,12 @@ fn is_source_gone(err: &anyhow::Error) -> bool {
 }
 
 /// Consecutive encode failures that mean the encoder is gone for good, not glitching (1s at 30fps).
+#[cfg(windows)]
 const MAX_CONSECUTIVE_ENCODE_ERRORS: u32 = 30;
 /// Seconds of "accepting frames, producing nothing" that mean the same. Encoder death has three
 /// shapes — erroring, silent, and hung — and this is the silent one. (Hung is bounded inside
 /// HwEncoder::encode, which turns it into an error and lands on the counter above.)
+#[cfg(windows)]
 const MAX_SILENT_REPORTS: u32 = 3;
 
 /// NGC-01 spike: publish a synthetic E2EE video track to a LiveKit room.
@@ -155,6 +184,16 @@ struct Args {
     #[arg(long)]
     monitor_rect: Option<String>,
 
+    /// macOS: capture the display with this CGDirectDisplayID — the number in a desktopCapturer
+    /// "screen:<id>:<n>" source id.
+    #[arg(long)]
+    display_id: Option<u32>,
+
+    /// macOS: capture the window with this CGWindowID — the number in a desktopCapturer
+    /// "window:<id>:<n>" source id.
+    #[arg(long)]
+    window_id: Option<u32>,
+
     /// Largest height the stream may use, from the app's screen-share quality setting. The source's
     /// own size wins when it's smaller — we never upscale. Omit to stream at the source's size.
     #[arg(long)]
@@ -173,6 +212,7 @@ struct Args {
 }
 
 /// The dev-only harness switches, as the hardware pump reads them. Off in every app run.
+#[cfg(any(windows, test))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct DevHarness {
     /// `MQVI_DEV_SAME_MS_EVERY`: hand every Nth encoded frame over in the same millisecond as the
@@ -186,6 +226,7 @@ struct DevHarness {
     one_encoder_session: bool,
 }
 
+#[cfg(any(windows, test))]
 impl DevHarness {
     /// Read leniently and never as arguments: a value the parser rejected made every helper run
     /// exit at once — the launch-time encoder probe included, which quietly switched "Smooth
@@ -208,6 +249,7 @@ impl DevHarness {
         }
     }
 
+    #[cfg(windows)]
     fn from_env() -> Self {
         let var = |name: &str| std::env::var(name).ok();
         Self::from_values(
@@ -296,6 +338,7 @@ impl Connection {
 /// lists none at all, `null` if one is listed but would not start. Only `false` is a fact about the
 /// machine; a listed encoder that refuses may just be busy (NVENC's session limit while OBS or
 /// ShadowPlay holds one), and the app must not switch "Smooth Video" off for the session over it.
+#[cfg(windows)]
 fn probe_encoders() -> String {
     if HwEncoder::startup().is_err() {
         return r#"{"h264":false,"h265":false}"#.to_string();
@@ -312,10 +355,22 @@ fn probe_encoders() -> String {
     format!(r#"{{"h264":{},"h265":{}}}"#, probe(false), probe(true))
 }
 
+/// macOS: libwebrtc's VideoToolbox backend is the encoder. It is listed only when this build has it;
+/// whether a session really comes up is proven by the share's own first encoded frame, not here.
+/// H.264 only: the smooth engine never asks the mac for H.265.
+#[cfg(target_os = "macos")]
+fn probe_encoders() -> String {
+    let videotoolbox = VideoEncoderBackend::list_available()
+        .into_iter()
+        .any(|b| matches!(b, VideoEncoderBackend::VideoToolbox));
+    format!(r#"{{"h264":{videotoolbox},"h265":false}}"#)
+}
+
 /// Whether the monitor at `rect` is in HDR — or, without one, whether any monitor is. A screen share
 /// asks about its own monitor; a window asks about all of them, since it can be dragged to the HDR
 /// one mid-share and only the helper follows that. `{"hdr":null}` when the displays cannot be asked:
 /// the app then keeps the share in the browser, as before.
+#[cfg(windows)]
 fn probe_hdr(rect: Option<&str>) -> String {
     let answer = match rect {
         Some(r) => parse_rect(r).and_then(|(x, y, w, h)| display_light::hdr_at_rect(x, y, w, h)),
@@ -330,7 +385,15 @@ fn probe_hdr(rect: Option<&str>) -> String {
     }
 }
 
+/// macOS: the HDR route (a sharp share tone-mapped by this helper) is Windows-only, so the answer
+/// that keeps a sharp share in the browser is the only one to give.
+#[cfg(target_os = "macos")]
+fn probe_hdr(_rect: Option<&str>) -> String {
+    r#"{"hdr":false}"#.to_string()
+}
+
 /// "x,y,width,height" → (x, y, width, height).
+#[cfg(windows)]
 fn parse_rect(s: &str) -> Result<(i32, i32, i32, i32)> {
     let n: Vec<i32> = s
         .split(',')
@@ -345,7 +408,10 @@ fn parse_rect(s: &str) -> Result<(i32, i32, i32, i32)> {
 #[derive(Clone, Copy, Debug, PartialEq, clap::ValueEnum)]
 enum Source {
     Synthetic,
+    /// Windows: the primary monitor through Windows.Graphics.Capture.
     Wgc,
+    /// macOS: the main display through ScreenCaptureKit.
+    Sck,
 }
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]
@@ -390,6 +456,61 @@ impl Encoder {
             Encoder::Mf => VideoEncoderBackend::PreEncoded,
         }
     }
+}
+
+/// Windows: WGC, encoded by our MF encoder. The app addresses its picked source exactly
+/// (--window-handle / --monitor-rect); the title and primary-monitor forms are dev conveniences.
+#[cfg(windows)]
+fn open_capture(args: &Args) -> Result<Option<ScreenCapture>> {
+    if args.source == Source::Sck || args.display_id.is_some() || args.window_id.is_some() {
+        bail!("--source sck, --display-id and --window-id are macOS-only");
+    }
+    let cap = if let Some(handle) = args.window_handle {
+        let cap = ScreenCapture::window_by_handle(handle)?;
+        log::info!("WGC window capture hwnd={handle}: {}x{}", cap.width() & !1, cap.height() & !1);
+        cap
+    } else if let Some(rect) = &args.monitor_rect {
+        let (x, y, w, h) = parse_rect(rect)?;
+        let cap = ScreenCapture::monitor_by_rect(x, y, w, h)?;
+        log::info!("WGC monitor capture at {x},{y}: {}x{}", cap.width() & !1, cap.height() & !1);
+        cap
+    } else if let Some(title) = &args.window {
+        let cap = ScreenCapture::window_by_title(title)?;
+        log::info!("WGC window capture '{title}': {}x{}", cap.width() & !1, cap.height() & !1);
+        cap
+    } else if args.source == Source::Wgc {
+        let cap = ScreenCapture::primary_monitor()?;
+        log::info!("WGC monitor capture: {}x{}", cap.width() & !1, cap.height() & !1);
+        cap
+    } else {
+        return Ok(None);
+    };
+    Ok(Some(cap))
+}
+
+/// macOS: ScreenCaptureKit, encoded by libwebrtc's VideoToolbox backend. Found and measured here,
+/// started once the track is published.
+#[cfg(target_os = "macos")]
+fn open_capture(args: &Args) -> Result<Option<mac_capture::Source>> {
+    if args.window_handle.is_some()
+        || args.monitor_rect.is_some()
+        || args.window.is_some()
+        || args.source == Source::Wgc
+    {
+        bail!("--window-handle, --monitor-rect, --window and --source wgc are Windows-only");
+    }
+    let target = match (args.window_id, args.display_id, args.source) {
+        (Some(_), Some(_), _) => bail!("--window-id and --display-id are exclusive"),
+        (Some(id), None, _) => mac_capture::Target::Window(id),
+        (None, Some(id), _) => mac_capture::Target::Display(id),
+        (None, None, Source::Sck) => mac_capture::Target::MainDisplay,
+        _ => return Ok(None),
+    };
+    // Logged before asking: if ScreenCaptureKit never answers, this is the last line.
+    log::info!("asking ScreenCaptureKit for {target:?}");
+    let src = mac_capture::Source::find(target)?;
+    log::info!("ScreenCaptureKit {}: {}x{}", src.label(), src.width() & !1, src.height() & !1);
+    Ok(Some(src))
 }
 
 fn main() -> Result<()> {
@@ -442,72 +563,23 @@ async fn run() -> Result<()> {
         println!("{}", probe_hdr(args.monitor_rect.as_deref()));
         return Ok(());
     }
+    run_share(args).await
+}
+
+/// Why a share's encoder or capture stopped: the cause as text, and whether it was the source going
+/// away rather than a fault. Several senders on the mac (the capture, and the check that its
+/// encoder is really hardware); one on Windows. The first reason sent is the one reported.
+type Died = (String, bool);
+
+/// One share: capture, publish, stream until something ends it, and leave cleanly. What differs per
+/// platform lives behind `PlatformShare` (share_windows.rs, share_mac.rs).
+async fn run_share(args: Args) -> Result<()> {
     // Read before anything slow: the app writes this line right after spawning us.
     let conn = Connection::resolve(&args)?;
-    let mut width = args.width & !1; // force even
-    let mut height = args.height & !1;
-    let fps = args.fps.max(1);
-
-    // WGC capture: dimensions come from the source (window or monitor), and it goes through our MF
-    // encoder. The app addresses its picked source exactly (--window-handle / --monitor-rect); the
-    // title and primary-monitor forms are dev conveniences.
-    let capture = if let Some(handle) = args.window_handle {
-        let cap = ScreenCapture::window_by_handle(handle)?;
-        width = cap.width() & !1;
-        height = cap.height() & !1;
-        log::info!("WGC window capture hwnd={handle}: {width}x{height}");
-        Some(cap)
-    } else if let Some(rect) = &args.monitor_rect {
-        let (x, y, w, h) = parse_rect(rect)?;
-        let cap = ScreenCapture::monitor_by_rect(x, y, w, h)?;
-        width = cap.width() & !1;
-        height = cap.height() & !1;
-        log::info!("WGC monitor capture at {x},{y}: {width}x{height}");
-        Some(cap)
-    } else if let Some(title) = &args.window {
-        let cap = ScreenCapture::window_by_title(title)?;
-        width = cap.width() & !1;
-        height = cap.height() & !1;
-        log::info!("WGC window capture '{title}': {width}x{height}");
-        Some(cap)
-    } else if args.source == Source::Wgc {
-        let cap = ScreenCapture::primary_monitor()?;
-        width = cap.width() & !1;
-        height = cap.height() & !1;
-        log::info!("WGC monitor capture: {width}x{height}");
-        Some(cap)
-    } else {
-        None
-    };
-
-    // Sizing is settled here, with the capture and before anything network: the stream's size is a
-    // function of the source and the app's quality cap, and nothing later gets to disagree.
-    // The cap bounds the stream, not the capture — we grab the source at its own size and scale
-    // down, so a 1440p monitor honours a 720p setting instead of ignoring it.
-    let max = match args.max_height {
-        Some(h) => ((h as u64 * 16 / 9) as u32, h),
-        None => (u32::MAX, u32::MAX),
-    };
-    if capture.is_some() {
-        let canvas = canvas_for(width, height, max);
-        if canvas != (width, height) {
-            log::info!(
-                "source {width}x{height} → streaming {}x{} (cap {}p)",
-                canvas.0, canvas.1, max.1
-            );
-            (width, height) = canvas;
-        }
-    }
-
-    // E2EE: shared-key provider seeded with the room passphrase. Defaults give
-    // salt="LKFrameEncryptionKey" + PBKDF2, matching the JS ExternalE2EEKeyProvider.
-    let key_provider =
-        KeyProvider::with_shared_key(KeyProviderOptions::default(), conn.e2ee_key.into_bytes());
-
-    let mut room_options = RoomOptions::default();
-    room_options.encryption = Some(E2eeOptions { encryption_type: EncryptionType::Gcm, key_provider });
-    // We only publish; no need to subscribe to anyone in this spike.
-    room_options.auto_subscribe = false;
+    // Real capture: dimensions come from the source (window or monitor).
+    let capture = open_capture(&args)?;
+    let max = quality_cap(args.max_height);
+    let size = stream_size(&args, capture.as_ref().map(|c| (c.width(), c.height())), max);
 
     // One stop future for the whole process. Building it inside a select! arm instead would park a
     // fresh blocking stdin read on every loop iteration — tokio can't cancel those, so each room
@@ -516,206 +588,37 @@ async fn run() -> Result<()> {
     let stop_signal = stop_requested();
     tokio::pin!(stop_signal);
 
-    log::info!("connecting to {}", conn.url);
-    // Racing the connect matters: it retries for a long time on a bad network, and we're already
-    // capturing — bailing out here drops `capture`, which closes the session and its border.
-    let (room, mut events) = tokio::select! {
-        connected = Room::connect(&conn.url, &conn.token, room_options) => {
-            connected.context("LiveKit connect failed (check url/token/network)")?
-        }
-        _ = &mut stop_signal => {
-            log::info!("asked to stop while connecting — shutting down");
-            return Ok(());
-        }
+    let Some((room, mut events)) = connect_room(conn, stop_signal.as_mut()).await? else {
+        return Ok(());
     };
-    let local = room.local_participant();
-    log::info!(
-        "connected as identity={} room={}",
-        local.identity().as_str(),
-        room.name()
-    );
+    let plan = StreamPlan::new(&args, capture.is_some(), size, max)?;
+    let (track, rtc_source) = publish_share(&room.local_participant(), &plan).await?;
 
-    let sharp = args.engine == Engine::Sharp;
-    if sharp && capture.is_none() {
-        bail!("--engine sharp needs a capture source");
-    }
-    let use_mf = !sharp && (args.encoder == Encoder::Mf || capture.is_some());
-    // WGC smooth always hardware-encodes; default its codec (otherwise vp8) to h264. Sharp is VP9,
-    // the browser engine's codec, whatever was asked.
-    let codec = if sharp {
-        Codec::Vp9
-    } else if capture.is_some() && !matches!(args.codec, Codec::H264 | Codec::H265) {
-        Codec::H264
-    } else {
-        args.codec
-    };
-    let hevc = matches!(codec, Codec::H265);
-    if use_mf && !matches!(codec, Codec::H264 | Codec::H265) {
-        bail!("hardware encode (--encoder mf) needs --codec h264 or h265");
-    }
-
-    // MF path hands livekit pre-encoded access units (new_encoded); otherwise a raw I420
-    // source that libwebrtc encodes itself (is_screencast=true = screen content hint).
-    let res = VideoResolution { width, height };
-    // Sharp says "not screencast" on purpose: it is what livekit-client does for VP9 screen shares
-    // (contentHint "motion"), because libwebrtc's screencast path holds VP9 L1T3 to a few fps.
-    let rtc_source = if use_mf {
-        NativeVideoSource::new_encoded(res)
-    } else {
-        NativeVideoSource::new(res, !sharp)
-    };
-    let track_name = if sharp { TRACK_NAME_SHARP } else { TRACK_NAME_SMOOTH };
-    let track = LocalVideoTrack::create_video_track(track_name, RtcVideoSource::Native(rtc_source.clone()));
-    let watched_track = track.clone();
-
-    let backends: Vec<_> = VideoEncoderBackend::list_available().into_iter().collect();
-    log::info!("available encoder backends: {backends:?}");
-
-    let mut publish_opts = TrackPublishOptions::default();
-    publish_opts.source = TrackSource::Screenshare;
-    publish_opts.video_codec = codec.to_lk();
-    // Our encoder hands livekit one finished stream — it cannot produce simulcast layers. Left on
-    // (the SDK's default), the SDK declares a half-size 3fps layer beside it and the rate allocator
-    // budgets our single stream as that layer: a flat 150 kbps, whatever the link can really do.
-    // A 1080p game at 150 kbps is the mush this looked like from NGC-01 onwards.
-    publish_opts.simulcast = false;
-    // And say what the stream is worth, rather than letting the SDK guess from a track that hasn't
-    // encoded a frame yet. WebRTC still pulls it down to what the link takes; this is the ceiling.
-    publish_opts.video_encoding = Some(VideoEncoding {
-        max_bitrate: match (sharp, args.max_bitrate) {
-            (true, Some(b)) => b,
-            _ => target_bitrate(width, height, fps),
-        },
-        max_framerate: fps as f64,
-    });
-    // We hand livekit already-encoded frames on the MF path → PreEncoded pass-through (no re-encode).
-    publish_opts.video_encoder = if use_mf {
-        VideoEncoderBackend::PreEncoded
-    } else if sharp {
-        VideoEncoderBackend::Software
-    } else {
-        args.encoder.to_lk()
-    };
-    // The browser engine's exact shape: one spatial layer, three temporal, so the SFU can still thin
-    // the frame rate for a weak viewer. More spatial layers is what livekit-client avoids for VP9
-    // screen shares — it drops the publish resolution to the smallest layer.
-    if sharp {
-        publish_opts.scalability_mode = Some("L1T3".to_string());
-    }
-
-    local
-        .publish_track(LocalTrack::Video(track), publish_opts)
-        .await
-        .context("publish_track failed")?;
-    log::info!(
-        "published track '{track_name}' ({width}x{height}@{fps}, codec={:?}, hw_encode={}, source={:?}, E2EE/GCM)",
-        codec, use_mf, args.source
-    );
-
-    // Capture and MF encoding make blocking calls → dedicated OS thread (smooth and sharp alike).
-    // The synthetic raw path → tokio task.
     let stop = Arc::new(AtomicBool::new(false));
     // `ready` fires on the first frame the encoder actually delivers; `died` on a fatal encode
     // failure. The hardware encoder is created inside the pump and can fail outright (no MFT on
     // this machine) or die later (a GPU driver reset — routine for our workload, a fullscreen
     // game), and neither shows up as a process exit.
     let (ready_tx, ready_rx) = oneshot::channel::<String>();
-    // The cause as text, and whether it was the source going away rather than a fault.
-    let (died_tx, mut died_rx) = oneshot::channel::<(String, bool)>();
-    let cfg = VideoConfig { width, height, fps, hevc, max };
-    let dev = DevHarness::from_env();
-    if dev.same_ms_every > 0 || dev.ignore_keyframe_requests || dev.one_encoder_session {
-        log::warn!(
-            "dev harness on: same-ms pair every {} frames, ignore keyframe requests {}, one encoder session {}",
-            dev.same_ms_every,
-            dev.ignore_keyframe_requests,
-            dev.one_encoder_session
-        );
-    }
-    let mf_thread = if use_mf || sharp {
-        let (src, stop) = (rtc_source.clone(), stop.clone());
-        Some(std::thread::spawn(move || {
-            let result = match (sharp, capture) {
-                (true, Some(cap)) => sharp_pump::sharp_pump(src, cfg, cap, stop, ready_tx),
-                (_, capture) => encoded_pump(src, cfg, capture, stop, ready_tx, dev),
-            };
-            if let Err(e) = result {
-                // Bare, with no prefix of its own: the error the app finally reports embeds this
-                // same text, so an identical opening lets the reporter fold the two into one line
-                // instead of spending its length budget saying it twice.
-                log::error!("{e:#}");
-                let _ = died_tx.send((format!("{e:#}"), is_source_gone(&e)));
-            }
-        }))
-    } else {
-        None
-    };
-    let raw_pump =
-        (!use_mf && !sharp).then(|| tokio::spawn(frame_pump(rtc_source, width, height, fps)));
+    let (died_tx, mut died_rx) = mpsc::unbounded_channel::<Died>();
+    let mut share = PlatformShare::start(&plan, capture, rtc_source.clone(), &track, stop.clone(), ready_tx, died_tx);
+    let raw_pump = (!plan.use_mf && !plan.sharp && !plan.has_capture)
+        .then(|| tokio::spawn(frame_pump(rtc_source, plan.width, plan.height, plan.fps)));
 
     // "Published" is not "streaming": the track exists, but nothing is on it until the encoder
     // delivers. Announcing readiness before that is how a machine with no hardware encoder ends up
     // with the app committed to a stream that stays black forever.
-    let mut startup_error = None;
-    let mut no_frames = false;
-    let waits_for_first_frame = use_mf || sharp;
-    let mut streaming = !waits_for_first_frame;
-    if waits_for_first_frame {
-        tokio::select! {
-            first = ready_rx => match first {
-                Ok(encoder) => {
-                    log::info!("encoding with {encoder}");
-                    streaming = true;
-                }
-                // Sender dropped: the pump bailed before delivering anything. Which of its dozen
-                // failures it was is on `died_rx`, but not reliably readable until the thread has
-                // finished — so the message is built after the join below, not here. Reporting
-                // "no frames" on its own names the symptom and drops the fault: v2.23.1 shipped
-                // that and the first production report was unactionable.
-                Err(_) => no_frames = true,
-            },
-            _ = &mut stop_signal => log::info!("asked to stop before the first frame"),
-        }
-    }
-
-    // Smooth only: its frames are already encoded, so a frame libwebrtc drops costs viewers a freeze
-    // until the next keyframe, and nothing but these counters shows it.
-    let delivery = (streaming && use_mf).then(|| tokio::spawn(delivery_watch::watch(watched_track)));
-
-    if streaming {
+    let startup = if plan.waits_for_first_frame() {
+        wait_for_first_frame(ready_rx, &mut died_rx, share.ends_before_ready(), stop_signal.as_mut()).await
+    } else {
+        Startup::Streaming
+    };
+    let mut failure = None;
+    if matches!(startup, Startup::Streaming) {
+        share.streaming(&track);
         // The app waits for exactly this line before it commits to the native engine.
         println!("MQVI-READY");
-
-        loop {
-            tokio::select! {
-                _ = &mut stop_signal => {
-                    log::info!("shutting down");
-                    break;
-                }
-                reason = &mut died_rx => {
-                    // The same trap as the startup path: `reason` IS the cause, so putting a
-                    // generic sentence in the error throws away the only line that names the fault.
-                    // Exiting is the only way the app learns: it watches for our process to end.
-                    let (cause, gone) = reason.unwrap_or_else(|_| ("no reason given".into(), false));
-                    startup_error = Some(if gone {
-                        anyhow::Error::new(SourceGone)
-                    } else {
-                        anyhow!("{cause} (encoder stopped mid-stream)")
-                    });
-                    break;
-                }
-                event = events.recv() => {
-                    match event {
-                        Some(RoomEvent::Disconnected { reason }) => {
-                            log::warn!("room disconnected: {reason:?}");
-                            break;
-                        }
-                        Some(ev) => log::debug!("room event: {ev:?}"),
-                        None => break, // room handle dropped / channel closed
-                    }
-                }
-            }
-        }
+        failure = stream_until_end(&mut died_rx, &mut events, stop_signal.as_mut()).await;
     }
 
     // Staged so a hang here is diagnosable from the log alone: this process ending is the only way
@@ -726,18 +629,8 @@ async fn run() -> Result<()> {
     if let Some(p) = raw_pump {
         p.abort();
     }
-    if let Some(w) = delivery {
-        w.abort();
-    }
-    // Joining matters: the pump owns `capture`, so this is where the WGC session gets closed.
-    log::info!("shutdown: joining encode thread");
-    if let Some(t) = mf_thread {
-        let _ = t.join();
-    }
-    // Every failure inside the pump funnels through `died_tx` — encoder creation, a rejected input
-    // type, frames refused, frames accepted but never returned. The join above is what makes this
-    // readable: the thread has run its error handler by now, so the cause is already in the channel.
-    if no_frames {
+    share.shutdown();
+    if let Startup::NoFrames(ended_before_ready) = startup {
         // Read here and nowhere else. A working share must not pay for it, and more to the point
         // must not be put at risk by it: this is fresh Media Foundation code, and running it on the
         // path that already failed means the worst it can cost is a report, never a share.
@@ -745,26 +638,317 @@ async fn run() -> Result<()> {
         // The distinction it buys is the one an encode error cannot make alone — "this GPU exposes
         // no H264 encoder at all" and "the encoder is right there and refused our settings" reach
         // the operator as the same failed share otherwise.
-        // Only the hardware path has encoders to describe; sharp's encoder is libwebrtc's own.
-        let encoders = if sharp { sharp_pump::ENCODER_NAME.to_string() } else { describe_hardware_encoders() };
-        startup_error = Some(match died_rx.try_recv() {
-            Ok((cause, _)) => anyhow!("{cause} (no frames produced; {encoders})"),
-            // The pump only returns Ok once `stop` is set, and that happens above — so reaching
-            // this means it ended without going through its own error handler.
-            Err(_) => anyhow!("no frames produced and no reason reported; {encoders}"),
-        });
+        failure = Some(no_frames_error(ended_before_ready, &mut died_rx, share.encoders()));
     }
 
     log::info!("shutdown: closing room");
     room.close().await.ok();
     log::info!("shutdown: done");
-    match startup_error {
-        Some(e) => Err(e),
-        None => Ok(()),
+    failure.map_or(Ok(()), Err)
+}
+
+/// The app's quality setting as a ceiling for the canvas: 16:9 at that height, or none.
+fn quality_cap(max_height: Option<u32>) -> (u32, u32) {
+    match max_height {
+        Some(h) => ((h as u64 * 16 / 9) as u32, h),
+        None => (u32::MAX, u32::MAX),
+    }
+}
+
+/// The stream's size, settled with the capture and before anything network: a function of the
+/// source and the app's quality cap, and nothing later gets to disagree. The cap bounds the stream,
+/// not the capture — we grab the source at its own size and scale down, so a 1440p monitor honours
+/// a 720p setting instead of ignoring it. With no source, the flags' size.
+fn stream_size(args: &Args, source: Option<(u32, u32)>, max: (u32, u32)) -> (u32, u32) {
+    let Some((w, h)) = source else {
+        return (args.width & !1, args.height & !1);
+    };
+    let (w, h) = (w & !1, h & !1);
+    let canvas = canvas_for(w, h, max);
+    if canvas != (w, h) {
+        log::info!("source {w}x{h} → streaming {}x{} (cap {}p)", canvas.0, canvas.1, max.1);
+    }
+    canvas
+}
+
+/// Joins the room, or None when asked to stop first. Racing the connect matters: it retries for a
+/// long time on a bad network, and we're already capturing — leaving here drops the capture, which
+/// closes the session and its border.
+async fn connect_room(
+    conn: Connection,
+    stop: Pin<&mut impl Future<Output = ()>>,
+) -> Result<Option<(Room, mpsc::UnboundedReceiver<RoomEvent>)>> {
+    // E2EE: shared-key provider seeded with the room passphrase. Defaults give
+    // salt="LKFrameEncryptionKey" + PBKDF2, matching the JS ExternalE2EEKeyProvider.
+    let key_provider =
+        KeyProvider::with_shared_key(KeyProviderOptions::default(), conn.e2ee_key.into_bytes());
+
+    let mut room_options = RoomOptions::default();
+    room_options.encryption = Some(E2eeOptions { encryption_type: EncryptionType::Gcm, key_provider });
+    // We only publish; no need to subscribe to anyone in this spike.
+    room_options.auto_subscribe = false;
+
+    log::info!("connecting to {}", conn.url);
+    let (room, events) = tokio::select! {
+        connected = Room::connect(&conn.url, &conn.token, room_options) => {
+            connected.context("LiveKit connect failed (check url/token/network)")?
+        }
+        _ = stop => {
+            log::info!("asked to stop while connecting — shutting down");
+            return Ok(None);
+        }
+    };
+    let local = room.local_participant();
+    log::info!(
+        "connected as identity={} room={}",
+        local.identity().as_str(),
+        room.name()
+    );
+    Ok(Some((room, events)))
+}
+
+/// What the share streams and how, settled once the room is joined and before anything is published.
+struct StreamPlan {
+    width: u32,
+    height: u32,
+    fps: u32,
+    /// The app's quality cap: a resized source is held to it too.
+    max: (u32, u32),
+    has_capture: bool,
+    sharp: bool,
+    /// Windows smooth: our MF encoder hands livekit finished frames.
+    use_mf: bool,
+    /// macOS with a source: ScreenCaptureKit frames, encoded by libwebrtc's VideoToolbox backend.
+    mac_capture: bool,
+    codec: Codec,
+    /// The backend asked for; it decides only the synthetic path.
+    encoder: Encoder,
+    /// Sharp only: the app's bitrate setting.
+    max_bitrate: Option<u64>,
+}
+
+impl StreamPlan {
+    fn new(args: &Args, has_capture: bool, (width, height): (u32, u32), max: (u32, u32)) -> Result<Self> {
+        let sharp = args.engine == Engine::Sharp;
+        if sharp && !has_capture {
+            bail!("--engine sharp needs a capture source");
+        }
+        // The mac has neither our MF encoder nor the HDR sharp route: its capture feeds libwebrtc raw
+        // frames, which VideoToolbox encodes.
+        if cfg!(target_os = "macos") && (sharp || args.encoder == Encoder::Mf) {
+            bail!("--engine sharp and --encoder mf are Windows-only");
+        }
+        let use_mf = cfg!(windows) && !sharp && (args.encoder == Encoder::Mf || has_capture);
+        // WGC smooth always hardware-encodes; default its codec (otherwise vp8) to h264. Sharp is VP9,
+        // the browser engine's codec, whatever was asked.
+        let codec = if sharp {
+            Codec::Vp9
+        } else if has_capture && !matches!(args.codec, Codec::H264 | Codec::H265) {
+            Codec::H264
+        } else {
+            args.codec
+        };
+        if use_mf && !matches!(codec, Codec::H264 | Codec::H265) {
+            bail!("hardware encode (--encoder mf) needs --codec h264 or h265");
+        }
+        Ok(Self {
+            width,
+            height,
+            fps: args.fps.max(1),
+            max,
+            has_capture,
+            sharp,
+            use_mf,
+            mac_capture: cfg!(target_os = "macos") && has_capture,
+            codec,
+            encoder: args.encoder,
+            max_bitrate: args.max_bitrate,
+        })
+    }
+
+    /// Smooth on Windows, sharp and the mac's capture announce ready only on an encoded frame.
+    fn waits_for_first_frame(&self) -> bool {
+        self.use_mf || self.sharp || self.mac_capture
+    }
+}
+
+/// Publishes the share's track; returns it with the source its frames go into.
+async fn publish_share(local: &LocalParticipant, plan: &StreamPlan) -> Result<(LocalVideoTrack, NativeVideoSource)> {
+    // MF path hands livekit pre-encoded access units (new_encoded); otherwise a raw I420
+    // source that libwebrtc encodes itself (is_screencast=true = screen content hint).
+    let res = VideoResolution { width: plan.width, height: plan.height };
+    // Sharp says "not screencast" on purpose: it is what livekit-client does for VP9 screen shares
+    // (contentHint "motion"), because libwebrtc's screencast path holds VP9 L1T3 to a few fps.
+    let rtc_source = if plan.use_mf {
+        NativeVideoSource::new_encoded(res)
+    } else {
+        NativeVideoSource::new(res, !plan.sharp)
+    };
+    let track_name = if plan.sharp { TRACK_NAME_SHARP } else { TRACK_NAME_SMOOTH };
+    let track = LocalVideoTrack::create_video_track(track_name, RtcVideoSource::Native(rtc_source.clone()));
+
+    let backends: Vec<_> = VideoEncoderBackend::list_available().into_iter().collect();
+    log::info!("available encoder backends: {backends:?}");
+
+    let opts = publish_options(plan);
+    let degradation = opts.degradation_preference;
+    local
+        .publish_track(LocalTrack::Video(track.clone()), opts)
+        .await
+        .context("publish_track failed")?;
+    log::info!(
+        "published track '{track_name}' ({}x{}@{}, codec={:?}, encoder={}, capture={}, degradation={}, E2EE/GCM)",
+        plan.width,
+        plan.height,
+        plan.fps,
+        plan.codec,
+        if plan.use_mf {
+            "hardware MFT (pre-encoded)"
+        } else if plan.mac_capture {
+            "VideoToolbox"
+        } else if plan.sharp {
+            "libwebrtc software"
+        } else {
+            "libwebrtc"
+        },
+        if plan.has_capture { "screen" } else { "synthetic" },
+        degradation.map_or_else(|| "SDK default".to_string(), |d| format!("{d:?}")),
+    );
+    Ok((track, rtc_source))
+}
+
+fn publish_options(plan: &StreamPlan) -> TrackPublishOptions {
+    let mut publish_opts = TrackPublishOptions::default();
+    publish_opts.source = TrackSource::Screenshare;
+    publish_opts.video_codec = plan.codec.to_lk();
+    // Our encoder hands livekit one finished stream — it cannot produce simulcast layers. Left on
+    // (the SDK's default), the SDK declares a half-size 3fps layer beside it and the rate allocator
+    // budgets our single stream as that layer: a flat 150 kbps, whatever the link can really do.
+    // A 1080p game at 150 kbps is the mush this looked like from NGC-01 onwards.
+    // The mac's VideoToolbox could encode real layers, but stays single-layer like Windows: one
+    // encoder session, and viewers get the same stream from either platform.
+    publish_opts.simulcast = false;
+    // And say what the stream is worth, rather than letting the SDK guess from a track that hasn't
+    // encoded a frame yet. WebRTC still pulls it down to what the link takes; this is the ceiling.
+    publish_opts.video_encoding = Some(VideoEncoding {
+        max_bitrate: match (plan.sharp, plan.max_bitrate) {
+            (true, Some(b)) => b,
+            _ => target_bitrate(plan.width, plan.height, plan.fps),
+        },
+        max_framerate: plan.fps as f64,
+    });
+    // We hand livekit already-encoded frames on the MF path → PreEncoded pass-through (no re-encode).
+    publish_opts.video_encoder = if plan.use_mf {
+        VideoEncoderBackend::PreEncoded
+    } else if plan.sharp {
+        VideoEncoderBackend::Software
+    } else if plan.mac_capture {
+        VideoEncoderBackend::VideoToolbox
+    } else {
+        plan.encoder.to_lk()
+    };
+    // Smooth holds resolution and frame rate and lets quality give way on a narrow link, as the
+    // Windows encoder does by following libwebrtc's target (rate_policy). Left to the SDK, a screen
+    // share of raw frames gets MaintainResolution, which cuts the frame rate. MaintainFramerate would
+    // cut resolution, and start shares small while the estimate is still low. Encoded frames skip
+    // adaptation (vendor/webrtc-sys video_track.cpp); Sharp keeps the SDK's choice on purpose.
+    if !plan.sharp && !plan.use_mf {
+        publish_opts.degradation_preference = Some(DegradationPreference::MaintainFramerateAndResolution);
+    }
+    // The browser engine's exact shape: one spatial layer, three temporal, so the SFU can still thin
+    // the frame rate for a weak viewer. More spatial layers is what livekit-client avoids for VP9
+    // screen shares — it drops the publish resolution to the smallest layer.
+    if plan.sharp {
+        publish_opts.scalability_mode = Some("L1T3".to_string());
+    }
+    publish_opts
+}
+
+/// How the wait for the first encoded frame ended.
+enum Startup {
+    Streaming,
+    /// Nothing came; with the capture's own reason when it ended before `ready`.
+    NoFrames(Option<Died>),
+    Stopped,
+}
+
+async fn wait_for_first_frame(
+    ready_rx: oneshot::Receiver<String>,
+    died_rx: &mut mpsc::UnboundedReceiver<Died>,
+    capture_ends_before_ready: bool,
+    stop: Pin<&mut impl Future<Output = ()>>,
+) -> Startup {
+    tokio::select! {
+        first = ready_rx => match first {
+            Ok(encoder) => {
+                log::info!("encoding with {encoder}");
+                Startup::Streaming
+            }
+            // Sender dropped: the pump bailed before delivering anything. Which of its dozen
+            // failures it was is on `died_rx`, but not reliably readable until the thread has
+            // finished — so the message is built after the join, not here. Reporting
+            // "no frames" on its own names the symptom and drops the fault: v2.23.1 shipped
+            // that and the first production report was unactionable.
+            Err(_) => Startup::NoFrames(None),
+        },
+        reason = died_rx.recv(), if capture_ends_before_ready => Startup::NoFrames(reason),
+        _ = stop => {
+            log::info!("asked to stop before the first frame");
+            Startup::Stopped
+        }
+    }
+}
+
+/// Streams until asked to stop, the room goes, or the encoder or capture dies; returns the death.
+async fn stream_until_end(
+    died_rx: &mut mpsc::UnboundedReceiver<Died>,
+    events: &mut mpsc::UnboundedReceiver<RoomEvent>,
+    mut stop: Pin<&mut impl Future<Output = ()>>,
+) -> Option<anyhow::Error> {
+    loop {
+        tokio::select! {
+            _ = stop.as_mut() => {
+                log::info!("shutting down");
+                return None;
+            }
+            reason = died_rx.recv() => {
+                // The same trap as the startup path: `reason` IS the cause, so putting a
+                // generic sentence in the error throws away the only line that names the fault.
+                // Exiting is the only way the app learns: it watches for our process to end.
+                let (cause, gone) = reason.unwrap_or_else(|| ("no reason given".into(), false));
+                return Some(if gone {
+                    anyhow::Error::new(SourceGone)
+                } else {
+                    anyhow!("{cause} (encoder stopped mid-stream)")
+                });
+            }
+            event = events.recv() => match event {
+                Some(RoomEvent::Disconnected { reason }) => {
+                    log::warn!("room disconnected: {reason:?}");
+                    return None;
+                }
+                Some(ev) => log::debug!("room event: {ev:?}"),
+                None => return None, // room handle dropped / channel closed
+            },
+        }
+    }
+}
+
+/// The error for a share that produced nothing. Every failure inside the pump funnels through
+/// `died_rx` — encoder creation, a rejected input type, frames refused, frames accepted but never
+/// returned. The pump has been joined by now, so it has run its error handler and the cause is
+/// already in the channel.
+fn no_frames_error(ended_before_ready: Option<Died>, died_rx: &mut mpsc::UnboundedReceiver<Died>, encoders: String) -> anyhow::Error {
+    match ended_before_ready.or_else(|| died_rx.try_recv().ok()) {
+        Some((cause, _)) => anyhow!("{cause} (no frames produced; {encoders})"),
+        // The pump only returns Ok once `stop` is set, and that happens first — so reaching
+        // this means it ended without going through its own error handler.
+        None => anyhow!("no frames produced and no reason reported; {encoders}"),
     }
 }
 
 /// What the pump encodes: frame geometry and codec, settled before it starts.
+#[cfg(windows)]
 #[derive(Clone, Copy)]
 struct VideoConfig {
     width: u32,
@@ -794,6 +978,7 @@ fn canvas_for(src_w: u32, src_h: u32, max: (u32, u32)) -> (u32, u32) {
 
 /// How long the source must hold a size before the stream follows it. Without this, dragging a
 /// window's edge would rebuild the encoder on every mouse move.
+#[cfg(windows)]
 const RESIZE_SETTLE: Duration = Duration::from_millis(500);
 
 /// The ceiling we reserve for the stream: roughly 0.1 bits per pixel per frame — 1080p30 ≈ 6 Mbps,
@@ -859,6 +1044,7 @@ impl Drop for MmcssHandle {
 }
 
 /// What every encoder in one pump shares; a rebuild changes only the size and the bitrate.
+#[cfg(windows)]
 #[derive(Clone, Copy)]
 struct EncoderSpec {
     fps: u32,
@@ -866,6 +1052,7 @@ struct EncoderSpec {
     dev: DevHarness,
 }
 
+#[cfg(windows)]
 impl EncoderSpec {
     /// The encoder that replaces `enc` at `size` and `bps` — see encoder_swap — with the VBV rule
     /// restarted from it. Every rebuild comes through here, so none can forget that restart.
@@ -892,6 +1079,7 @@ impl EncoderSpec {
 
 /// MF hardware-encode pump (dedicated OS thread): NV12 (synthetic or WGC-captured screen) →
 /// hardware H264/H265 → livekit PreEncoded. Blocking encode() lives off the tokio runtime.
+#[cfg(windows)]
 fn encoded_pump(
     source: NativeVideoSource,
     cfg: VideoConfig,
@@ -1154,6 +1342,7 @@ fn encoded_pump(
 }
 
 /// Hands one encoded access unit to livekit.
+#[cfg(windows)]
 fn hand_over(
     source: &NativeVideoSource,
     codec: EncodedVideoCodec,
@@ -1327,5 +1516,46 @@ mod tests {
     fn should_stream_the_source_size_when_there_is_no_cap() {
         let uncapped = (u32::MAX, u32::MAX);
         assert_eq!(canvas_for(2560, 1440, uncapped), (2560, 1440));
+    }
+
+    fn plan(sharp: bool, use_mf: bool, mac_capture: bool) -> super::StreamPlan {
+        super::StreamPlan {
+            width: 1920,
+            height: 1080,
+            fps: 30,
+            max: (1920, 1080),
+            has_capture: true,
+            sharp,
+            use_mf,
+            mac_capture,
+            codec: if sharp { super::Codec::Vp9 } else { super::Codec::H264 },
+            encoder: super::Encoder::Auto,
+            max_bitrate: None,
+        }
+    }
+
+    #[test]
+    fn should_hold_resolution_and_frame_rate_for_smooth_on_raw_frames() {
+        use livekit::options::DegradationPreference;
+        use livekit::webrtc::rtp_sender::VideoEncoderBackend;
+        let opts = super::publish_options(&plan(false, false, true));
+        assert_eq!(opts.degradation_preference, Some(DegradationPreference::MaintainFramerateAndResolution));
+        assert_eq!(opts.video_encoder, VideoEncoderBackend::VideoToolbox);
+        assert!(!opts.simulcast);
+    }
+
+    #[test]
+    fn should_leave_degradation_to_the_sdk_for_sharp_and_for_pre_encoded_frames() {
+        assert_eq!(super::publish_options(&plan(true, false, false)).degradation_preference, None);
+        assert_eq!(super::publish_options(&plan(false, true, false)).degradation_preference, None);
+    }
+
+    #[test]
+    fn should_publish_sharp_in_the_browser_engine_shape_at_the_app_bitrate() {
+        use livekit::webrtc::rtp_sender::VideoEncoderBackend;
+        let opts = super::publish_options(&super::StreamPlan { max_bitrate: Some(8_000_000), ..plan(true, false, false) });
+        assert_eq!(opts.scalability_mode.as_deref(), Some("L1T3"));
+        assert_eq!(opts.video_encoder, VideoEncoderBackend::Software);
+        assert_eq!(opts.video_encoding.map(|e| e.max_bitrate), Some(8_000_000));
     }
 }

@@ -134,6 +134,19 @@ jobs:
         working-directory: native/game-capture
         shell: cmd
 
+      # ─── macOS: native mqvi-game-capture ("Smooth Video") and mqvi-audio-capture (share audio) ───
+      # Same reasoning as the Windows build above: git-ignored, built at every release, no cache.
+      # ScreenCaptureKit's Swift bridge builds with the runner's Xcode. The copies must be real
+      # files: electron-builder signs every binary it finds in the bundle, and a link would ship
+      # dangling. Two binaries on purpose: see src/bin/mqvi_audio_capture.rs.
+      - name: Build mqvi-game-capture and mqvi-audio-capture (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        run: |
+          cargo build --release --bin mqvi-game-capture --bin mqvi-audio-capture
+          cp target/release/mqvi-game-capture ../mqvi-game-capture
+          cp target/release/mqvi-audio-capture ../mqvi-audio-capture
+        working-directory: native/game-capture
+
       # ─── Compile Electron TypeScript ───
       - name: Compile Electron TypeScript
         run: npx tsc -p electron/tsconfig.json

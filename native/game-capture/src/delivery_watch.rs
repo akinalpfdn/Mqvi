@@ -65,7 +65,9 @@ fn describe(last: &DeliveryCounts, now: &DeliveryCounts) -> String {
     )
 }
 
-/// Logs one line a second until the task is aborted.
+/// Logs one line a second until the task is aborted. Run by the Windows share only; elsewhere the
+/// module builds for its tests.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub async fn watch(track: LocalVideoTrack) {
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     let mut last = DeliveryCounts::default();

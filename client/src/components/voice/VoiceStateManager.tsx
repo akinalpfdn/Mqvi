@@ -28,11 +28,13 @@ import { GtcrnProcessor } from "../../audio/GtcrnProcessor";
 import { GtcrnUnsupportedSampleRateError } from "../../audio/gtcrnSampleRate";
 import { VadGateProcessor } from "../../audio/VadGateProcessor";
 import { useSystemAudioCapture } from "../../hooks/useSystemAudioCapture";
+import { startShareAudioRun } from "../../utils/shareAudioRun";
 import { isElectron, isCapacitor, resolveUserId } from "../../utils/constants";
 import { startNativeScreenShare, stopNativeScreenShare, onNativeScreenShareStopped } from "../../utils/nativePlugins";
 import * as voiceApi from "../../api/voice";
 import { useServerStore } from "../../stores/serverStore";
 import { useToastStore } from "../../stores/toastStore";
+import i18n from "../../i18n";
 
 /** Both processors expose setMicSensitivity and setInputVolume */
 type AudioProcessor = RNNoiseProcessor | GtcrnProcessor | VadGateProcessor;
@@ -137,7 +139,6 @@ function VoiceStateManager() {
   const systemAudioCaptureRef = useRef(systemAudioCapture);
   systemAudioCaptureRef.current = systemAudioCapture;
 
-  const customAudioPubRef = useRef<LocalTrackPublication | null>(null);
   /** When the current browser or phone share went live; null while none is. */
   const sharePublishedAtRef = useRef<number | null>(null);
   /** Which run of the screen-share audio effect owns the capture process — see that effect. */
@@ -270,47 +271,27 @@ function VoiceStateManager() {
   useEffect(() => {
     if (!isElectron() || !initialSyncDone.current) return;
 
-    let cancelled = false;
     const shouldCapture = isSharing && screenShareAudio && pickedShareSourceId !== null;
-    // There is one capture process behind the hook, so only its current owner may stop it. A run
-    // that gets cancelled mid-start finishes after the next run has already started a new capture
-    // — stopping then would kill the live one and leave the share silent with nothing retrying.
+    // There is one capture process behind the hook, so only its current owner may stop it.
     const myRun = ++audioRunRef.current;
-    const isCurrentOwner = () => audioRunRef.current === myRun;
 
-    async function startAudio() {
-      const track = await systemAudioCaptureRef.current.start(pickedShareSourceId);
-      if (!track) return;
-      if (cancelled) {
-        if (isCurrentOwner()) systemAudioCaptureRef.current.stop();
-        return;
-      }
-      const lkTrack = new LKLocalAudioTrack(track, undefined, false);
-      const pub = await localParticipant.publishTrack(lkTrack, {
-        source: Track.Source.ScreenShareAudio,
-      });
-      if (cancelled) {
-        // Stopped mid-publish: stopAudio() saw no publication yet, so this one would
-        // outlive the share as a dead track nobody unpublishes.
-        await localParticipant.unpublishTrack(lkTrack);
-        if (isCurrentOwner()) systemAudioCaptureRef.current.stop();
-        return;
-      }
-      customAudioPubRef.current = pub;
-    }
-
-    async function stopAudio() {
-      const pub = customAudioPubRef.current;
-      customAudioPubRef.current = null;
-      if (isCurrentOwner()) systemAudioCaptureRef.current.stop();
-      if (pub?.track) await localParticipant.unpublishTrack(pub.track);
-    }
-
-    if (shouldCapture) {
-      startAudio().catch((err: unknown) => {
-        console.error("[VoiceStateManager] Screen share audio failed:", err);
-      });
-    }
+    const run = shouldCapture
+      ? startShareAudioRun<LKLocalAudioTrack>({
+          start: (onEnded) => systemAudioCaptureRef.current.start(pickedShareSourceId, onEnded),
+          stopCapture: () => systemAudioCaptureRef.current.stop(),
+          publish: async (track) => {
+            const lkTrack = new LKLocalAudioTrack(track, undefined, false);
+            await localParticipant.publishTrack(lkTrack, { source: Track.Source.ScreenShareAudio });
+            return lkTrack;
+          },
+          unpublish: async (lkTrack) => {
+            await localParticipant.unpublishTrack(lkTrack);
+          },
+          isCurrentOwner: () => audioRunRef.current === myRun,
+          notify: (notice) => useToastStore.getState().addToast("warning", i18n.t(`voice:${notice}`), 10_000),
+          logError: (what, err) => console.error(`[VoiceStateManager] ${what}`, err),
+        })
+      : null;
 
     // No share, no source: a leftover id would scope the next share's audio to the old window.
     if (!isSharing && pickedShareSourceId !== null) {
@@ -320,14 +301,7 @@ function VoiceStateManager() {
     // Stopping belongs here rather than in an else-branch above: leaving voice clears isSharing and
     // unmounts us in the same commit, so the effect never runs again — only this does. Without it
     // the capture process outlives the share and keeps recording the machine's audio.
-    return () => {
-      cancelled = true;
-      if (shouldCapture) {
-        stopAudio().catch((err: unknown) => {
-          console.error("[VoiceStateManager] Stopping screen share audio failed:", err);
-        });
-      }
-    };
+    return () => run?.cancel();
   }, [isSharing, screenShareAudio, pickedShareSourceId, localParticipant]);
 
   // The helper ends on its own when it crashes, or when the source it was capturing goes away (the

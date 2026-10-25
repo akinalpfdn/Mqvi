@@ -8,6 +8,88 @@
 
 export type CaptureEngine = "smooth" | "sharp";
 
+/** The platforms that ship the helper: Windows (WGC + Media Foundation) and macOS (ScreenCaptureKit + VideoToolbox). */
+export function hasCaptureHelper(platform: string): boolean {
+  return platform === "win32" || platform === "darwin";
+}
+
+/** The major number of a macOS version string ("14.5.0" → 14); 0 when it cannot be read. */
+export function macMajor(version: string): number {
+  const major = Number.parseInt(version.split(".")[0] ?? "", 10);
+  return Number.isFinite(major) ? major : 0;
+}
+
+/**
+ * Whether "Smooth Video" can run here. Windows: yes, and the encoder probe has the final say. macOS:
+ * from 14, because the helper sizes its capture with SCShareableContentInfo, which 13 lacks (there
+ * the helper fails and every share would fall back with a warning). Linux: no helper.
+ */
+export function smoothCaptureOffered(platform: string, osVersion: string): boolean {
+  if (platform === "darwin") return macMajor(osVersion) >= 14;
+  return platform === "win32";
+}
+
+/**
+ * Whether a share's audio can be captured here: Windows (audio-capture.exe) and macOS from 13
+ * (ScreenCaptureKit audio). Elsewhere the "share audio" switch would promise sound that never goes.
+ */
+export function shareAudioSupported(platform: string, osVersion: string): boolean {
+  if (platform === "darwin") return macMajor(osVersion) >= 13;
+  return platform === "win32";
+}
+
+/**
+ * Whether a picker that could not open should be blamed on Screen Recording: macOS only, and only
+ * when the grant is not in place. Covers both shapes a missing grant takes, a getSources that
+ * throws and one that returns nothing. "not-determined" counts: macOS is asking at that moment, and
+ * the message points to the same setting. The status is read only on macOS: Electron's
+ * getMediaAccessStatus does not exist on Linux, and calling it there throws.
+ */
+export function screenPermissionMissing(platform: string, readStatus: () => string): boolean {
+  return platform === "darwin" && readStatus() !== "granted";
+}
+
+/** The helper binary's file name: an .exe on Windows, a plain executable on macOS. */
+export function captureHelperName(platform: string): string {
+  return platform === "win32" ? "mqvi-game-capture.exe" : "mqvi-game-capture";
+}
+
+/**
+ * The share-audio helper's file name. On macOS it is its own binary rather than a mode of the
+ * capture helper: replayd drops both connections when two processes of one signed identity reach
+ * it at once, and a share starts video and audio together (measured 2026-10-25).
+ */
+export function audioHelperName(platform: string): string {
+  return platform === "win32" ? "audio-capture.exe" : "mqvi-audio-capture";
+}
+
+/**
+ * macOS: the helper's target for a picked desktopCapturer source. A screen is "screen:<id>:<n>"
+ * with the display's CGDirectDisplayID, a window "window:<id>:<n>" with its CGWindowID; the helper
+ * matches either exactly in ScreenCaptureKit. Anything else throws, and the share falls back to the
+ * browser rather than capturing something other than what was picked.
+ */
+export function macCaptureTarget(sourceId: string | undefined): string[] {
+  const m = /^(screen|window):(\d+):\d+$/.exec(sourceId ?? "");
+  if (!m) throw new Error(`cannot capture source '${sourceId ?? ""}' on macOS`);
+  return [m[1] === "screen" ? "--display-id" : "--window-id", m[2]];
+}
+
+/**
+ * macOS: the audio helper's arguments for a share. A window sends only its application's sound, a
+ * screen (or a source we cannot address) everything except mqvi, whose processes the helper finds
+ * from `selfPid`, the app's main process.
+ */
+export function macAudioArgs(sourceId: string | null | undefined, selfPid: number): string[] {
+  let target: string[] = [];
+  try {
+    target = macCaptureTarget(sourceId ?? undefined);
+  } catch {
+    // No exact source: everything but mqvi, as Windows does for a monitor share.
+  }
+  return [...target, "--self-pid", String(selfPid)];
+}
+
 /** Bounds for the sharp bitrate: wider than any setting the app offers, so only nonsense is refused. */
 const MIN_BITRATE = 100_000;
 const MAX_BITRATE = 20_000_000;
