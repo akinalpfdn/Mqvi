@@ -18,3 +18,5 @@ pub mod tonemap;
 pub mod mac_audio;
 #[cfg(target_os = "macos")]
 pub mod mac_capture;
+#[cfg(target_os = "macos")]
+mod mac_geometry;

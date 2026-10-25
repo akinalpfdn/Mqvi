@@ -8,11 +8,14 @@
 //!
 //! What ScreenCaptureKit does not report, a follower thread polls for: the source's size, so the
 //! stream follows a resized window, and whether the source still exists at all.
+//!
+//! ScreenCaptureKit delivers only changes, so a repeater thread sends the last frame again while the
+//! source is still: an encoder with no input cannot answer a viewer's keyframe request.
 
 use std::mem::ManuallyDrop;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -25,6 +28,8 @@ use screencapturekit::cv::CVPixelBuffer;
 use screencapturekit::error::SCStreamErrorCode;
 use screencapturekit::prelude::*;
 use screencapturekit::shareable_content::SCShareableContentInfo;
+
+use crate::mac_geometry;
 
 /// What to capture.
 #[derive(Clone, Copy, Debug)]
@@ -107,15 +112,10 @@ pub(crate) fn within<T: Send + 'static>(what: &str, f: impl FnOnce() -> Result<T
 struct Located {
     filter: SCContentFilter,
     label: String,
-    /// False for a minimised window (or one on another Space): it exists, but what its frame says
-    /// then is not a size to stream at.
-    on_screen: bool,
-    /// The window's or display's frame in points, as ScreenCaptureKit lists it.
-    frame_pt: (f64, f64),
 }
 
-/// `target` if it still exists, or None. Off-screen windows are included: a minimised window has
-/// not gone anywhere.
+/// `target` if it exists, or None. Off-screen windows are included: a minimised window can be
+/// shared.
 fn locate(target: Target) -> Result<Option<Located>> {
     // Also the first call that needs the Screen Recording permission; refused, it errors here.
     let content = SCShareableContent::get().map_err(|e| anyhow!("listing shareable content: {e}"))?;
@@ -129,25 +129,19 @@ fn locate(target: Target) -> Result<Option<Located>> {
                     .find(|d| d.frame().origin.x == 0.0 && d.frame().origin.y == 0.0)
                     .or_else(|| displays.first()),
             };
-            display.map(|d| {
-                let size = d.frame().size;
-                (SCContentFilter::create().with_display(d), format!("display {}", d.display_id()), true, (size.width, size.height))
-            })
+            display.map(|d| (SCContentFilter::create().with_display(d), format!("display {}", d.display_id())))
         }
         Target::Window(id) => content
             .windows()
             .iter()
             .find(|w| w.window_id() == id)
-            .map(|w| {
-                let size = w.frame().size;
-                (SCContentFilter::create().with_window(w), format!("window {id}"), w.is_on_screen(), (size.width, size.height))
-            }),
+            .map(|w| (SCContentFilter::create().with_window(w), format!("window {id}"))),
     };
     match found {
         None => Ok(None),
-        Some((builder, label, on_screen, frame_pt)) => {
+        Some((builder, label)) => {
             let filter = builder.build().map_err(|e| anyhow!("building the content filter for {label}: {e}"))?;
-            Ok(Some(Located { filter, label, on_screen, frame_pt }))
+            Ok(Some(Located { filter, label }))
         }
     }
 }
@@ -165,6 +159,7 @@ fn pixel_size(filter: &SCContentFilter, label: &str) -> Result<(u32, u32)> {
 }
 
 /// What one look at the source finds.
+#[derive(Debug)]
 enum Reading {
     Gone,
     /// Exists, but off screen: a minimised window reports its shrunken frame mid-animation, and
@@ -173,19 +168,39 @@ enum Reading {
     Size((u32, u32)),
 }
 
+/// Through CoreGraphics rather than `locate`: see `mac_geometry` for what a ScreenCaptureKit
+/// listing costs at the follower's rate.
 fn measure(target: Target, last_seen: &mut String) -> Result<Reading> {
-    let Some(l) = locate(target)? else { return Ok(Reading::Gone) };
-    let px = pixel_size(&l.filter, &l.label).ok();
+    let display = |id| mac_geometry::display(id).map(|frame| (true, frame));
+    let found = match target {
+        Target::Window(id) => mac_geometry::window(id)?.map(|w| (w.on_screen, w.frame)),
+        Target::Display(id) => display(id),
+        Target::MainDisplay => display(mac_geometry::main_display()),
+    };
+    let Some((on_screen, frame)) = found else { return Ok(Reading::Gone) };
+    let scale = mac_geometry::scale_under(frame).context("no display mode under the source")?;
+    // Truncated, as ScreenCaptureKit's own pixel size is, so the follower agrees with `Source::find`.
+    let px = ((frame.size.width * scale) as u32, (frame.size.height * scale) as u32);
     // What the source looks like from here, on change only (RUST_LOG=mqvi_game_capture=debug).
-    let seen = format!("on screen {}, frame {:.0}x{:.0} pt, content {:?} px", l.on_screen, l.frame_pt.0, l.frame_pt.1, px);
+    let seen = format!("on screen {on_screen}, frame {:.0}x{:.0} pt, {}x{} px", frame.size.width, frame.size.height, px.0, px.1);
     if seen != *last_seen {
-        log::debug!("{}: {seen}", l.label);
+        log::debug!("{target:?}: {seen}");
         *last_seen = seen;
     }
-    if !l.on_screen {
+    if !on_screen {
         return Ok(Reading::Hidden);
     }
-    px.map(Reading::Size).with_context(|| format!("no pixel size for {}", l.label))
+    if px.0 < 2 || px.1 < 2 {
+        anyhow::bail!("{target:?} reports an empty size");
+    }
+    Ok(Reading::Size(px))
+}
+
+/// Dev probes only: one look at `target`, exactly as the follower takes it every `FOLLOW_INTERVAL`
+/// (see `probe-sck bench`).
+#[doc(hidden)]
+pub fn probe_follow_once(target: Target) -> Result<String> {
+    measure(target, &mut String::new()).map(|r| format!("{r:?}"))
 }
 
 /// The stream settings for a canvas. One place, so a reconfigured stream keeps every other setting.
@@ -199,9 +214,9 @@ fn stream_config(canvas: (u32, u32), fps: u32) -> SCStreamConfiguration {
         // Between a resize and the follower catching up, the source is scaled into the old canvas
         // and letterboxed rather than cropped.
         .with_scales_to_fit(true)
-        // Apple's recommended minimum for a smooth stream: enough buffers that a frame still
-        // being encoded is never the one ScreenCaptureKit writes the next into.
-        .with_queue_depth(5)
+        // Apple's recommended minimum for a smooth stream, plus the one the repeater keeps: enough
+        // buffers that a frame still being encoded is never the one ScreenCaptureKit writes into.
+        .with_queue_depth(6)
 }
 
 /// How often the follower looks at the source.
@@ -218,6 +233,13 @@ const SHRINK_SETTLE: Duration = Duration::from_secs(3);
 /// Consecutive polls that must not find the source before it counts as gone: one missing reading
 /// is not worth ending a share over.
 const GONE_AFTER_MISSES: u32 = 2;
+/// How long the source may stay still before its last frame goes out again. Without it a viewer
+/// joining a still share, or recovering from loss, waits for the next change, and a share started
+/// on a still source never confirms: its first frame reaches libwebrtc before the transport
+/// connects and is dropped there. Still means a still display or a minimised window; a window on
+/// screen delivered 14–30 new frames a second even showing a static image (macOS 26, measured
+/// 2026-10-25). libwebrtc's own idle repeat period (kZeroHertzIdleRepeatRatePeriod).
+const IDLE_REPEAT: Duration = Duration::from_secs(1);
 
 /// Decides when the stream follows the source's size: only once a new size has held for its settle
 /// (`RESIZE_SETTLE` to grow, `SHRINK_SETTLE` to shrink), never while it is still changing.
@@ -285,12 +307,14 @@ impl Ending {
     }
 }
 
-/// A running capture. Dropping it stops the follower, then the stream.
+/// A running capture. Dropping it stops the follower and the repeater, then the stream.
 pub struct MacCapture {
     stream: SCStream,
     ending: Arc<Ending>,
     stop_follower: Option<mpsc::Sender<()>>,
     follower: Option<JoinHandle<()>>,
+    stop_repeater: Option<mpsc::Sender<()>>,
+    repeater: Option<JoinHandle<()>>,
 }
 
 impl MacCapture {
@@ -316,9 +340,9 @@ impl MacCapture {
         let delegate = StopWatch { ending: ending.clone() };
         let mut stream = SCStream::new_with_delegate(&source.filter, &stream_config(canvas, fps), delegate)
             .map_err(|e| anyhow!("creating the capture stream: {e}"))?;
+        let handoff = Arc::new(Handoff { video, t0: Instant::now(), kept: Mutex::new(None) });
         let frames = FrameHandoff {
-            video,
-            t0: Instant::now(),
+            handoff: handoff.clone(),
             first_frame,
             counts: Mutex::new(Counts::new()),
         };
@@ -331,21 +355,45 @@ impl MacCapture {
         })?;
         log::info!("ScreenCaptureKit capturing {} at {}x{}@{fps}", source.label, canvas.0, canvas.1);
 
+        // Built before the threads, so a thread that fails to start still stops what is running.
+        let mut capture = Self {
+            stream: stream.clone(),
+            ending: ending.clone(),
+            stop_follower: None,
+            follower: None,
+            stop_repeater: None,
+            repeater: None,
+        };
+
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let repeating = handoff.clone();
+        capture.repeater = Some(
+            std::thread::Builder::new()
+                .name("mqvi-sck-repeat".into())
+                .spawn(move || repeat_while_still(&repeating, stop_rx))
+                .context("starting the frame repeater")?,
+        );
+        capture.stop_repeater = Some(stop_tx);
+
         let (stop_tx, stop_rx) = mpsc::channel();
         let follower = Follower {
             target: source.target,
             label: source.label.clone(),
-            stream: stream.clone(),
+            stream,
             fps,
             size: SizeFollower::new(canvas),
             fit: Box::new(fit),
-            ending: ending.clone(),
+            ending,
+            handoff,
         };
-        let follower = std::thread::Builder::new()
-            .name("mqvi-sck-follow".into())
-            .spawn(move || follower.run(stop_rx))
-            .context("starting the capture follower")?;
-        Ok(Self { stream, ending, stop_follower: Some(stop_tx), follower: Some(follower) })
+        capture.follower = Some(
+            std::thread::Builder::new()
+                .name("mqvi-sck-follow".into())
+                .spawn(move || follower.run(stop_rx))
+                .context("starting the capture follower")?,
+        );
+        capture.stop_follower = Some(stop_tx);
+        Ok(capture)
     }
 }
 
@@ -377,6 +425,13 @@ impl Drop for MacCapture {
                 let _ = f.join();
             });
         }
+        // Then the repeater, so no frame of ours reaches the track once the stream is stopped.
+        drop(self.stop_repeater.take());
+        if let Some(r) = self.repeater.take() {
+            bounded("the frame repeater", SHUTDOWN_STEP_LIMIT, move || {
+                let _ = r.join();
+            });
+        }
         if self.ending.system_stopped.load(Ordering::Acquire) {
             return;
         }
@@ -400,6 +455,7 @@ struct Follower {
     size: SizeFollower,
     fit: Box<dyn Fn((u32, u32)) -> (u32, u32) + Send>,
     ending: Arc<Ending>,
+    handoff: Arc<Handoff>,
 }
 
 impl Follower {
@@ -432,6 +488,7 @@ impl Follower {
                             Ok(()) => {
                                 log::info!("stream follows {} at {}x{} → {}x{}", self.label, px.0, px.1, next.0, next.1);
                                 self.size.applied(next);
+                                self.handoff.resized(next);
                             }
                             Err(e) => {
                                 log::warn!("could not resize the stream to {}x{}: {e}", next.0, next.1);
@@ -471,8 +528,7 @@ type FirstFrame = Box<dyn FnOnce() + Send>;
 type EndedFn = Box<dyn FnOnce(Ended) + Send>;
 
 struct FrameHandoff {
-    video: NativeVideoSource,
-    t0: Instant,
+    handoff: Arc<Handoff>,
     /// Shared with the delegate, which drops it when the stream ends: a caller waiting for the first
     /// frame must hear that none is coming, as it does when the Windows pump thread exits.
     first_frame: Arc<Mutex<Option<FirstFrame>>>,
@@ -492,10 +548,7 @@ impl SCStreamOutputTrait for FrameHandoff {
             _ => None,
         };
         if let Some(pixels) = &pixels {
-            // Never 0: livekit reads a zero timestamp as "stamp it with the wall clock", which would
-            // put one frame on a different clock from the rest.
-            let timestamp_us = (self.t0.elapsed().as_micros() as i64).max(1);
-            hand_over(&self.video, pixels, timestamp_us);
+            self.handoff.send(pixels);
             if let Some(first) = self.first_frame.lock().ok().and_then(|mut f| f.take()) {
                 // What ScreenCaptureKit really delivers, once: the configured size is a request.
                 let fourcc = pixels.pixel_format().to_be_bytes();
@@ -525,6 +578,59 @@ impl SCStreamOutputTrait for FrameHandoff {
             );
             *c = Counts::new();
         }
+    }
+}
+
+/// Hands frames to livekit, from ScreenCaptureKit's queue and from the repeater. One lock, so the two
+/// never interleave and timestamps reach livekit in order.
+struct Handoff {
+    video: NativeVideoSource,
+    t0: Instant,
+    /// The last frame handed over and when, for the repeater. A retain, not a copy.
+    kept: Mutex<Option<(CVPixelBuffer, Instant)>>,
+}
+
+impl Handoff {
+    /// A new frame from ScreenCaptureKit.
+    fn send(&self, pixels: &CVPixelBuffer) {
+        // A poisoned lock still holds a usable frame; refusing it would end the stream silently.
+        let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
+        hand_over(&self.video, pixels, self.timestamp_us());
+        *kept = Some((pixels.clone(), Instant::now()));
+    }
+
+    /// Sends the kept frame again if nothing has gone out for `IDLE_REPEAT`.
+    fn repeat_if_idle(&self) {
+        let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((pixels, at)) = kept.as_mut() {
+            if at.elapsed() >= IDLE_REPEAT {
+                hand_over(&self.video, pixels, self.timestamp_us());
+                *at = Instant::now();
+            }
+        }
+    }
+
+    /// The stream now runs at `canvas`: a kept frame of another size would bounce the encoder back
+    /// to the old size, so it waits for the next new frame instead.
+    fn resized(&self, canvas: (u32, u32)) {
+        let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
+        if kept.as_ref().is_some_and(|(p, _)| (p.width(), p.height()) != (canvas.0 as usize, canvas.1 as usize)) {
+            *kept = None;
+        }
+    }
+
+    fn timestamp_us(&self) -> i64 {
+        // Never 0: livekit reads a zero timestamp as "stamp it with the wall clock", which would put
+        // one frame on a different clock from the rest.
+        (self.t0.elapsed().as_micros() as i64).max(1)
+    }
+}
+
+/// Sends the kept frame again while the source is still, until told to stop.
+fn repeat_while_still(handoff: &Handoff, stop: mpsc::Receiver<()>) {
+    // Checked four times a period: a repeat goes out at most a quarter period late.
+    while let Err(RecvTimeoutError::Timeout) = stop.recv_timeout(IDLE_REPEAT / 4) {
+        handoff.repeat_if_idle();
     }
 }
 
@@ -660,5 +766,54 @@ mod tests {
         f.observe(BIGGER, t0 + RESIZE_SETTLE);
         f.applied(BIGGER);
         assert_eq!(f.observe(BIGGER, t0 + RESIZE_SETTLE * 2), None);
+    }
+
+    /// A handoff into a source no track reads: livekit's video source spawns onto the ambient
+    /// runtime, which the returned runtime keeps alive.
+    fn handoff() -> (tokio::runtime::Runtime, Handoff) {
+        use livekit::webrtc::video_source::VideoResolution;
+        let rt = tokio::runtime::Runtime::new().expect("a runtime");
+        let video = {
+            let _in_runtime = rt.enter();
+            NativeVideoSource::new(VideoResolution { width: START.0, height: START.1 }, true)
+        };
+        (rt, Handoff { video, t0: Instant::now(), kept: Mutex::new(None) })
+    }
+
+    fn frame((w, h): (u32, u32)) -> CVPixelBuffer {
+        CVPixelBuffer::create(w as usize, h as usize, u32::from_be_bytes(*b"420v")).expect("a pixel buffer")
+    }
+
+    fn kept_at(h: &Handoff) -> Option<Instant> {
+        h.kept.lock().unwrap().as_ref().map(|(_, at)| *at)
+    }
+
+    #[test]
+    fn should_send_the_kept_frame_again_once_the_source_has_been_still_for_the_period() {
+        let (_rt, h) = handoff();
+        h.send(&frame(START));
+        let long_ago = Instant::now().checked_sub(IDLE_REPEAT).expect("uptime past one period");
+        h.kept.lock().unwrap().as_mut().expect("the frame is kept").1 = long_ago;
+        h.repeat_if_idle();
+        assert!(kept_at(&h).expect("still kept") > long_ago, "the repeat restarts the period");
+    }
+
+    #[test]
+    fn should_not_repeat_while_new_frames_keep_coming() {
+        let (_rt, h) = handoff();
+        h.send(&frame(START));
+        let sent = kept_at(&h);
+        h.repeat_if_idle();
+        assert_eq!(kept_at(&h), sent);
+    }
+
+    #[test]
+    fn should_drop_a_kept_frame_of_the_old_size_once_the_stream_is_resized() {
+        let (_rt, h) = handoff();
+        h.send(&frame(START));
+        h.resized(START);
+        assert!(kept_at(&h).is_some(), "same size: still worth repeating");
+        h.resized(BIGGER);
+        assert!(kept_at(&h).is_none(), "old size: would bounce the encoder back");
     }
 }

@@ -172,14 +172,6 @@ const GAME_CAPTURE_DRAIN_MS = 500;
 const GAME_CAPTURE_EXIT_TIMEOUT_MS = 3_000;
 
 /**
- * Ask the helper to exit, forcing it only if it won't.
- *
- * kill() on Windows is a straight TerminateProcess — Node can't signal a console-less child — so a
- * killed helper never runs its shutdown: the WGC session stays open (DWM keeps drawing the yellow
- * capture border over the shared screen) and it never leaves the LiveKit room (viewers keep a ghost
- * share until the SFU times it out). Closing stdin is the shutdown request it listens for.
- */
-/**
  * Stops a share's audio helper. macOS: asked through stdin first, killed only if it has not
  * exited in 2 s. A helper killed in the middle of a ScreenCaptureKit call can wedge the system's
  * capture service (replayd), and every later capture, the picker included, then hangs (2026-10-24).
@@ -199,6 +191,14 @@ function stopAudioCapture(child: ChildProcess): void {
   }
 }
 
+/**
+ * Ask the helper to exit, forcing it only if it won't.
+ *
+ * kill() on Windows is a straight TerminateProcess — Node can't signal a console-less child — so a
+ * killed helper never runs its shutdown: the WGC session stays open (DWM keeps drawing the yellow
+ * capture border over the shared screen) and it never leaves the LiveKit room (viewers keep a ghost
+ * share until the SFU times it out). Closing stdin is the shutdown request it listens for.
+ */
 function endGameCapture(child: ChildProcess): Promise<void> {
   return new Promise((resolve) => {
     let done = false;
@@ -2131,5 +2131,5 @@ app.on("before-quit", (e) => {
   // Safety net: don't block shutdown longer than 2 seconds
   setTimeout(finish, 2000);
 
-  proc.kill();
+  stopAudioCapture(proc);
 });

@@ -806,6 +806,9 @@ async fn run() -> Result<()> {
     // with the app committed to a stream that stays black forever.
     let mut startup_error = None;
     let mut no_frames = false;
+    // The mac's reason when its capture ended while the encode check was still waiting. Unlike the
+    // Windows pump, the capture there does not own `ready`, so its end does not drop it.
+    let mut ended_before_ready = None;
     let waits_for_first_frame = use_mf || sharp || mac_capture;
     let mut streaming = !waits_for_first_frame;
     if waits_for_first_frame {
@@ -822,6 +825,10 @@ async fn run() -> Result<()> {
                 // that and the first production report was unactionable.
                 Err(_) => no_frames = true,
             },
+            reason = died_rx.recv(), if mac_capture => {
+                no_frames = true;
+                ended_before_ready = reason;
+            }
             _ = &mut stop_signal => log::info!("asked to stop before the first frame"),
         }
     }
@@ -914,11 +921,11 @@ async fn run() -> Result<()> {
         let encoders = if sharp { sharp_pump::ENCODER_NAME.to_string() } else { describe_hardware_encoders() };
         #[cfg(target_os = "macos")]
         let encoders = "VideoToolbox (libwebrtc)".to_string();
-        startup_error = Some(match died_rx.try_recv() {
-            Ok((cause, _)) => anyhow!("{cause} (no frames produced; {encoders})"),
+        startup_error = Some(match ended_before_ready.or_else(|| died_rx.try_recv().ok()) {
+            Some((cause, _)) => anyhow!("{cause} (no frames produced; {encoders})"),
             // The pump only returns Ok once `stop` is set, and that happens above — so reaching
             // this means it ended without going through its own error handler.
-            Err(_) => anyhow!("no frames produced and no reason reported; {encoders}"),
+            None => anyhow!("no frames produced and no reason reported; {encoders}"),
         });
     }
 
