@@ -21,6 +21,11 @@ pub struct EncoderReading {
     pub frames_encoded: u32,
     pub qp_sum: u64,
     pub limited_by: QualityLimitationReason,
+    pub key_frames: u32,
+    /// Keyframes viewers asked for (PLI + FIR): a viewer that cannot decode asks, so a picture
+    /// frozen at the viewer while frames still go out shows here.
+    pub keyframe_asks: u32,
+    pub nacks: u32,
 }
 
 impl EncoderReading {
@@ -36,6 +41,9 @@ impl EncoderReading {
                 frames_encoded: o.outbound.frames_encoded,
                 qp_sum: o.outbound.qp_sum,
                 limited_by: o.outbound.quality_limitation_reason,
+                key_frames: o.outbound.key_frames_encoded,
+                keyframe_asks: o.outbound.pli_count.saturating_add(o.outbound.fir_count),
+                nacks: o.outbound.nack_count,
             }),
             _ => None,
         })
@@ -82,7 +90,7 @@ pub fn describe(last: &EncoderReading, now: &EncoderReading, secs: f64) -> Strin
     let sent_kbps = now.bytes_sent.saturating_sub(last.bytes_sent) as f64 * 8.0 / 1000.0 / secs.max(0.001);
     let qp = if frames == 0 { 0.0 } else { now.qp_sum.saturating_sub(last.qp_sum) as f64 / frames as f64 };
     format!(
-        "encoder: {} (hardware {}) {}x{} {:.1} fps, sent {:.0} kbps of {:.0} target, qp {:.1}, limited by {:?}",
+        "encoder: {} (hardware {}) {}x{} {:.1} fps, sent {:.0} kbps of {:.0} target, qp {:.1}, limited by {:?}, keyframes {} (asked {}), nacks {}",
         if now.implementation.is_empty() { "?" } else { &now.implementation },
         now.hardware,
         now.size.0,
@@ -92,6 +100,9 @@ pub fn describe(last: &EncoderReading, now: &EncoderReading, secs: f64) -> Strin
         now.target_bps / 1000.0,
         qp,
         now.limited_by,
+        now.key_frames.saturating_sub(last.key_frames),
+        now.keyframe_asks.saturating_sub(last.keyframe_asks),
+        now.nacks.saturating_sub(last.nacks),
     )
 }
 
@@ -198,6 +209,16 @@ mod tests {
         let stats = [outbound("video", "", 0, 0, 0), transport(DtlsTransportState::Connected)];
         assert_eq!(check_encode(&stats, Some(t0), t0 + BUDGET - Duration::from_millis(1), BUDGET), EncodeCheck::Waiting(Some(t0)));
         assert_eq!(check_encode(&stats, Some(t0), t0 + BUDGET, BUDGET), EncodeCheck::TimedOut);
+    }
+
+    #[test]
+    fn should_count_keyframes_and_viewer_requests_over_the_interval() {
+        let mut last = EncoderReading { key_frames: 1, keyframe_asks: 2, nacks: 10, ..Default::default() };
+        let now = EncoderReading { key_frames: 4, keyframe_asks: 5, nacks: 15, ..Default::default() };
+        assert!(describe(&last, &now, 2.0).contains("keyframes 3 (asked 3), nacks 5"));
+        // A rebuilt sender restarts its counters: no wrap-around.
+        last.key_frames = 9;
+        assert!(describe(&last, &now, 2.0).contains("keyframes 0"));
     }
 
     #[test]
