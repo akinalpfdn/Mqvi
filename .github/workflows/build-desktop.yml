@@ -16,9 +16,7 @@ jobs:
         include:
           - platform: windows-latest
             label: windows-x64
-          # macos-15, not 14: apple-metal's Swift bridge (under screencapturekit) names macOS 15
-          # Metal types, which only the Xcode 16 SDK has. It checks availability at run time, so
-          # the binaries still run on macOS 13 and 14.
+          # macos-15, for its Xcode 26 — see "Select Xcode 26" below.
           - platform: macos-15
             label: macos-arm64
           - platform: ubuntu-22.04
@@ -142,6 +140,22 @@ jobs:
       # ScreenCaptureKit's Swift bridge builds with the runner's Xcode. The copies must be real
       # files: electron-builder signs every binary it finds in the bundle, and a link would ship
       # dangling. Two binaries on purpose: see src/bin/mqvi_audio_capture.rs.
+      # apple-metal, which screencapturekit always pulls in, names Metal types from the macOS 26 SDK
+      # (MTLTensor and others). The image's default Xcode is 16, so pick the newest Xcode 26 it has.
+      - name: Select Xcode 26
+        if: startsWith(matrix.platform, 'macos')
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
+          xcodebuild -version
+
+      # apple-metal, which screencapturekit always pulls in, names Metal types from the macOS 26 SDK
+      # (MTLTensor and others). The image's default Xcode is 16, so pick the newest Xcode 26 it has.
+      - name: Select Xcode 26
+        if: startsWith(matrix.platform, 'macos')
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
+          xcodebuild -version
+
       - name: Build mqvi-game-capture and mqvi-audio-capture (macOS)
         if: startsWith(matrix.platform, 'macos')
         run: |
