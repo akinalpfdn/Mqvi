@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
@@ -35,6 +36,8 @@ type e2eeService struct {
 	groupSessionRepo repository.GroupSessionRepository
 	permResolver     ChannelPermResolver
 	hub              ws.Broadcaster
+	channels         ChannelGetter
+	online           ServerOnlineLister
 }
 
 func NewE2EEService(
@@ -42,12 +45,16 @@ func NewE2EEService(
 	groupSessionRepo repository.GroupSessionRepository,
 	permResolver ChannelPermResolver,
 	hub ws.Broadcaster,
+	channels ChannelGetter,
+	online ServerOnlineLister,
 ) E2EEService {
 	return &e2eeService{
 		backupRepo:       backupRepo,
 		groupSessionRepo: groupSessionRepo,
 		permResolver:     permResolver,
 		hub:              hub,
+		channels:         channels,
+		online:           online,
 	}
 }
 
@@ -103,7 +110,16 @@ func (s *e2eeService) UpsertGroupSession(ctx context.Context, channelID, userID,
 		return fmt.Errorf("failed to upsert group session: %w", err)
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	// Who is active in which encrypted channel is for the channel's readers only.
+	channel, err := s.channels.GetByID(ctx, channelID)
+	if err != nil || channel == nil {
+		// Stored already; peers pick it up on their next GetGroupSessions. Not worth failing the upsert.
+		log.Printf("[e2ee] group_session_new not sent for channel %s: channel lookup: %v", channelID, err)
+		return nil
+	}
+	audience := channelAudience(ctx, s.online, s.permResolver, channel.ServerID, channelID,
+		models.PermViewChannel|models.PermReadMessages)
+	s.hub.BroadcastToUsers(audience, ws.Event{
 		Op: ws.OpGroupSessionNew,
 		Data: GroupSessionNewData{
 			ChannelID:    channelID,

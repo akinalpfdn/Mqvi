@@ -162,7 +162,7 @@ func (s *channelPermService) SetOverride(ctx context.Context, serverID, channelI
 		s.invalidateChannelCache(channelID)
 		s.enforceChannelVoice(channelID)
 
-		s.hub.BroadcastToAll(ws.Event{
+		s.hub.BroadcastToServer(serverID, ws.Event{
 			Op: ws.OpChannelPermissionDelete,
 			Data: map[string]string{
 				"channel_id": channelID,
@@ -187,7 +187,7 @@ func (s *channelPermService) SetOverride(ctx context.Context, serverID, channelI
 	s.invalidateChannelCache(channelID)
 	s.enforceChannelVoice(channelID)
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpChannelPermissionUpdate,
 		Data: override,
 	})
@@ -212,7 +212,7 @@ func (s *channelPermService) DeleteOverride(ctx context.Context, serverID, chann
 	s.invalidateChannelCache(channelID)
 	s.enforceChannelVoice(channelID)
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op: ws.OpChannelPermissionDelete,
 		Data: map[string]string{
 			"channel_id": channelID,

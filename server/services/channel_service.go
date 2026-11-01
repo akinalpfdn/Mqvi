@@ -67,6 +67,8 @@ type channelService struct {
 	voiceProvider UserVoiceChannelProvider
 	voiceDisc     VoiceChannelDisconnector
 	fileCleanup   FileCleanupService
+	online        ServerOnlineLister
+	permResolver  ChannelPermResolver
 }
 
 func NewChannelService(
@@ -77,6 +79,8 @@ func NewChannelService(
 	voiceProvider UserVoiceChannelProvider,
 	voiceDisc VoiceChannelDisconnector,
 	fileCleanup FileCleanupService,
+	online ServerOnlineLister,
+	permResolver ChannelPermResolver,
 ) ChannelService {
 	return &channelService{
 		channelRepo:   channelRepo,
@@ -86,6 +90,8 @@ func NewChannelService(
 		voiceProvider: voiceProvider,
 		voiceDisc:     voiceDisc,
 		fileCleanup:   fileCleanup,
+		online:        online,
+		permResolver:  permResolver,
 	}
 }
 
@@ -192,7 +198,7 @@ func (s *channelService) Create(ctx context.Context, serverID string, req *model
 		return nil, fmt.Errorf("failed to create channel: %w", err)
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpChannelCreate,
 		Data: nil,
 	})
@@ -237,7 +243,8 @@ func (s *channelService) Update(ctx context.Context, serverID string, id string,
 		return nil, err
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	// Name and topic of a hidden channel are not for members who cannot see it.
+	s.hub.BroadcastToUsers(s.channelUpdateAudience(ctx, serverID, channel.ID), ws.Event{
 		Op:   ws.OpChannelUpdate,
 		Data: channel,
 	})
@@ -269,7 +276,7 @@ func (s *channelService) Delete(ctx context.Context, serverID string, id string)
 	// Phase 3: delete files from disk + release quota (safe — DB rows already gone)
 	s.fileCleanup.Execute(plan)
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpChannelDelete,
 		Data: map[string]string{"id": id},
 	})
@@ -313,7 +320,7 @@ func (s *channelService) ReorderChannels(ctx context.Context, serverID string, r
 		return nil, fmt.Errorf("failed to update channel positions: %w", err)
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpChannelReorder,
 		Data: nil,
 	})
@@ -324,4 +331,23 @@ func (s *channelService) ReorderChannels(ctx context.Context, serverID string, r
 	}
 
 	return grouped, nil
+}
+
+// channelUpdateAudience is who the sidebar shows this channel to: members with ViewChannel, plus a
+// member sitting in it as a voice channel (the sidebar force-includes that one, see GetAllGrouped).
+func (s *channelService) channelUpdateAudience(ctx context.Context, serverID, channelID string) []string {
+	audience := channelAudience(ctx, s.online, s.permResolver, serverID, channelID, models.PermViewChannel)
+	if s.voiceProvider == nil {
+		return audience
+	}
+	seen := make(map[string]bool, len(audience))
+	for _, uid := range audience {
+		seen[uid] = true
+	}
+	for _, uid := range s.online.GetOnlineUserIDsForServer(serverID) {
+		if !seen[uid] && s.voiceProvider.GetUserVoiceChannelID(uid) == channelID {
+			audience = append(audience, uid)
+		}
+	}
+	return audience
 }

@@ -46,7 +46,9 @@ const { useChannelStore } = await import("./channelStore");
 const channel = (id: string, categoryId: string | null, name = id): Channel =>
   ({ id, name, type: "text", category_id: categoryId, position: 0 }) as Channel;
 
-const category = (id: string, name = id): Category => ({ id, name, position: 0 }) as Category;
+// "s1" is the active server the serverStore mock reports.
+const category = (id: string, name = id, serverId = "s1"): Category =>
+  ({ id, server_id: serverId, name, position: 0 }) as Category;
 
 const ok = <T,>(data: T) => ({ success: true as const, data });
 const fail = { success: false as const, error: "nope" };
@@ -197,6 +199,18 @@ describe("the echo replaying a local mutation", () => {
 
 // A rejected mutation must leave the tree exactly as it was: the whole point is that the tree
 // reflects what the server accepted, not what the user attempted.
+describe("an event for another server", () => {
+  it("should not add a category of a server that is not on screen", () => {
+    useChannelStore.getState().handleCategoryCreate(category("foreign", "Their Staff", "s2"));
+    expect(categoryIds()).toEqual(["c1"]);
+  });
+
+  it("should add a category of the active server", () => {
+    useChannelStore.getState().handleCategoryCreate(category("c2", "Ours", "s1"));
+    expect(categoryIds()).toEqual(["c1", "c2"]);
+  });
+});
+
 describe("a mutation the server rejects", () => {
   it("should not remove the channel", async () => {
     api.deleteChannel.mockResolvedValue(fail);

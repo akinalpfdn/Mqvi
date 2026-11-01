@@ -187,7 +187,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		repos.User, repos.Session, repos.ResetToken, hub, emailSender, breachChecker, locator,
 		cfg.JWT.Secret, encryptionKey, cfg.JWT.AccessTokenExpiry, cfg.JWT.RefreshTokenExpiry, cfg.JWT.FileTokenExpiry,
 	)
-	channelService := services.NewChannelService(repos.Channel, repos.Category, hub, channelPermService, voiceService, voiceService, fileCleanupService)
+	channelService := services.NewChannelService(repos.Channel, repos.Category, hub, channelPermService, voiceService, voiceService, fileCleanupService, hub, channelPermService)
 	categoryService := services.NewCategoryService(repos.Category, hub)
 	messageService := services.NewMessageService(
 		repos.Message, repos.Attachment, repos.Channel, repos.User,
@@ -266,7 +266,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	serverReportUploadService := services.NewServerReportUploadService(repos.ServerReport, uploadPipeline, cfg.Upload.MaxSize)
 
 	deviceService := services.NewDeviceService(repos.Device, hub)
-	e2eeService := services.NewE2EEService(repos.E2EEBackup, repos.GroupSession, channelPermService, hub)
+	e2eeService := services.NewE2EEService(repos.E2EEBackup, repos.GroupSession, channelPermService, hub, repos.Channel, hub)
 	pushTokenService := services.NewPushTokenService(repos.PushToken)
 	sessionService := services.NewSessionService(repos.Session, hub)
 

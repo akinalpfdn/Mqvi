@@ -133,7 +133,7 @@ func (s *roleService) Create(ctx context.Context, serverID, actorID string, req 
 		return nil, fmt.Errorf("failed to create role: %w", err)
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpRoleCreate,
 		Data: role,
 	})
@@ -279,7 +279,7 @@ func (s *roleService) Delete(ctx context.Context, serverID, actorID, roleID stri
 	s.invalidatePermCache()
 	s.enforceServerVoice(serverID)
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpRoleDelete,
 		Data: map[string]string{"id": roleID},
 	})
@@ -338,7 +338,7 @@ func (s *roleService) ReorderRoles(ctx context.Context, serverID, actorID string
 		return nil, fmt.Errorf("failed to reload roles after reorder: %w", err)
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpRolesReorder,
 		Data: roles,
 	})
