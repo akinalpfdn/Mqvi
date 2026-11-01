@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/pkg/ctxkeys"
 	"github.com/akinalp/mqvi/services"
@@ -23,6 +24,11 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 	serverID, ok := r.Context().Value(ctxkeys.ServerID).(string)
 	if !ok || serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "server context required")
+		return
+	}
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
 		return
 	}
 
@@ -51,7 +57,7 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	result, err := h.searchService.Search(r.Context(), serverID, query, channelID, limit, offset)
+	result, err := h.searchService.Search(r.Context(), user.ID, serverID, query, channelID, limit, offset)
 	if err != nil {
 		pkg.Error(w, err)
 		return

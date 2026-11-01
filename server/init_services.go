@@ -218,7 +218,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		cfg.Upload.DefaultQuotaBytes,
 	)
 	pinService := services.NewPinService(repos.Pin, repos.Message, repos.Channel, hub, channelPermService, urlSigner)
-	searchService := services.NewSearchService(repos.Search, urlSigner)
+	searchService := services.NewSearchService(repos.Search, repos.Channel, channelPermService, urlSigner)
 	readStateService := services.NewReadStateService(repos.ReadState, channelPermService)
 
 	// BlockService before DMService (DMService uses it as BlockChecker)

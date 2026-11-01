@@ -13,7 +13,7 @@ type SearchResult struct {
 }
 
 // SearchRepository defines data access for FTS5 full-text message search.
-// serverID is required. channelID is optional (nil searches all server channels).
+// Results are limited to channelIDs, which must belong to serverID; an empty list matches nothing.
 type SearchRepository interface {
-	Search(ctx context.Context, query string, serverID string, channelID *string, limit, offset int) (*SearchResult, error)
+	Search(ctx context.Context, query string, serverID string, channelIDs []string, limit, offset int) (*SearchResult, error)
 }
