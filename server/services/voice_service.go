@@ -8,6 +8,8 @@
 //	voice_screenshare.go — screen share viewer tracking
 //	voice_lifecycle.go   — orphan/AFK sweeps + LiveKit participant removal
 //	voice_e2ee.go        — per-room SFrame passphrase helpers
+//	voice_egress.go      — who is told about a voice change, in order (per-server queue)
+//	voice_visibility.go  — voice state filtered to what a member may see
 //
 // All files share the single `voiceService` struct and its single `sync.RWMutex`,
 // so the concerns can cross-read each other's state without lock-ordering risk.
@@ -76,13 +78,24 @@ type VoiceService interface {
 	RecordNoiseReductionFailure(userID, channelID, engine, reason, detail string)
 	JoinChannel(userID, username, displayName, avatarURL, channelID string, isMuted, isDeafened bool) error
 	LeaveChannel(userID string) error
+	// DisconnectUserFromServer and DisconnectUserFromChannel remove the user from voice only while
+	// they are still there — a caller acting on an earlier snapshot must not end a call elsewhere.
+	DisconnectUserFromServer(userID, serverID string) bool
+	DisconnectUserFromChannel(userID, channelID string) bool
 	UpdateState(userID string, isMuted, isDeafened, isStreaming *bool, shareQuality *string) error
 	UpdateUserProfile(userID, username, displayName, avatarURL string)
 	GetChannelParticipants(channelID string) []models.VoiceState
 	GetServerParticipants(serverID string) []models.VoiceState
 	GetUserVoiceState(userID string) *models.VoiceState
+	// GetAllVoiceStates is every state on the platform, unfiltered: platform-admin views only.
 	GetAllVoiceStates() []models.VoiceState
-	GetActiveChannelTimers() map[string]int64 // channelID → start time (Unix ms)
+	// VisibleVoiceStates is the voice state of serverIDs that userID may see, with the timers of
+	// those channels. Avatars are unsigned.
+	VisibleVoiceStates(ctx context.Context, userID string, serverIDs []string) ([]models.VoiceState, map[string]int64)
+	// Resync*Visibility re-send members the voice state they may see after a permission change.
+	ResyncChannelVisibility(serverID, channelID string)
+	ResyncServerVisibility(serverID string)
+	ResyncUserVisibility(serverID, userID string)
 	// SyncServerStatesToUser pushes a server's in-progress voice participants +
 	// channel timers to one user (used on server join so a newcomer sees active
 	// calls without reconnecting).
@@ -154,6 +167,7 @@ type voiceService struct {
 	bindingStore     ChannelBindingStore
 	permResolver     ChannelPermResolver
 	hub              ws.Broadcaster
+	egress           *voiceEgress
 	onlineChecker    OnlineUserChecker
 	afkTimeoutGetter AFKTimeoutGetter
 	encryptionKey    []byte // AES-256-GCM for LiveKit credential decryption
@@ -167,6 +181,8 @@ func NewVoiceService(
 	bindingStore ChannelBindingStore,
 	permResolver ChannelPermResolver,
 	hub ws.Broadcaster,
+	serverOnline ServerOnlineLister,
+	visibility VoiceVisibilityResolver,
 	onlineChecker OnlineUserChecker,
 	afkTimeoutGetter AFKTimeoutGetter,
 	encryptionKey []byte,
@@ -188,6 +204,7 @@ func NewVoiceService(
 		livekitGetter:      livekitGetter,
 		permResolver:       permResolver,
 		hub:                hub,
+		egress:             newVoiceEgress(hub, serverOnline, visibility, urlSigner),
 		onlineChecker:      onlineChecker,
 		afkTimeoutGetter:   afkTimeoutGetter,
 		encryptionKey:      encryptionKey,

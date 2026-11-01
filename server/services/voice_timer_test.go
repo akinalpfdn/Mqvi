@@ -20,7 +20,7 @@ func (m *mockOnlineChecker) GetOnlineUserIDs() []string { return m.online }
 func newTimerTestVoiceService(online []string, perms models.Permission) (*voiceService, *[]ws.Event) {
 	hub := &testutil.MockBroadcaster{}
 	broadcasts := &[]ws.Event{}
-	hub.BroadcastToServerFn = func(_ string, event ws.Event) {
+	hub.BroadcastToUsersFn = func(_ []string, event ws.Event) {
 		*broadcasts = append(*broadcasts, event)
 	}
 	svc := NewVoiceService(
@@ -37,12 +37,13 @@ func newTimerTestVoiceService(online []string, perms models.Permission) (*voiceS
 			},
 		},
 		hub,
+		openAudience{}, openAudience{}, // audience: everyone sees everything, as before filtering
 		&mockOnlineChecker{online: online},
 		nil, // afkTimeoutGetter
 		nil, // encryptionKey
 		&testutil.MockFileURLSigner{},
 	)
-	return svc.(*voiceService), broadcasts
+	return inlineEgress(svc), broadcasts
 }
 
 // countChannelTimerEvents counts timer start/stop events for a specific channel.

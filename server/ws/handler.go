@@ -27,10 +27,9 @@ type BanChecker interface {
 	IsBanned(ctx context.Context, userID string) (bool, error)
 }
 
-// VoiceStatesProvider returns all active voice states for the ready event.
+// VoiceStatesProvider returns the voice states a user may see, for the ready event.
 type VoiceStatesProvider interface {
-	GetAllVoiceStates() []models.VoiceState
-	GetActiveChannelTimers() map[string]int64
+	VisibleVoiceStates(ctx context.Context, userID string, serverIDs []string) ([]models.VoiceState, map[string]int64)
 }
 
 // IncomingCallProvider returns a pending RINGING incoming-call payload for a user,
@@ -453,22 +452,12 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 
-	// Send voice states sync so frontend can initialize voiceStore.
-	// Filter to servers the user belongs to — voice events are server-scoped,
-	// so leaking states from foreign servers would be inconsistent with runtime broadcasts.
+	// Send voice states sync so frontend can initialize voiceStore: the user's servers only, and
+	// within them only the channels they may see — the same rule as the live voice events.
 	if h.voiceStatesProvider != nil {
-		userServers := make(map[string]bool, len(serverIDs))
-		for _, id := range serverIDs {
-			userServers[id] = true
-		}
-
-		allStates := h.voiceStatesProvider.GetAllVoiceStates()
-		items := make([]VoiceStateItem, 0, len(allStates))
-		visibleChannels := make(map[string]struct{})
-		for _, s := range allStates {
-			if !userServers[s.ServerID] {
-				continue
-			}
+		visible, timers := h.voiceStatesProvider.VisibleVoiceStates(r.Context(), claims.UserID, serverIDs)
+		items := make([]VoiceStateItem, 0, len(visible))
+		for _, s := range visible {
 			items = append(items, VoiceStateItem{
 				UserID:           s.UserID,
 				ChannelID:        s.ChannelID,
@@ -484,15 +473,6 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 				IsServerMuted:    s.IsServerMuted,
 				IsServerDeafened: s.IsServerDeafened,
 			})
-			visibleChannels[s.ChannelID] = struct{}{}
-		}
-		// Filter timers to channels the user can actually see (server scoping).
-		allTimers := h.voiceStatesProvider.GetActiveChannelTimers()
-		timers := make(map[string]int64, len(visibleChannels))
-		for cid := range visibleChannels {
-			if t, ok := allTimers[cid]; ok {
-				timers[cid] = t
-			}
 		}
 		client.sendEvent(Event{
 			Op:   OpVoiceStatesSync,

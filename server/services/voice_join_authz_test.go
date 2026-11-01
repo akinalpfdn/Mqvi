@@ -58,7 +58,7 @@ func newAuthzVoiceService(t *testing.T, g grants) (*voiceService, *[]ws.Event) {
 	}
 	broadcasts := &[]ws.Event{}
 	hub := &testutil.MockBroadcaster{
-		BroadcastToServerFn: func(_ string, e ws.Event) { *broadcasts = append(*broadcasts, e) },
+		BroadcastToUsersFn: func(_ []string, e ws.Event) { *broadcasts = append(*broadcasts, e) },
 	}
 	svc := NewVoiceService(
 		&testutil.MockChannelRepo{GetByIDFn: authzChannels{}.GetByID},
@@ -66,8 +66,10 @@ func newAuthzVoiceService(t *testing.T, g grants) (*voiceService, *[]ws.Event) {
 		nil,
 		g.resolver(),
 		hub,
+		openAudience{}, openAudience{}, // audience: everyone sees everything, as before filtering
 		nil, nil, key, &testutil.MockFileURLSigner{},
 	).(*voiceService)
+	svc.egress.run = runVoiceEgressInline
 	return svc, broadcasts
 }
 

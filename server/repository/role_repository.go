@@ -16,6 +16,9 @@ type RoleRepository interface {
 	// GetByServerGroupedByUser returns every role assignment in one server, keyed by user.
 	// One query for a whole roster, instead of GetByUserIDAndServer per member.
 	GetByServerGroupedByUser(ctx context.Context, serverID string) (map[string][]models.Role, error)
+	// GetByUsersAndServer is GetByServerGroupedByUser narrowed to the given users. A user with no
+	// roles in the server is absent from the map.
+	GetByUsersAndServer(ctx context.Context, serverID string, userIDs []string) (map[string][]models.Role, error)
 	GetMaxPosition(ctx context.Context, serverID string) (int, error)
 
 	// ─── Write ───

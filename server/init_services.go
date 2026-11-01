@@ -145,7 +145,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		repos.ChannelPermission, repos.Role, repos.Channel, hub,
 	)
 	voiceService := services.NewVoiceService(
-		repos.Channel, repos.LiveKit, repos.LiveKit, channelPermService, hub, hub, repos.Server, encryptionKey, urlSigner,
+		repos.Channel, repos.LiveKit, repos.LiveKit, channelPermService, hub, hub, channelPermService, hub, repos.Server, encryptionKey, urlSigner,
 	)
 	p2pCallService := services.NewP2PCallService(repos.Friendship, repos.User, hub, urlSigner, cfg.CallGraceWindow)
 
@@ -212,6 +212,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		db, repos.Server, repos.LiveKit, repos.Role, repos.Channel,
 		repos.Category, repos.User, repos.Ban, repos.JoinRequest, inviteService, hub, voiceService, voiceService, encryptionKey, urlSigner, fileCleanupService,
 	)
+	serverService.SetPermCacheInvalidator(channelPermService)
 	livekitAdminService := services.NewLiveKitAdminService(
 		repos.LiveKit, repos.Server, repos.User, repos.Channel,
 		voiceService, encryptionKey, cfg.HetznerAPIToken, urlSigner,

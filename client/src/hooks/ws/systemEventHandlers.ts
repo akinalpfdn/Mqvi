@@ -271,8 +271,11 @@ export async function handleSystemEvent(
       return true;
     case "server_delete": {
       const deletedId = (msg.d as { id: string }).id;
-      if (useVoiceStore.getState().currentVoiceChannelId) {
-        useVoiceStore.getState().handleForceDisconnect();
+      // Only a call in the removed server ends — leaving or being kicked from one server must not
+      // hang up a call on another.
+      const vs = useVoiceStore.getState();
+      if (vs.currentVoiceChannelId && vs.currentVoiceServerId === deletedId) {
+        vs.handleForceDisconnect();
       }
       useServerStore.getState().handleServerDelete(deletedId);
       return true;

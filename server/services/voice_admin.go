@@ -83,6 +83,9 @@ func (s *voiceService) AdminUpdateState(ctx context.Context, adminUserID, target
 		Action:           "update",
 	}
 
+	// The audience is fixed with the state; delivery waits for the SFU below.
+	participants := s.participantsLocked(channelID)
+
 	s.mu.Unlock()
 
 	// Enforce server-mute at the SFU (only mute is SFU-enforceable; deafen stays
@@ -106,7 +109,11 @@ func (s *voiceService) AdminUpdateState(ctx context.Context, adminUserID, target
 		}
 	}
 
-	s.broadcastToServer(serverID, ws.Event{Op: ws.OpVoiceStateUpdate, Data: broadcast})
+	// Queued after the SFU call, outside s.mu, so a later event for this user can be delivered first;
+	// the client applies "update" only to a user it still has, so a stale one after a leave is a no-op.
+	if serverID != "" {
+		s.egress.channelEvent(serverID, channelID, participants, ws.Event{Op: ws.OpVoiceStateUpdate, Data: broadcast})
+	}
 
 	log.Printf("[voice] admin %s updated server state for user %s (muted=%v, deafened=%v)",
 		adminUserID, targetUserID, broadcast.IsServerMuted, broadcast.IsServerDeafened)
@@ -306,10 +313,10 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 	// instance the source room was on, and removing from the wrong one leaves a phantom.
 	releasedInstance := s.cleanupRoomPassphraseIfEmpty(sourceChannelID)
 
-	// Broadcast leave(source) + join(target). If both channels are on the same
-	// server, one BroadcastToServer covers both events' audiences.
+	// Leave(source) + join(target), each to its own channel's audience. The moved user is still told
+	// about the source they just left.
 	signedAvatar := s.urlSigner.SignURL(state.AvatarURL)
-	s.broadcastToServer(sourceServerID, ws.Event{
+	s.emitChannelLocked(sourceServerID, sourceChannelID, ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
 			UserID:           state.UserID,
@@ -321,8 +328,8 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 			IsServerDeafened: state.IsServerDeafened,
 			Action:           "leave",
 		},
-	})
-	s.broadcastToServer(targetServerID, ws.Event{
+	}, targetUserID)
+	s.emitChannelLocked(targetServerID, targetChannelID, ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
 			UserID:           state.UserID,
@@ -346,10 +353,19 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 	// state-update-then-timer ordering of JoinChannel/LeaveChannel so clients
 	// process the move (and any ephemeral-chat wipe) before the timer changes.
 	if s.countInChannelLocked(sourceChannelID) == 0 {
-		s.stopChannelTimerLocked(sourceChannelID, sourceServerID)
+		s.stopChannelTimerLocked(sourceChannelID, sourceServerID, targetUserID)
 	}
 	if targetWasEmpty {
 		s.startChannelTimerLocked(targetChannelID, targetServerID, time.Now())
+	}
+
+	// A move into a channel they cannot see leaves them without its participants; a move out of one
+	// leaves them holding them.
+	if sourceServerID == targetServerID {
+		s.replaceIfHiddenLocked(targetServerID, targetUserID, sourceChannelID, targetChannelID)
+	} else {
+		s.replaceIfHiddenLocked(sourceServerID, targetUserID, sourceChannelID)
+		s.replaceIfHiddenLocked(targetServerID, targetUserID, targetChannelID)
 	}
 
 	// Grant one-time permission bypass so the moved user can generate a token
@@ -359,13 +375,13 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 		expiresAt: time.Now().Add(30 * time.Second),
 	}
 
-	s.mu.Unlock()
-
-	// Tell client to switch LiveKit rooms
-	s.hub.BroadcastToUser(targetUserID, ws.Event{
+	// Tell client to switch LiveKit rooms, after the events describing the move.
+	s.emitToUserLocked(targetServerID, targetUserID, ws.Event{
 		Op:   ws.OpVoiceForceMove,
 		Data: ws.VoiceForceMoveData{ChannelID: targetChannelID},
 	})
+
+	s.mu.Unlock()
 
 	// Remove phantom from old LiveKit room (best-effort)
 	go s.removeParticipantFromLiveKit(sourceServerID, sourceChannelID, targetUserID, releasedInstance)
@@ -378,63 +394,32 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 // AdminDisconnectUser force-disconnects a user from voice.
 // Requires PermMoveMembers in the target's current channel (same as Discord).
 func (s *voiceService) AdminDisconnectUser(ctx context.Context, disconnecterUserID, targetUserID string) error {
-	s.mu.Lock()
-
+	// Snapshot under a brief lock; the permission resolve may hit the DB and must not run under s.mu.
+	s.mu.RLock()
 	state, ok := s.states[targetUserID]
 	if !ok {
-		s.mu.Unlock()
+		s.mu.RUnlock()
 		return fmt.Errorf("%w: target user is not in a voice channel", pkg.ErrBadRequest)
 	}
+	channelID := state.ChannelID
+	s.mu.RUnlock()
 
-	effectivePerms, err := s.permResolver.ResolveChannelPermissions(ctx, disconnecterUserID, state.ChannelID)
+	effectivePerms, err := s.permResolver.ResolveChannelPermissions(ctx, disconnecterUserID, channelID)
 	if err != nil {
-		s.mu.Unlock()
 		s.logError(models.LogCategoryVoice, &disconnecterUserID, "AdminDisconnectUser: permission resolve failed", map[string]string{
-			"target_user": targetUserID, "channel_id": state.ChannelID, "error": err.Error(),
+			"target_user": targetUserID, "channel_id": channelID, "error": err.Error(),
 		})
 		return fmt.Errorf("failed to resolve permissions: %w", err)
 	}
 	if !effectivePerms.Has(models.PermMoveMembers) {
-		s.mu.Unlock()
 		return fmt.Errorf("%w: move members permission required", pkg.ErrForbidden)
 	}
 
-	channelID := state.ChannelID
-	serverID := state.ServerID
-	username := state.Username
-	displayName := state.DisplayName
-	avatarURL := s.urlSigner.SignURL(state.AvatarURL)
-	delete(s.states, targetUserID)
-	delete(s.livekitAbsentSince, targetUserID)
-
-	s.broadcastToServer(serverID, ws.Event{
-		Op: ws.OpVoiceStateUpdate,
-		Data: ws.VoiceStateUpdateBroadcast{
-			UserID:      targetUserID,
-			ChannelID:   channelID,
-			Username:    username,
-			DisplayName: displayName,
-			AvatarURL:   avatarURL,
-			Action:      "leave",
-		},
-	})
-
-	// Stop the channel's call timer if this disconnect emptied it — same as
-	// LeaveChannel. Without this, an admin disconnect of the last user leaves the
-	// timer running forever (the 120h stale-timer bug via the admin path).
-	if s.countInChannelLocked(channelID) == 0 {
-		s.stopChannelTimerLocked(channelID, serverID)
+	// Only from the channel the permission was checked against; a target who moved meanwhile is not
+	// disconnected from somewhere the mover may hold no rights (they can retry).
+	if !s.leaveWhere(targetUserID, inVoiceChannel(channelID), nil, &ws.Event{Op: ws.OpVoiceForceDisconnect}) {
+		return fmt.Errorf("%w: target user is not in a voice channel", pkg.ErrBadRequest)
 	}
-
-	releasedInstance := s.cleanupRoomPassphraseIfEmpty(channelID)
-
-	s.mu.Unlock()
-
-	s.hub.BroadcastToUser(targetUserID, ws.Event{
-		Op: ws.OpVoiceForceDisconnect,
-	})
-
-	go s.removeParticipantFromLiveKit(serverID, channelID, targetUserID, releasedInstance)
 
 	log.Printf("[voice] admin %s disconnected user %s from channel %s",
 		disconnecterUserID, targetUserID, channelID)

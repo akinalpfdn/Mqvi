@@ -147,6 +147,56 @@ func (r *sqliteRoleRepo) GetByServerGroupedByUser(ctx context.Context, serverID 
 	return byUser, nil
 }
 
+// roleUserChunk keeps each IN list well under SQLite's bound-parameter limit.
+const roleUserChunk = 500
+
+// GetByUsersAndServer has the same columns and position DESC order as GetByUserIDAndServer, so each
+// user's slice folds to the same effective permissions.
+func (r *sqliteRoleRepo) GetByUsersAndServer(ctx context.Context, serverID string, userIDs []string) (map[string][]models.Role, error) {
+	byUser := make(map[string][]models.Role, len(userIDs))
+	for start := 0; start < len(userIDs); start += roleUserChunk {
+		end := min(start+roleUserChunk, len(userIDs))
+		chunk := userIDs[start:end]
+
+		placeholders := make([]string, len(chunk))
+		args := make([]any, 0, len(chunk)+1)
+		args = append(args, serverID)
+		for i, id := range chunk {
+			placeholders[i] = "?"
+			args = append(args, id)
+		}
+		query := `
+			SELECT ur.user_id, ` + roleColumnsQualified + `
+			FROM roles r
+			INNER JOIN user_roles ur ON r.id = ur.role_id AND r.server_id = ur.server_id
+			WHERE ur.server_id = ? AND ur.user_id IN (` + strings.Join(placeholders, ",") + `)
+			ORDER BY r.position DESC`
+
+		if err := r.scanGroupedRoles(ctx, byUser, query, args...); err != nil {
+			return nil, fmt.Errorf("failed to get roles for users: %w", err)
+		}
+	}
+	return byUser, nil
+}
+
+func (r *sqliteRoleRepo) scanGroupedRoles(ctx context.Context, into map[string][]models.Role, query string, args ...any) error {
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var userID string
+		var role models.Role
+		if err := scanRoleInto(rows, &role, &userID); err != nil {
+			return fmt.Errorf("scan grouped role row: %w", err)
+		}
+		into[userID] = append(into[userID], role)
+	}
+	return rows.Err()
+}
+
 func (r *sqliteRoleRepo) GetByUserIDAndServer(ctx context.Context, userID, serverID string) ([]models.Role, error) {
 	query := `
 		SELECT ` + roleColumnsQualified + `

@@ -33,9 +33,15 @@ type MemberService interface {
 	SetPermCacheInvalidator(inv PermissionCacheInvalidator)
 }
 
-// VoiceDisconnecter disconnects a user from voice on kick/ban (ISP).
+// VoiceDisconnecter disconnects a user from voice everywhere — platform-level removal (ISP).
 type VoiceDisconnecter interface {
 	DisconnectUser(userID string)
+}
+
+// VoiceServerLeaver removes a user from one server's voice on kick/ban (ISP). A member removed
+// here may be in a call on another server, which is not this server's to end.
+type VoiceServerLeaver interface {
+	DisconnectUserFromServer(userID, serverID string) bool
 }
 
 // VoiceProfileSyncer refreshes a user's cached voice-state profile after a
@@ -45,9 +51,10 @@ type VoiceProfileSyncer interface {
 }
 
 // VoiceUserPermissionEnforcer re-applies a single user's voice permissions at the SFU after
-// their role assignments change (S3).
+// their role assignments change (S3), and resends them the voice state they may now see.
 type VoiceUserPermissionEnforcer interface {
 	EnforceUserVoicePermissions(userID string)
+	ResyncUserVisibility(serverID, userID string)
 }
 
 type memberService struct {
@@ -56,7 +63,7 @@ type memberService struct {
 	banRepo       repository.BanRepository
 	serverRepo    repository.ServerRepository
 	hub           ws.BroadcastAndManage
-	voiceKick     VoiceDisconnecter
+	voiceKick     VoiceServerLeaver
 	voiceProfile  VoiceProfileSyncer
 	voiceEnforcer   VoiceUserPermissionEnforcer // set post-construction, may be nil
 	permInvalidator PermissionCacheInvalidator  // set post-construction, may be nil
@@ -77,7 +84,7 @@ func NewMemberService(
 	banRepo repository.BanRepository,
 	serverRepo repository.ServerRepository,
 	hub ws.BroadcastAndManage,
-	voiceKick VoiceDisconnecter,
+	voiceKick VoiceServerLeaver,
 	voiceProfile VoiceProfileSyncer,
 	urlSigner FileURLSigner,
 ) MemberService {
@@ -333,6 +340,7 @@ func (s *memberService) ModifyRoles(ctx context.Context, serverID, actorID, targ
 	}
 	if s.voiceEnforcer != nil {
 		go s.voiceEnforcer.EnforceUserVoicePermissions(targetID)
+		s.voiceEnforcer.ResyncUserVisibility(serverID, targetID)
 	}
 
 	// Role changes are server-scoped — only broadcast to that server
@@ -407,7 +415,8 @@ func (s *memberService) removeFromServer(serverID, targetID string) {
 	}
 
 	if s.voiceKick != nil {
-		s.voiceKick.DisconnectUser(targetID)
+		// This server's call only — a member removed here may be in a call on another server.
+		s.voiceKick.DisconnectUserFromServer(targetID, serverID)
 	}
 
 	s.hub.BroadcastToServer(serverID, ws.Event{

@@ -245,39 +245,10 @@ func (s *voiceService) sweepOrphanStates() {
 			continue
 		}
 
-		// Grace expired and the SFU agrees — confirmed abandoned session. Unchanged from here.
+		// Grace expired and the SFU agrees — confirmed abandoned session.
 		channelID := state.ChannelID
 		serverID := state.ServerID
-		username := state.Username
-		displayName := state.DisplayName
-		avatarURL := s.urlSigner.SignURL(state.AvatarURL)
-		delete(s.states, c.userID)
-		delete(s.offlineSince, c.userID)
-		delete(s.sfuPresentAt, c.userID)
-		delete(s.livekitAbsentSince, c.userID)
-
-		s.broadcastToServer(serverID, ws.Event{
-			Op: ws.OpVoiceStateUpdate,
-			Data: ws.VoiceStateUpdateBroadcast{
-				UserID:      c.userID,
-				ChannelID:   channelID,
-				Username:    username,
-				DisplayName: displayName,
-				AvatarURL:   avatarURL,
-				Action:      "leave",
-			},
-		})
-
-		// Stop the channel's call timer when this reap empties it — same as
-		// LeaveChannel. Without this, an abandoned session reaped here leaves the
-		// timer running forever: it counts up endlessly, blocks the next join's
-		// startChannelTimerLocked (no-op since it still "exists") so no fresh
-		// timer_start is broadcast, and resyncs serve the stale start time.
-		if s.countInChannelLocked(channelID) == 0 {
-			s.stopChannelTimerLocked(channelID, serverID)
-		}
-
-		releasedInstance := s.cleanupRoomPassphraseIfEmpty(channelID)
+		releasedInstance := s.removeVoiceStateLocked(state)
 		orphans = append(orphans, orphanEntry{userID: c.userID, channelID: channelID, serverID: serverID, instanceID: releasedInstance})
 		reason := "absent from SFU"
 		if ceiled[c.userID] {
@@ -469,18 +440,16 @@ func (s *voiceService) sweepAFKUsers() {
 	for _, entry := range toKick {
 		log.Printf("[voice] AFK kick: user=%s channel=%s server=%s (idle too long)", entry.userID, entry.channelID, entry.serverID)
 
-		// Notify user before disconnect
-		s.hub.BroadcastToUser(entry.userID, ws.Event{
+		// Only from the channel that was idle: a user who moved since joined somewhere new, and that
+		// join reset their activity. The notice is queued just before the leave.
+		s.leaveWhere(entry.userID, inVoiceChannel(entry.channelID), &ws.Event{
 			Op: ws.OpVoiceAFKKick,
 			Data: ws.VoiceAFKKickData{
 				ChannelID:   entry.channelID,
 				ChannelName: entry.channelName,
 				ServerName:  entry.serverName,
 			},
-		})
-
-		// Use the existing disconnect flow
-		s.DisconnectUser(entry.userID)
+		}, nil)
 	}
 }
 
@@ -625,32 +594,9 @@ func (s *voiceService) sweepLiveKitReconciliation() {
 			continue // still within grace
 		}
 
-		// Confirmed phantom — reap. Same shape as sweepOrphanStates.
+		// Confirmed phantom — reap. Absent from the SFU already, so no teardown follows.
 		channelID := state.ChannelID
-		serverID := state.ServerID
-		username := state.Username
-		displayName := state.DisplayName
-		avatarURL := s.urlSigner.SignURL(state.AvatarURL)
-		delete(s.states, a.userID)
-		delete(s.livekitAbsentSince, a.userID)
-		delete(s.offlineSince, a.userID)
-
-		s.broadcastToServer(serverID, ws.Event{
-			Op: ws.OpVoiceStateUpdate,
-			Data: ws.VoiceStateUpdateBroadcast{
-				UserID:      a.userID,
-				ChannelID:   channelID,
-				Username:    username,
-				DisplayName: displayName,
-				AvatarURL:   avatarURL,
-				Action:      "leave",
-			},
-		})
-
-		if s.countInChannelLocked(channelID) == 0 {
-			s.stopChannelTimerLocked(channelID, serverID)
-		}
-		s.cleanupRoomPassphraseIfEmpty(channelID)
+		s.removeVoiceStateLocked(state)
 
 		log.Printf("[voice] livekit reconcile: reaped phantom user=%s channel=%s (absent from SFU for %s)", a.userID, channelID, now.Sub(first).Round(time.Second))
 		s.logWarn(models.LogCategoryVoice, &a.userID, "livekit reconcile: phantom voice state removed", map[string]string{

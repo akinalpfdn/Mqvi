@@ -32,25 +32,24 @@ func (s *voiceService) WatchScreenShare(viewerUserID, streamerUserID string, wat
 	}
 
 	viewerCount := len(s.screenShareViewers[streamerUserID])
-	channelID := streamerState.ChannelID
-	serverID := streamerState.ServerID
-	s.mu.Unlock()
 
 	action := "leave"
 	if watching {
 		action = "join"
 	}
 
-	s.broadcastToServer(serverID, ws.Event{
+	// Queued under the lock so the count lands in order with the streamer's own state changes.
+	s.emitChannelLocked(streamerState.ServerID, streamerState.ChannelID, ws.Event{
 		Op: ws.OpScreenShareViewerUpdate,
 		Data: ws.ScreenShareViewerUpdateData{
 			StreamerUserID: streamerUserID,
-			ChannelID:      channelID,
+			ChannelID:      streamerState.ChannelID,
 			ViewerCount:    viewerCount,
 			ViewerUserID:   viewerUserID,
 			Action:         action,
 		},
-	})
+	}, viewerUserID)
+	s.mu.Unlock()
 }
 
 func (s *voiceService) GetScreenShareViewerCount(streamerUserID string) int {

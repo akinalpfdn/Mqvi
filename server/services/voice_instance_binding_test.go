@@ -96,6 +96,8 @@ func bindingHarness(t *testing.T) (*voiceService, *uniqueInstanceGetter) {
 		nil, // bindingStore: in-memory only unless a test sets one
 		nil, // permResolver
 		nil, // hub
+		nil, // serverOnline
+		nil, // visibility
 		nil, // onlineChecker
 		nil, // afkTimeoutGetter
 		key,
@@ -1090,6 +1092,7 @@ func tokenHarness(t *testing.T, perms models.Permission) (*voiceService, *unique
 			},
 		},
 		&testutil.MockBroadcaster{},
+		openAudience{}, openAudience{}, // audience: everyone sees everything, as before filtering
 		&testutil.MockBroadcastAndOnline{}, // onlineChecker: the orphan sweep dereferences it
 		nil,                                // afkTimeoutGetter
 		key,

@@ -187,6 +187,48 @@ describe("voiceStore", () => {
     });
   });
 
+  describe("handleVoiceServerStatesSync", () => {
+    const vs = (user_id: string, channel_id: string, server_id: string) => ({
+      user_id, channel_id, server_id, username: user_id, display_name: user_id, avatar_url: "",
+      is_muted: false, is_deafened: false, is_streaming: false, is_server_muted: false, is_server_deafened: false,
+    });
+
+    it("should drop a server's channels that are no longer sent, with their timers", () => {
+      useVoiceStore.setState({
+        voiceStates: { hidden: [vs("spy", "hidden", "srv1")], open: [vs("u1", "open", "srv1")] },
+        channelTimers: { hidden: 100, open: 200 },
+      });
+
+      useVoiceStore.getState().handleVoiceServerStatesSync("srv1", [vs("u1", "open", "srv1")], { open: 200 });
+
+      const { voiceStates, channelTimers } = useVoiceStore.getState();
+      expect(voiceStates.hidden).toBeUndefined();
+      expect(voiceStates.open).toHaveLength(1);
+      expect(channelTimers).toEqual({ open: 200 });
+    });
+
+    it("should add channels that became visible", () => {
+      useVoiceStore.getState().handleVoiceServerStatesSync("srv1", [vs("u2", "granted", "srv1")], { granted: 300 });
+
+      expect(useVoiceStore.getState().voiceStates.granted).toHaveLength(1);
+      expect(useVoiceStore.getState().channelTimers.granted).toBe(300);
+    });
+
+    it("should leave other servers' calls untouched", () => {
+      useVoiceStore.setState({
+        voiceStates: { a: [vs("u1", "a", "srv1")], b: [vs("u2", "b", "srv2")] },
+        channelTimers: { a: 1, b: 2 },
+      });
+
+      useVoiceStore.getState().handleVoiceServerStatesSync("srv1", [], {});
+
+      const { voiceStates, channelTimers } = useVoiceStore.getState();
+      expect(voiceStates.a).toBeUndefined();
+      expect(voiceStates.b).toHaveLength(1);
+      expect(channelTimers).toEqual({ b: 2 });
+    });
+  });
+
   // ─── Active Speakers ───
 
   describe("setActiveSpeakers", () => {

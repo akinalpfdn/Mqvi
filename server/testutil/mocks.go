@@ -366,6 +366,7 @@ type MockRoleRepo struct {
 	GetDefaultByServerFn   func(ctx context.Context, serverID string) (*models.Role, error)
 	GetByUserIDAndServerFn func(ctx context.Context, userID, serverID string) ([]models.Role, error)
 	GetByServerGroupedByUserFn func(ctx context.Context, serverID string) (map[string][]models.Role, error)
+	GetByUsersAndServerFn      func(ctx context.Context, serverID string, userIDs []string) (map[string][]models.Role, error)
 	GetMaxPositionFn       func(ctx context.Context, serverID string) (int, error)
 	CreateFn               func(ctx context.Context, role *models.Role) error
 	UpdateFn               func(ctx context.Context, role *models.Role) error
@@ -402,6 +403,12 @@ func (m *MockRoleRepo) GetByUserIDAndServer(ctx context.Context, userID, serverI
 func (m *MockRoleRepo) GetByServerGroupedByUser(ctx context.Context, serverID string) (map[string][]models.Role, error) {
 	if m.GetByServerGroupedByUserFn != nil {
 		return m.GetByServerGroupedByUserFn(ctx, serverID)
+	}
+	return nil, nil
+}
+func (m *MockRoleRepo) GetByUsersAndServer(ctx context.Context, serverID string, userIDs []string) (map[string][]models.Role, error) {
+	if m.GetByUsersAndServerFn != nil {
+		return m.GetByUsersAndServerFn(ctx, serverID, userIDs)
 	}
 	return nil, nil
 }

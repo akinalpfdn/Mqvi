@@ -11,9 +11,11 @@ import (
 )
 
 // VoiceServerPermissionEnforcer re-applies voice permissions at the SFU for users already
-// in voice across a server, after a role's permissions change or a role is deleted.
+// in voice across a server, after a role's permissions change or a role is deleted, and resends
+// the server's members the voice state they may now see.
 type VoiceServerPermissionEnforcer interface {
 	EnforceServerVoicePermissions(serverID string)
+	ResyncServerVisibility(serverID string)
 }
 
 // RoleService handles role CRUD. All operations are server-scoped.
@@ -70,6 +72,7 @@ func (s *roleService) invalidatePermCache() {
 func (s *roleService) enforceServerVoice(serverID string) {
 	if s.voiceEnforcer != nil {
 		go s.voiceEnforcer.EnforceServerVoicePermissions(serverID)
+		s.voiceEnforcer.ResyncServerVisibility(serverID)
 	}
 }
 

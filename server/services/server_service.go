@@ -53,6 +53,8 @@ type ServerService interface {
 	GetLiveKitSettings(ctx context.Context, serverID string) (*LiveKitSettings, error)
 	// ReorderServers updates the user's personal server list order. No WS broadcast.
 	ReorderServers(ctx context.Context, userID string, req *models.ReorderServersRequest) ([]models.ServerListItem, error)
+	// SetPermCacheInvalidator wires the permission-cache invalidator post-construction.
+	SetPermCacheInvalidator(inv PermissionCacheInvalidator)
 }
 
 // MaxMqviHostedServersPerUser caps how many mqvi-hosted servers a single
@@ -67,13 +69,13 @@ type VoiceStateSyncer interface {
 	SyncServerStatesToUser(userID, serverID string)
 }
 
-// VoiceServerDisconnector tears down every voice participant across a server's channels
-// when the server is deleted (enumerate by server, then DisconnectUser each: broadcast
-// leave + LiveKit remove + free passphrase + stop timers). Without it, deleting a server
-// leaves ghost in-memory voice state and running channel timers.
+// VoiceServerDisconnector tears down voice participants of a server: every one when the server is
+// deleted, one when a member leaves (broadcast leave + LiveKit remove + free passphrase + stop
+// timers). Scoped to the server, so a user in a call elsewhere keeps it. Without it, deleting a
+// server leaves ghost in-memory voice state and running channel timers.
 type VoiceServerDisconnector interface {
 	GetServerParticipants(serverID string) []models.VoiceState
-	DisconnectUser(userID string)
+	DisconnectUserFromServer(userID, serverID string) bool
 }
 
 type serverService struct {
@@ -90,7 +92,8 @@ type serverService struct {
 	hub             ws.BroadcastAndManage
 	voiceSync       VoiceStateSyncer
 	voiceDisc       VoiceServerDisconnector
-	encryptionKey   []byte // AES-256-GCM for LiveKit credentials
+	permInvalidator PermissionCacheInvalidator // set post-construction, may be nil
+	encryptionKey   []byte                     // AES-256-GCM for LiveKit credentials
 	urlSigner       FileURLSigner
 	fileCleanup     FileCleanupService
 }
@@ -531,8 +534,12 @@ func disconnectServerVoiceParticipants(vd VoiceServerDisconnector, serverID stri
 		return
 	}
 	for _, p := range vd.GetServerParticipants(serverID) {
-		vd.DisconnectUser(p.UserID)
+		vd.DisconnectUserFromServer(p.UserID, serverID)
 	}
+}
+
+func (s *serverService) SetPermCacheInvalidator(inv PermissionCacheInvalidator) {
+	s.permInvalidator = inv
 }
 
 // RestoreServer un-soft-deletes a server. Owner can only restore servers they soft-deleted
@@ -953,6 +960,15 @@ func (s *serverService) LeaveServer(ctx context.Context, serverID, userID string
 
 	if err := s.serverRepo.RemoveMember(ctx, serverID, userID); err != nil {
 		return fmt.Errorf("failed to remove member: %w", err)
+	}
+
+	// The same cleanup a kick does. Leaving is a client request, and a client that left without
+	// hanging up would otherwise stay a participant: still in the room, still sent its events.
+	if s.permInvalidator != nil {
+		s.permInvalidator.InvalidateUserPermissions(userID)
+	}
+	if s.voiceDisc != nil {
+		s.voiceDisc.DisconnectUserFromServer(userID, serverID)
 	}
 
 	// Notify server members (broadcast before removing subscription)

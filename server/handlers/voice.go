@@ -23,7 +23,7 @@ type voiceHandlerService interface {
 	RecordScreenShareFallback(userID, channelID, engine, reason, detail string)
 	RecordScreenShareStop(userID, channelID, engine, reason, detail string, aliveMs int64)
 	RecordNoiseReductionFailure(userID, channelID, engine, reason, detail string)
-	GetAllVoiceStates() []models.VoiceState
+	VisibleVoiceStates(ctx context.Context, userID string, serverIDs []string) ([]models.VoiceState, map[string]int64)
 }
 
 type VoiceHandler struct {
@@ -317,22 +317,23 @@ func (h *VoiceHandler) NoiseReductionFailure(w http.ResponseWriter, r *http.Requ
 }
 
 // VoiceStates handles GET /api/servers/{serverId}/voice/states
-// Returns active voice states scoped to the requested server only — leaking
-// other servers' voice membership across server boundaries was the pre-existing
-// behavior. Avatar URLs are stored unsigned in voice state (long-lived) and
+// Returns the voice states of the requested server that the caller may see: the channels they can
+// view and the one they are in. Avatar URLs are stored unsigned in voice state (long-lived) and
 // signed at egress so each consumer gets a fresh signature.
 func (h *VoiceHandler) VoiceStates(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
 	serverID := r.PathValue("serverId")
 	if serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "serverId is required")
 		return
 	}
-	all := h.voiceService.GetAllVoiceStates()
-	out := make([]models.VoiceState, 0, len(all))
-	for _, st := range all {
-		if st.ServerID != serverID {
-			continue
-		}
+	visible, _ := h.voiceService.VisibleVoiceStates(r.Context(), user.ID, []string{serverID})
+	out := make([]models.VoiceState, 0, len(visible))
+	for _, st := range visible {
 		st.AvatarURL = h.urlSigner.SignURL(st.AvatarURL)
 		out = append(out, st)
 	}

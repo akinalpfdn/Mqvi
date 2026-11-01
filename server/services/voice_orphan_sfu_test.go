@@ -109,15 +109,15 @@ func sfuHarnessWithChecker(t *testing.T, sfu *countingSFU, checker interface{ Ge
 	}
 	hub := &testutil.MockBroadcaster{}
 	broadcasts := &[]ws.Event{}
-	hub.BroadcastToServerFn = func(_ string, e ws.Event) { *broadcasts = append(*broadcasts, e) }
+	hub.BroadcastToUsersFn = func(_ []string, e ws.Event) { *broadcasts = append(*broadcasts, e) }
 	svc := NewVoiceService(
 		&testutil.MockChannelRepo{GetByIDFn: func(_ context.Context, id string) (*models.Channel, error) {
 			return &models.Channel{ID: id, ServerID: "srv1", Type: models.ChannelTypeVoice}, nil
 		}},
 		&urlPinnedGetter{url: sfu.srv.URL, apiKey: apiKey, apiSecret: apiSecret},
-		nil, &testutil.MockChannelPermResolver{}, hub, checker, nil, key, &testutil.MockFileURLSigner{},
+		nil, &testutil.MockChannelPermResolver{}, hub, openAudience{}, openAudience{}, checker, nil, key, &testutil.MockFileURLSigner{},
 	)
-	s := svc.(*voiceService)
+	s := inlineEgress(svc)
 	bindChannel(s, "ch1")
 	return s, broadcasts
 }

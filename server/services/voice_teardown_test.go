@@ -1,6 +1,7 @@
 package services
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/akinalp/mqvi/models"
@@ -35,8 +36,9 @@ func (f *fakeServerDisconnector) GetServerParticipants(_ string) []models.VoiceS
 	return f.participants
 }
 
-func (f *fakeServerDisconnector) DisconnectUser(userID string) {
-	f.disconnected = append(f.disconnected, userID)
+func (f *fakeServerDisconnector) DisconnectUserFromServer(userID, serverID string) bool {
+	f.disconnected = append(f.disconnected, userID+"@"+serverID)
+	return true
 }
 
 // The shared teardown helper must disconnect every enumerated participant.
@@ -49,6 +51,12 @@ func TestDisconnectServerVoiceParticipants_DisconnectsAll(t *testing.T) {
 
 	if len(f.disconnected) != 3 {
 		t.Fatalf("want 3 disconnects, got %d (%v)", len(f.disconnected), f.disconnected)
+	}
+	// Scoped to the deleted server: a participant who moved to another server's call keeps it.
+	for _, d := range f.disconnected {
+		if !strings.HasSuffix(d, "@srv1") {
+			t.Fatalf("disconnect %q not scoped to the deleted server", d)
+		}
 	}
 }
 

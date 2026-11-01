@@ -50,7 +50,7 @@ func sweepHarness(t *testing.T, instanceURL string, online ...string) (*voiceSer
 
 	hub := &testutil.MockBroadcaster{}
 	broadcasts := &[]ws.Event{}
-	hub.BroadcastToServerFn = func(_ string, e ws.Event) { *broadcasts = append(*broadcasts, e) }
+	hub.BroadcastToUsersFn = func(_ []string, e ws.Event) { *broadcasts = append(*broadcasts, e) }
 
 	svc := NewVoiceService(
 		&testutil.MockChannelRepo{
@@ -62,12 +62,13 @@ func sweepHarness(t *testing.T, instanceURL string, online ...string) (*voiceSer
 		nil, // binding store: in-memory only
 		&testutil.MockChannelPermResolver{},
 		hub,
+		openAudience{}, openAudience{}, // audience: everyone sees everything, as before filtering
 		&mockOnlineChecker{online: online},
 		nil, // afkTimeoutGetter
 		key,
 		&testutil.MockFileURLSigner{},
 	)
-	return svc.(*voiceService), broadcasts
+	return inlineEgress(svc), broadcasts
 }
 
 // urlPinnedGetter hands out one instance whose URL is under the control of the test.

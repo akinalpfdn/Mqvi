@@ -64,6 +64,7 @@ func TestRemoveParticipantFromLiveKit_ReachesSFUAfterChannelDeleted(t *testing.T
 		nil, // binding store: this test keeps the binding in memory only
 		&testutil.MockChannelPermResolver{},
 		&testutil.MockBroadcaster{},
+		openAudience{}, openAudience{}, // audience: everyone sees everything, as before filtering
 		nil, // onlineChecker
 		nil, // afkTimeoutGetter
 		nil, // encryptionKey
@@ -113,19 +114,20 @@ func newTestVoiceService() (VoiceService, *testutil.MockBroadcaster) {
 			},
 		},
 		hub,
+		openAudience{}, openAudience{}, // audience: everyone sees everything, as before filtering
 		nil, // onlineChecker
 		nil, // afkTimeoutGetter
 		nil, // encryptionKey
 		&testutil.MockFileURLSigner{},
 	)
-	return svc, hub
+	return inlineEgress(svc), hub
 }
 
 func TestVoiceJoinChannel(t *testing.T) {
 	svc, hub := newTestVoiceService()
 
 	var broadcasts []ws.Event
-	hub.BroadcastToServerFn = func(_ string, event ws.Event) {
+	hub.BroadcastToUsersFn = func(_ []string, event ws.Event) {
 		broadcasts = append(broadcasts, event)
 	}
 
@@ -157,7 +159,7 @@ func TestVoiceJoinChannel_SwitchChannels(t *testing.T) {
 	svc, hub := newTestVoiceService()
 
 	var broadcasts []ws.Event
-	hub.BroadcastToServerFn = func(_ string, event ws.Event) {
+	hub.BroadcastToUsersFn = func(_ []string, event ws.Event) {
 		broadcasts = append(broadcasts, event)
 	}
 
@@ -186,7 +188,7 @@ func TestVoiceJoinChannel_SameChannelRejoin(t *testing.T) {
 	svc, hub := newTestVoiceService()
 
 	var broadcasts []ws.Event
-	hub.BroadcastToServerFn = func(_ string, event ws.Event) {
+	hub.BroadcastToUsersFn = func(_ []string, event ws.Event) {
 		broadcasts = append(broadcasts, event)
 	}
 
@@ -216,7 +218,7 @@ func TestVoiceLeaveChannel(t *testing.T) {
 	svc, hub := newTestVoiceService()
 
 	var broadcasts []ws.Event
-	hub.BroadcastToServerFn = func(_ string, event ws.Event) {
+	hub.BroadcastToUsersFn = func(_ []string, event ws.Event) {
 		broadcasts = append(broadcasts, event)
 	}
 
@@ -250,7 +252,7 @@ func TestVoiceLeaveChannel_NotInVoice(t *testing.T) {
 
 func TestVoiceUpdateState(t *testing.T) {
 	svc, hub := newTestVoiceService()
-	hub.BroadcastToServerFn = func(_ string, _ ws.Event) {}
+	hub.BroadcastToUsersFn = func(_ []string, _ ws.Event) {}
 
 	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false)
 
@@ -301,7 +303,7 @@ func TestVoiceUpdateState_NotInVoice(t *testing.T) {
 
 func TestVoiceGetChannelParticipants(t *testing.T) {
 	svc, hub := newTestVoiceService()
-	hub.BroadcastToServerFn = func(_ string, _ ws.Event) {}
+	hub.BroadcastToUsersFn = func(_ []string, _ ws.Event) {}
 
 	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false)
 	_ = svc.JoinChannel("u2", "bob", "Bob", "", "ch1", false, false)
@@ -325,7 +327,7 @@ func TestVoiceGetChannelParticipants(t *testing.T) {
 
 func TestVoiceGetAllVoiceStates(t *testing.T) {
 	svc, hub := newTestVoiceService()
-	hub.BroadcastToServerFn = func(_ string, _ ws.Event) {}
+	hub.BroadcastToUsersFn = func(_ []string, _ ws.Event) {}
 
 	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false)
 	_ = svc.JoinChannel("u2", "bob", "Bob", "", "ch2", false, false)
@@ -338,7 +340,7 @@ func TestVoiceGetAllVoiceStates(t *testing.T) {
 
 func TestVoiceDisconnectUser(t *testing.T) {
 	svc, hub := newTestVoiceService()
-	hub.BroadcastToServerFn = func(_ string, _ ws.Event) {}
+	hub.BroadcastToUsersFn = func(_ []string, _ ws.Event) {}
 
 	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false)
 
@@ -352,7 +354,7 @@ func TestVoiceDisconnectUser(t *testing.T) {
 
 func TestVoiceGetStreamCount(t *testing.T) {
 	svc, hub := newTestVoiceService()
-	hub.BroadcastToServerFn = func(_ string, _ ws.Event) {}
+	hub.BroadcastToUsersFn = func(_ []string, _ ws.Event) {}
 
 	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false)
 	_ = svc.JoinChannel("u2", "bob", "Bob", "", "ch1", false, false)
@@ -377,7 +379,7 @@ func TestVoiceGetStreamCount(t *testing.T) {
 
 func TestVoiceGetUserVoiceChannelID(t *testing.T) {
 	svc, hub := newTestVoiceService()
-	hub.BroadcastToServerFn = func(_ string, _ ws.Event) {}
+	hub.BroadcastToUsersFn = func(_ []string, _ ws.Event) {}
 
 	// Not in voice
 	if svc.GetUserVoiceChannelID("u1") != "" {
@@ -393,7 +395,7 @@ func TestVoiceGetUserVoiceChannelID(t *testing.T) {
 
 func TestVoiceScreenShareViewerTracking(t *testing.T) {
 	svc, hub := newTestVoiceService()
-	hub.BroadcastToServerFn = func(_ string, _ ws.Event) {}
+	hub.BroadcastToUsersFn = func(_ []string, _ ws.Event) {}
 
 	_ = svc.JoinChannel("streamer", "alice", "Alice", "", "ch1", false, false)
 	_ = svc.JoinChannel("viewer1", "bob", "Bob", "", "ch1", false, false)
@@ -417,7 +419,7 @@ func TestVoiceScreenShareViewerTracking(t *testing.T) {
 
 func TestVoiceCleanupViewersForStreamer(t *testing.T) {
 	svc, hub := newTestVoiceService()
-	hub.BroadcastToServerFn = func(_ string, _ ws.Event) {}
+	hub.BroadcastToUsersFn = func(_ []string, _ ws.Event) {}
 
 	_ = svc.JoinChannel("streamer", "alice", "Alice", "", "ch1", false, false)
 	truev := true
@@ -439,7 +441,7 @@ func TestVoiceCleanupViewersForStreamer(t *testing.T) {
 
 func TestVoiceState_ServerMuteDeafen(t *testing.T) {
 	svc, hub := newTestVoiceService()
-	hub.BroadcastToServerFn = func(_ string, _ ws.Event) {}
+	hub.BroadcastToUsersFn = func(_ []string, _ ws.Event) {}
 
 	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false)
 

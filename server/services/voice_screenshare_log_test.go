@@ -94,6 +94,7 @@ func voiceServiceThatCanMint(t *testing.T) (VoiceService, *captureLogger) {
 			},
 		},
 		&testutil.MockBroadcaster{},
+		openAudience{}, openAudience{}, // audience: everyone sees everything, as before filtering
 		nil, nil, key, &testutil.MockFileURLSigner{},
 	)
 	svc.SetAppLogger(logger)
@@ -191,6 +192,7 @@ func TestScreenShareToken_RefusesAndLogsForATextChannel(t *testing.T) {
 			},
 		},
 		&mockLiveKitGetter{}, nil, &testutil.MockChannelPermResolver{}, hub,
+		openAudience{}, openAudience{}, // audience: everyone sees everything, as before filtering
 		nil, nil, nil, &testutil.MockFileURLSigner{},
 	)
 	svc.SetAppLogger(logger)
