@@ -393,7 +393,7 @@ func TestMessageUpdate_OnlyOwnerCanEdit(t *testing.T) {
 	)
 
 	req := &models.UpdateMessageRequest{Content: "updated"}
-	_, err := svc.Update(context.Background(), "m1", "u2", req)
+	_, err := svc.Update(context.Background(), "srv1", "m1", "u2", req)
 	if err == nil {
 		t.Fatal("expected error when non-owner edits")
 	}
@@ -628,7 +628,11 @@ func TestUpdate_RejectsPlaintextOnEncryptedServer(t *testing.T) {
 			&testutil.MockReactionRepo{},
 			&testutil.MockReadStateRepo{},
 			&testutil.MockBroadcastAndOnline{},
-			&testutil.MockChannelPermResolver{},
+			&testutil.MockChannelPermResolver{
+				ResolveChannelPermissionsFn: func(context.Context, string, string) (models.Permission, error) {
+					return models.PermSendMessages, nil
+				},
+			},
 			&testutil.MockFileURLSigner{},
 			&testutil.MockFileDeleter{},
 			&testutil.MockStorageService{},
@@ -637,7 +641,7 @@ func TestUpdate_RejectsPlaintextOnEncryptedServer(t *testing.T) {
 	}
 
 	t.Run("should reject a plaintext edit when the server requires encryption", func(t *testing.T) {
-		_, err := newSvc(true).Update(context.Background(), "m1", "u1", &models.UpdateMessageRequest{Content: "leaked"})
+		_, err := newSvc(true).Update(context.Background(), "srv1", "m1", "u1", &models.UpdateMessageRequest{Content: "leaked"})
 		if !errors.Is(err, pkg.ErrBadRequest) {
 			t.Fatalf("want ErrBadRequest, got %v", err)
 		}
@@ -647,7 +651,7 @@ func TestUpdate_RejectsPlaintextOnEncryptedServer(t *testing.T) {
 	})
 
 	t.Run("should allow a plaintext edit when the server does not require encryption", func(t *testing.T) {
-		if _, err := newSvc(false).Update(context.Background(), "m1", "u1", &models.UpdateMessageRequest{Content: "fine"}); err != nil {
+		if _, err := newSvc(false).Update(context.Background(), "srv1", "m1", "u1", &models.UpdateMessageRequest{Content: "fine"}); err != nil {
 			t.Fatalf("plaintext edit on an unencrypted server should be allowed: %v", err)
 		}
 	})

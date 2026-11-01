@@ -234,7 +234,7 @@ func (h *MessageHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	message, err := h.messageService.Update(r.Context(), id, user.ID, &req)
+	message, err := h.messageService.Update(r.Context(), r.PathValue("serverId"), id, user.ID, &req)
 	if err != nil {
 		pkg.Error(w, err)
 		return
