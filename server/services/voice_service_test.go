@@ -106,7 +106,12 @@ func newTestVoiceService() (VoiceService, *testutil.MockBroadcaster) {
 		},
 		&mockLiveKitGetter{},
 		nil, // binding store: these tests keep the binding in memory only
-		&testutil.MockChannelPermResolver{},
+		// An ordinary member: joins are authorized by ConnectVoice since these tests skip the token.
+		&testutil.MockChannelPermResolver{
+			ResolveChannelPermissionsFn: func(context.Context, string, string) (models.Permission, error) {
+				return models.PermConnectVoice | models.PermSpeak, nil
+			},
+		},
 		hub,
 		nil, // onlineChecker
 		nil, // afkTimeoutGetter

@@ -230,6 +230,7 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 		return fmt.Errorf("%w: target user is not in a voice channel", pkg.ErrBadRequest)
 	}
 	sourceChannelID := state.ChannelID
+	sourceServerID := state.ServerID
 	s.mu.Unlock()
 
 	if sourceChannelID == targetChannelID {
@@ -237,6 +238,12 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 	}
 
 	isSelfMove := moverUserID == targetUserID
+
+	// Moving someone else stays inside their server. Holding MoveMembers in two servers would
+	// otherwise let a moderator pull a member into a channel of a server they never joined.
+	if !isSelfMove && channel.ServerID != sourceServerID {
+		return fmt.Errorf("%w: cannot move a user to another server's channel", pkg.ErrForbidden)
+	}
 
 	if isSelfMove {
 		// Self-move: only need ConnectVoice in target channel (no MoveMembers required)
@@ -284,7 +291,7 @@ func (s *voiceService) MoveUser(ctx context.Context, moverUserID, targetUserID, 
 		return fmt.Errorf("%w: target user is not in a voice channel", pkg.ErrBadRequest)
 	}
 
-	sourceServerID := state.ServerID
+	sourceServerID = state.ServerID
 	targetServerID := channel.ServerID
 
 	// Capture before reassignment to detect the target's 0 → 1 transition.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 
 	"github.com/akinalp/mqvi/models"
@@ -135,10 +136,10 @@ func registerHubCallbacks(
 
 	// ─── Voice Callbacks ───
 
-	hub.OnVoiceJoin(func(userID, username, displayName, avatarURL, channelID string, isMuted, isDeafened bool) {
+	hub.OnVoiceJoin(func(userID, username, displayName, avatarURL, channelID string, isMuted, isDeafened bool) bool {
 		if err := voiceService.JoinChannel(userID, username, displayName, avatarURL, channelID, isMuted, isDeafened); err != nil {
 			log.Printf("[voice] join error user=%s channel=%s: %v", userID, channelID, err)
-			return
+			return errors.Is(err, services.ErrVoiceJoinRefused)
 		}
 
 		// Track last voice activity for admin panel
@@ -150,11 +151,12 @@ func registerHubCallbacks(
 		ch, chErr := channelRepo.GetByID(context.Background(), channelID)
 		if chErr != nil {
 			log.Printf("[voice] channel lookup for activity tracking failed channel=%s: %v", channelID, chErr)
-			return
+			return false
 		}
 		if actErr := serverRepo.UpdateLastVoiceActivity(context.Background(), ch.ServerID); actErr != nil {
 			log.Printf("[voice] failed to update server voice activity server=%s: %v", ch.ServerID, actErr)
 		}
+		return false
 	})
 	hub.OnVoiceLeave(func(userID string) {
 		if err := voiceService.LeaveChannel(userID); err != nil {

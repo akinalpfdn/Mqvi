@@ -386,6 +386,13 @@ func (s *voiceService) clearPendingJoinLocked(channelID, userID string) {
 	}
 }
 
+// hasPendingJoinForLocked reports whether a token was issued to this user for this channel and has
+// not expired. Read-only, so an RLock is enough.
+func (s *voiceService) hasPendingJoinForLocked(channelID, userID string) bool {
+	deadline, ok := s.pendingJoins[channelID][userID]
+	return ok && time.Now().Before(deadline)
+}
+
 // hasPendingJoinLocked reports whether anyone is still mid-handshake into this channel, pruning
 // expired markers as it goes. MUST be called under mu.Lock.
 func (s *voiceService) hasPendingJoinLocked(channelID string) bool {

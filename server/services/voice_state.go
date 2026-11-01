@@ -38,12 +38,23 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 	}
 	serverID := channel.ServerID
 
+	// Resolved before the lock: the permission lookup may hit the database.
+	authorized := s.joinAuthorized(userID, channel)
+
 	var oldChannelID string
 	var oldServerID string
 	// The instance the old channel was released from, needed by the phantom teardown below.
 	var releasedInstance string
 
 	s.mu.Lock()
+
+	// Decided on the state as it is now, under the lock. Being in this channel already is the WS
+	// reconnect re-assert and passes; anything else is a new join and needs authorization.
+	if existing, ok := s.states[userID]; (!ok || existing.ChannelID != channelID) && !authorized {
+		s.mu.Unlock()
+		log.Printf("[voice] join refused user=%s channel=%s (no token issued, no connect permission)", userID, channelID)
+		return ErrVoiceJoinRefused
+	}
 
 	// Leave current channel if in one
 	if existing, ok := s.states[userID]; ok {
@@ -508,4 +519,29 @@ func (s *voiceService) GetUserVoiceChannelID(userID string) string {
 		return state.ChannelID
 	}
 	return ""
+}
+
+// ErrVoiceJoinRefused is a websocket join that no token was issued for and that the user's
+// permissions do not allow.
+var ErrVoiceJoinRefused = fmt.Errorf("%w: not allowed to join this voice channel", pkg.ErrForbidden)
+
+// joinAuthorized: the voice state is the credential for voice chat and the screen-share token, so
+// only a join GenerateToken already authorized, or one the user's permissions allow, may create it.
+// The token marker covers a force-moved user, whose one-time grant was consumed by that token.
+func (s *voiceService) joinAuthorized(userID string, channel *models.Channel) bool {
+	if channel.Type != models.ChannelTypeVoice {
+		return false
+	}
+	s.mu.RLock()
+	pending := s.hasPendingJoinForLocked(channel.ID, userID)
+	s.mu.RUnlock()
+	if pending {
+		return true
+	}
+	perms, err := s.permResolver.ResolveChannelPermissions(context.Background(), userID, channel.ID)
+	if err != nil {
+		log.Printf("[voice] join authorization: resolve user=%s channel=%s: %v", userID, channel.ID, err)
+		return false
+	}
+	return perms.Has(models.PermConnectVoice)
 }

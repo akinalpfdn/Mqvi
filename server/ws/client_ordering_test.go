@@ -19,12 +19,13 @@ func TestClient_EventPump_JoinBeforeUpdate(t *testing.T) {
 	releaseJoin := make(chan struct{})
 
 	h := &Hub{unregister: make(chan *Client, 8)}
-	h.onVoiceJoin = func(_, _, _, _, _ string, _, _ bool) {
+	h.onVoiceJoin = func(_, _, _, _, _ string, _, _ bool) bool {
 		close(joinStarted)
 		<-releaseJoin // hold the worker inside the join handler
 		mu.Lock()
 		order = append(order, "join")
 		mu.Unlock()
+		return false
 	}
 	h.onVoiceStateUpdate = func(_ string, _, _, _ *bool, _ *string) {
 		mu.Lock()

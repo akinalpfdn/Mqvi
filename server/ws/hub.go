@@ -122,7 +122,9 @@ type SessionDisconnectCallback func(userID, sessionID string, nativeMedia bool)
 
 // VoiceJoinCallback — user wants to join a voice channel.
 // displayName may be empty if the user hasn't set one.
-type VoiceJoinCallback func(userID, username, displayName, avatarURL, channelID string, isMuted, isDeafened bool)
+// It returns true when the join was refused (not authorized), so the hub can tell the connection that
+// asked — not every device of the user — to drop the room it believes it is in.
+type VoiceJoinCallback func(userID, username, displayName, avatarURL, channelID string, isMuted, isDeafened bool) (refused bool)
 
 // VoiceLeaveCallback — user wants to leave a voice channel.
 type VoiceLeaveCallback func(userID string)

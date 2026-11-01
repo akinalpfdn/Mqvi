@@ -14,6 +14,7 @@ import (
 	"github.com/akinalp/mqvi/pkg"
 
 	"github.com/livekit/protocol/auth"
+	"github.com/livekit/protocol/livekit"
 )
 
 func (s *voiceService) GenerateToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error) {
@@ -272,6 +273,18 @@ func (s *voiceService) GenerateScreenShareToken(ctx context.Context, userID, use
 		return nil, fmt.Errorf("%w: must be in the voice channel to screen share", pkg.ErrBadRequest)
 	}
 
+	// Same publish gate as the main voice token (canPublish = Speak). Stream is not checked: the
+	// everyone role does not carry it and the browser share path does not enforce it either.
+	perms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, channelID)
+	if err != nil {
+		s.logScreenShareRefusal(models.LogLevelError, userID, channelID, "permission_resolve_failed", map[string]string{"error": err.Error()})
+		return nil, fmt.Errorf("failed to resolve channel permissions: %w", err)
+	}
+	if !perms.Has(models.PermSpeak) {
+		s.logScreenShareRefusal(models.LogLevelWarn, userID, channelID, "no_speak_permission", nil)
+		return nil, fmt.Errorf("%w: missing speak permission for this channel", pkg.ErrForbidden)
+	}
+
 	// Follows the binding rather than claiming one. The sub-participant joins a room that already
 	// exists — the sharer is in it — so this is not a first join, and claiming here would pick an
 	// instance from a request that carries no region (the screen-share handler sets none), pinning
@@ -301,6 +314,9 @@ func (s *voiceService) GenerateScreenShareToken(ctx context.Context, userID, use
 		CanSubscribe:   &canSubscribe,
 		CanPublishData: &canPublishData,
 	}
+	// A screen-share identity publishes the screen and its audio, nothing else. Without this it could
+	// publish a microphone track — a second voice that skips Speak and server-mute on the main one.
+	grant.SetCanPublishSources(screenShareSources())
 
 	// Identity suffix "_ss" marks this as a screen share sub-participant
 	ssIdentity := userID + "_ss"
@@ -334,4 +350,10 @@ func (s *voiceService) GenerateScreenShareToken(ctx context.Context, userID, use
 		ChannelID:      channelID,
 		E2EEPassphrase: passphrase,
 	}, nil
+}
+
+// screenShareSources is everything the "_ss" sub-participant may publish. The desktop helper, iOS
+// broadcast extension and Android MediaProjection paths all publish only SCREEN_SHARE.
+func screenShareSources() []livekit.TrackSource {
+	return []livekit.TrackSource{livekit.TrackSource_SCREEN_SHARE, livekit.TrackSource_SCREEN_SHARE_AUDIO}
 }
