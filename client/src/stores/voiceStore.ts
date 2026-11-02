@@ -344,6 +344,12 @@ export const useVoiceStore = create<VoiceStore>((set, get, store) => ({
         return null;
       }
 
+      // Left or moved while the token was fetched (a force disconnect, a force move): writing it
+      // now would connect the room again behind the user's back. connect follows the token alone.
+      if (get().currentVoiceChannelId !== channelId) {
+        return null;
+      }
+
       // Hot-swap only connection credentials — keep all other state intact.
       // This avoids the connect=false→true transition that causes LiveKitRoom
       // to create multiple Room instances (the DUPLICATE_IDENTITY ping-pong).

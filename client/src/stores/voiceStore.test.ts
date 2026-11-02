@@ -174,6 +174,37 @@ describe("voiceStore", () => {
     });
   });
 
+  describe("refreshVoiceToken", () => {
+    // A force disconnect handled while the token request is in flight must not be undone by the
+    // response: the room connects whenever a token is present.
+    it("should not write a token for a channel the user left meanwhile", async () => {
+      type TokenAnswer = Awaited<ReturnType<typeof voiceApi.getVoiceToken>>;
+      let answer: (v: TokenAnswer) => void = () => {};
+      vi.mocked(voiceApi.getVoiceToken).mockReturnValueOnce(
+        new Promise<TokenAnswer>((resolve) => { answer = resolve; })
+      );
+      useVoiceStore.setState({ currentVoiceChannelId: "vc", currentVoiceServerId: "srv1", livekitToken: null });
+
+      const pending = useVoiceStore.getState().refreshVoiceToken("vc");
+      await Promise.resolve();
+      useVoiceStore.setState({ currentVoiceChannelId: null }); // force disconnect lands
+      answer({ success: true, data: { token: "t", url: "wss://lk", channel_id: "vc" } } as TokenAnswer);
+
+      expect(await pending).toBeNull();
+      expect(useVoiceStore.getState().livekitToken).toBeNull();
+    });
+
+    it("should write the token while the user is still in the channel", async () => {
+      vi.mocked(voiceApi.getVoiceToken).mockResolvedValueOnce(
+        { success: true, data: { token: "t", url: "wss://lk", channel_id: "vc" } } as Awaited<ReturnType<typeof voiceApi.getVoiceToken>>
+      );
+      useVoiceStore.setState({ currentVoiceChannelId: "vc", currentVoiceServerId: "srv1", livekitToken: null });
+
+      expect(await useVoiceStore.getState().refreshVoiceToken("vc")).not.toBeNull();
+      expect(useVoiceStore.getState().livekitToken).toBe("t");
+    });
+  });
+
   describe("handleVoiceStatesSync", () => {
     it("should group states by channel_id", () => {
       useVoiceStore.getState().handleVoiceStatesSync([

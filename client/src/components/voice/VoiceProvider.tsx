@@ -24,6 +24,8 @@ import type { AudioCaptureOptions, RoomOptions } from "livekit-client";
 
 setLogLevel(LogLevel.warn);
 import { useVoiceStore } from "../../stores/voiceStore";
+import { useAuthStore } from "../../stores/authStore";
+import { decideAfterVoiceDrop } from "../../stores/shared/voiceDropDecision";
 import { useToastStore } from "../../stores/toastStore";
 import { useTranslation } from "react-i18next";
 import { useNativeVoice, nativeVoiceConnect, onNativeVoiceActiveSpeakers, onNativeVoiceDisconnected } from "../../utils/nativePlugins";
@@ -118,7 +120,7 @@ function VoiceProvider({ children }: VoiceProviderProps) {
       // iOS native voice: JS SDK isn't used — ignore all JS disconnect events
       if (isNativeVoice) return;
 
-      const { currentVoiceChannelId, _wsSend, wasReplaced } = useVoiceStore.getState();
+      const { currentVoiceChannelId, currentVoiceServerId, _wsSend, wasReplaced } = useVoiceStore.getState();
 
       // Another session took over voice — don't auto-rejoin (prevents ping-pong loop)
       if (wasReplaced) {
@@ -146,18 +148,37 @@ function VoiceProvider({ children }: VoiceProviderProps) {
           rejoinAttemptsRef.current++;
           const channelToRejoin = currentVoiceChannelId;
 
-          // Hot-swap token — keeps connect=true the whole time.
-          // leaveVoiceChannel+joinVoiceChannel caused connect=false→true thrash
-          // which made LiveKitRoom create 2 Room instances, each triggering
-          // DUPLICATE_IDENTITY on the SFU and consuming rejoin attempts.
-          useVoiceStore.getState().refreshVoiceToken(channelToRejoin).then((tokenResp) => {
-            if (tokenResp && _wsSend) {
-              _wsSend("voice_join", { channel_id: channelToRejoin });
-            } else {
-              // Rejoin token fetch failed — we're dropping the user for real.
-              useToastStore.getState().addToast("error", t("youWereDisconnected"), 6000);
-              leaveVoiceChannel();
+          const removedBySFU =
+            reason === DisconnectReason.PARTICIPANT_REMOVED || reason === DisconnectReason.ROOM_DELETED;
+          const stillHere = () => useVoiceStore.getState().currentVoiceChannelId === channelToRejoin;
+
+          // A removal is not a network drop: ask the server before rejoining what we were removed from.
+          void decideAfterVoiceDrop({
+            serverId: currentVoiceServerId,
+            userId: useAuthStore.getState().user?.id ?? null,
+            channelId: channelToRejoin,
+            removedBySFU,
+          }).then((decision) => {
+            // The server's own signal (force disconnect / move) may have been handled meanwhile.
+            if (!stillHere() || decision === "stay") return;
+            if (decision === "drop") {
+              useVoiceStore.getState().handleForceDisconnect();
+              return;
             }
+            // Hot-swap token — keeps connect=true the whole time.
+            // leaveVoiceChannel+joinVoiceChannel caused connect=false→true thrash
+            // which made LiveKitRoom create 2 Room instances, each triggering
+            // DUPLICATE_IDENTITY on the SFU and consuming rejoin attempts.
+            return useVoiceStore.getState().refreshVoiceToken(channelToRejoin).then((tokenResp) => {
+              if (!stillHere()) return; // left or moved while the token was fetched
+              if (tokenResp && _wsSend) {
+                _wsSend("voice_join", { channel_id: channelToRejoin });
+              } else {
+                // Rejoin token fetch failed — we're dropping the user for real.
+                useToastStore.getState().addToast("error", t("youWereDisconnected"), 6000);
+                leaveVoiceChannel();
+              }
+            });
           });
           return;
         }
@@ -182,7 +203,7 @@ function VoiceProvider({ children }: VoiceProviderProps) {
     (error: string) => {
       // The room that reported them is gone; a rejoin reports afresh.
       useVoiceStore.getState().setActiveSpeakers([]);
-      const { currentVoiceChannelId, _wsSend, wasReplaced } = useVoiceStore.getState();
+      const { currentVoiceChannelId, currentVoiceServerId, _wsSend, wasReplaced } = useVoiceStore.getState();
 
       if (wasReplaced) {
         useVoiceStore.setState({ wasReplaced: false });
@@ -195,11 +216,24 @@ function VoiceProvider({ children }: VoiceProviderProps) {
       if (rejoinAttemptsRef.current < MAX_REJOIN_ATTEMPTS) {
         rejoinAttemptsRef.current++;
         const channelToRejoin = currentVoiceChannelId;
+        const stillHere = () => useVoiceStore.getState().currentVoiceChannelId === channelToRejoin;
 
-        useVoiceStore
-          .getState()
-          .refreshVoiceToken(channelToRejoin)
-          .then(async (tokenResp) => {
+        // The native SDK does not say why it dropped, so always ask the server: a removal must not
+        // be rejoined (see decideAfterVoiceDrop).
+        decideAfterVoiceDrop({
+          serverId: currentVoiceServerId,
+          userId: useAuthStore.getState().user?.id ?? null,
+          channelId: channelToRejoin,
+          removedBySFU: true,
+        })
+          .then(async (decision) => {
+            if (!stillHere() || decision === "stay") return true;
+            if (decision === "drop") {
+              useVoiceStore.getState().handleForceDisconnect();
+              return true;
+            }
+            const tokenResp = await useVoiceStore.getState().refreshVoiceToken(channelToRejoin);
+            if (!stillHere()) return true; // left or moved while the token was fetched
             if (!tokenResp || !_wsSend) return false;
             const { isMuted, isDeafened } = useVoiceStore.getState();
             const connected = await nativeVoiceConnect(tokenResp.url, tokenResp.token, isMuted, isDeafened);
