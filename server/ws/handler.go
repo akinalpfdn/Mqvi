@@ -2,6 +2,7 @@ package ws
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/pkg/ratelimit"
 )
 
@@ -267,6 +269,15 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	// A device signed out from the devices screen keeps an unexpired access token for up to its
 	// TTL; without this it could reconnect with it.
 	if err := h.tokenValidator.ValidateSession(r.Context(), claims); err != nil {
+		// A session check that failed is not a revoked session: say so, and do not log it as one.
+		if !errors.Is(err, pkg.ErrUnauthorized) {
+			log.Printf("[ws] session check failed for %s: %v", claims.UserID, err)
+			h.hub.logEvent(models.LogLevelError, models.LogCategoryWS, &claims.UserID, "WS connect: session check failed", map[string]string{
+				"error": err.Error(),
+			})
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 		h.hub.logEvent(models.LogLevelWarn, models.LogCategoryAuth, &claims.UserID, "WS connect blocked: session revoked", nil)
 		http.Error(w, "session revoked", http.StatusUnauthorized)
 		return
@@ -282,7 +293,11 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 			h.hub.logEvent(models.LogLevelError, models.LogCategoryWS, &claims.UserID, "WS connect: user lookup failed", map[string]string{
 				"error": err.Error(),
 			})
-			http.Error(w, "user not found", http.StatusUnauthorized)
+			if errors.Is(err, pkg.ErrNotFound) {
+				http.Error(w, "user not found", http.StatusUnauthorized)
+			} else {
+				http.Error(w, "internal error", http.StatusInternalServerError)
+			}
 			return
 		}
 		if user.IsPlatformBanned {

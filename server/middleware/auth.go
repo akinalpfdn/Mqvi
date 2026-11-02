@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -66,7 +68,12 @@ func (m *AuthMiddleware) authenticate(r *http.Request) (*models.User, *models.To
 
 	user, err := m.userRepo.GetActiveByID(r.Context(), claims.UserID)
 	if err != nil {
-		return nil, nil, &authFailure{status: http.StatusUnauthorized, message: "user not found"}
+		// Only a missing account is an answer. A failed lookup answered 401 would sign every user
+		// out at once over a database hiccup, and leave no trace of why.
+		if errors.Is(err, pkg.ErrNotFound) {
+			return nil, nil, &authFailure{status: http.StatusUnauthorized, message: "user not found"}
+		}
+		return nil, nil, &authFailure{err: fmt.Errorf("failed to load the signed-in user: %w", err)}
 	}
 
 	if user.IsPlatformBanned {

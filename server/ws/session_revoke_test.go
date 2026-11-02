@@ -3,12 +3,13 @@ package ws
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg"
 )
 
 func revocableClient(h *Hub, userID, authSessionID string) *Client {
@@ -138,8 +139,9 @@ func TestHub_ShouldSpareEverySessionItIsToldToKeep(t *testing.T) {
 
 type revokedSessionValidator struct{ stubTokenValidator }
 
+// As the real ValidateSession answers a signed-out session: a wrapped ErrUnauthorized.
 func (revokedSessionValidator) ValidateSession(context.Context, *models.TokenClaims) error {
-	return errors.New("session revoked")
+	return fmt.Errorf("%w: session revoked", pkg.ErrUnauthorized)
 }
 
 // A signed-out device holds an unexpired access token; it must not be able to open a socket.

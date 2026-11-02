@@ -30,6 +30,8 @@ import { useToastStore } from "../../stores/toastStore";
 import { useTranslation } from "react-i18next";
 import { useNativeVoice, nativeVoiceConnect, onNativeVoiceActiveSpeakers, onNativeVoiceDisconnected } from "../../utils/nativePlugins";
 import { sharpShareEncoding } from "../../utils/publishEngine";
+import { VOICE_CONNECT_FAILURE, watchVoiceConnect, type VoiceConnectWatch } from "../../utils/voiceConnectWatch";
+import { errorReporting } from "../../errorReporting";
 import VoiceStateManager from "./VoiceStateManager";
 import NativeVoiceStateSync from "./NativeVoiceStateSync";
 
@@ -86,6 +88,32 @@ function VoiceProvider({ children }: VoiceProviderProps) {
     }
   }, [e2eePassphrase, keyProvider, tE2ee]);
 
+  // A join that never reaches the voice server is reported (see watchVoiceConnect). One watch per
+  // token: a join, or a rejoin's hot-swapped token, is one attempt.
+  const roomConnectedRef = useRef(false);
+  const connectWatchRef = useRef<VoiceConnectWatch | null>(null);
+  // Read at report time: keying the watch on them would restart one that already saw Connected.
+  const reportContextRef = useRef({ serverUrl: livekitUrl, e2ee: !!e2eePassphrase });
+  reportContextRef.current = { serverUrl: livekitUrl, e2ee: !!e2eePassphrase };
+  useEffect(() => {
+    if (!isConnected || !livekitToken) return;
+    const watch = watchVoiceConnect({
+      isRoomConnected: () => roomConnectedRef.current,
+      report: (detail) => errorReporting.reportFailure(VOICE_CONNECT_FAILURE, detail),
+      context: () => ({ ...reportContextRef.current, online: navigator.onLine }),
+    });
+    connectWatchRef.current = watch;
+    return () => {
+      watch.cancel();
+      if (connectWatchRef.current === watch) connectWatchRef.current = null;
+    };
+  }, [isConnected, livekitToken]);
+
+  const handleConnected = useCallback(() => {
+    roomConnectedRef.current = true;
+    connectWatchRef.current?.connected();
+  }, []);
+
   // Track rejoin attempts to prevent infinite loops
   const rejoinAttemptsRef = useRef(0);
   const MAX_REJOIN_ATTEMPTS = 2;
@@ -117,6 +145,7 @@ function VoiceProvider({ children }: VoiceProviderProps) {
    */
   const handleDisconnected = useCallback(
     (reason?: DisconnectReason) => {
+      roomConnectedRef.current = false;
       // iOS native voice: JS SDK isn't used — ignore all JS disconnect events
       if (isNativeVoice) return;
 
@@ -277,6 +306,7 @@ function VoiceProvider({ children }: VoiceProviderProps) {
   const handleError = useCallback(
     (err: Error) => {
       console.error("[VoiceProvider] LiveKit error:", err);
+      connectWatchRef.current?.failed(err);
 
       // Connection errors are transient failed (re)connect attempts — the SDK's
       // reconnection and handleDisconnected's auto-rejoin recover them. Toasting
@@ -376,6 +406,7 @@ function VoiceProvider({ children }: VoiceProviderProps) {
       options={roomOptions}
       // Subscriptions are managed explicitly in VoiceStateManager.
       connectOptions={{ autoSubscribe: false }}
+      onConnected={handleConnected}
       onDisconnected={handleDisconnected}
       onError={handleError}
       onEncryptionError={handleEncryptionError}

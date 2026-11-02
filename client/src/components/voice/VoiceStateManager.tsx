@@ -29,6 +29,7 @@ import { GtcrnUnsupportedSampleRateError } from "../../audio/gtcrnSampleRate";
 import { VadGateProcessor } from "../../audio/VadGateProcessor";
 import { useSystemAudioCapture } from "../../hooks/useSystemAudioCapture";
 import { startShareAudioRun } from "../../utils/shareAudioRun";
+import { outputDeviceAvailable } from "../../utils/outputDevice";
 import { isElectron, isCapacitor, resolveUserId } from "../../utils/constants";
 import { startNativeScreenShare, stopNativeScreenShare, onNativeScreenShareStopped } from "../../utils/nativePlugins";
 import * as voiceApi from "../../api/voice";
@@ -471,12 +472,26 @@ function VoiceStateManager() {
   }, [room, localParticipant]);
 
   // Apply output device (sinkId) to all LiveKit audio elements.
-  // Runs on every outputDevice change and on (re)connect — switchActiveDevice
-  // stores the preference on the Room so new tracks also honor it.
+  // Runs on every outputDevice change, on (re)connect and when devices come and go — switchActiveDevice
+  // stores the preference on the Room so new tracks also honor it. A saved device that is unplugged
+  // is not applied (see outputDeviceAvailable): LiveKit keeps the default output, the user is told
+  // once, and the saved choice comes back when the device does.
   useEffect(() => {
     if (!outputDevice) return;
+    let cancelled = false;
+    let toldMissing = false;
 
     async function applyOutputDevice() {
+      const available = await outputDeviceAvailable(outputDevice).catch(() => null);
+      if (cancelled) return;
+      if (available === false) {
+        if (!toldMissing) {
+          toldMissing = true;
+          useToastStore.getState().addToast("warning", i18n.t("voice:outputDeviceMissing"), 8_000);
+        }
+        return;
+      }
+      toldMissing = false;
       try {
         await room.switchActiveDevice("audiooutput", outputDevice);
       } catch (err) {
@@ -484,19 +499,20 @@ function VoiceStateManager() {
       }
     }
 
-    if (room.state === ConnectionState.Connected) {
-      applyOutputDevice();
+    function applyWhenConnected() {
+      if (room.state === ConnectionState.Connected) void applyOutputDevice();
     }
 
-    function handleConnected() {
-      applyOutputDevice();
-    }
-    room.on(RoomEvent.Connected, handleConnected);
-    room.on(RoomEvent.Reconnected, handleConnected);
+    applyWhenConnected();
+    room.on(RoomEvent.Connected, applyWhenConnected);
+    room.on(RoomEvent.Reconnected, applyWhenConnected);
+    navigator.mediaDevices?.addEventListener("devicechange", applyWhenConnected);
 
     return () => {
-      room.off(RoomEvent.Connected, handleConnected);
-      room.off(RoomEvent.Reconnected, handleConnected);
+      cancelled = true;
+      room.off(RoomEvent.Connected, applyWhenConnected);
+      room.off(RoomEvent.Reconnected, applyWhenConnected);
+      navigator.mediaDevices?.removeEventListener("devicechange", applyWhenConnected);
     };
   }, [room, outputDevice]);
 

@@ -318,10 +318,13 @@ func (s *p2pCallService) InitiateCall(callerID, sessionID, instanceID, deviceID,
 	// connect, but a crafted/in-flight WS call from a now-soft-deleted caller
 	// or to a deleted receiver shouldn't create call state, mark anyone busy,
 	// or emit a no-op broadcast to a deleted recipient.
-	if _, err := s.userGetter.GetActiveByID(ctx, callerID); err != nil {
-		return fmt.Errorf("%w: caller not available", pkg.ErrForbidden)
-	}
 	// A lookup that failed is not an answer: the caller is told "failed", never a reason that is not true.
+	if _, err := s.userGetter.GetActiveByID(ctx, callerID); err != nil {
+		if errors.Is(err, pkg.ErrNotFound) {
+			return fmt.Errorf("%w: caller not available", pkg.ErrForbidden)
+		}
+		return fmt.Errorf("look up caller %s: %w", callerID, err)
+	}
 	if _, err := s.userGetter.GetActiveByID(ctx, receiverID); err != nil {
 		if errors.Is(err, pkg.ErrNotFound) {
 			return errCallUnavailable
