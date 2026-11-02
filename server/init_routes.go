@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -133,7 +135,12 @@ func initRoutes(
 		// ACL check: verify user still has permission to access this file.
 		user, _ := r.Context().Value(ctxkeys.User).(*models.User)
 		if err := fileACL.Check(r.Context(), user, path); err != nil {
-			http.Error(w, "access denied", http.StatusForbidden)
+			if errors.Is(err, fileacl.ErrAccessDenied) {
+				http.Error(w, "access denied", http.StatusForbidden)
+				return
+			}
+			log.Printf("[files] refresh access check failed: %v", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		signed := fileSigner.Sign(path, time.Hour)

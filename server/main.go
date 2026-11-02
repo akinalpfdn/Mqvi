@@ -732,9 +732,11 @@ func checkFileToken(
 	if err != nil {
 		return nil, err
 	}
-	// fileacl answers every failure, its own lookups included, as ErrAccessDenied.
-	if fileACL.Check(r.Context(), user, signedPath) != nil {
-		return nil, errFileAuthRejected
+	if err := fileACL.Check(r.Context(), user, signedPath); err != nil {
+		if errors.Is(err, fileacl.ErrAccessDenied) {
+			return nil, errFileAuthRejected
+		}
+		return nil, fmt.Errorf("checking file access: %w", err)
 	}
 	return user, nil
 }

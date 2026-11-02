@@ -221,3 +221,30 @@ func TestCheckFileToken_ShouldReportAFailedLookupAsAnErrorNotARejection(t *testi
 		t.Fatalf("a deleted account answered as %v, want a rejection", err)
 	}
 }
+
+// The file ACL failing its own lookup is not a denial either.
+func TestCheckFileToken_ShouldReportAFailedAccessCheckAsAnErrorNotARejection(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/api/files/soundboards/s1/boom.mp3", nil)
+	claims := &models.TokenClaims{UserID: "u1", TokenVersion: 1}
+	userRepo := &testutil.MockUserRepo{
+		GetActiveByIDFn: func(context.Context, string) (*models.User, error) {
+			return &models.User{ID: "u1", TokenVersion: 1}, nil
+		},
+	}
+	acl := fileacl.NewChecker(nil, membershipLookup{err: errors.New("database is locked")}, nil, nil, nil, nil, nil)
+
+	if _, err := checkFileToken(r, "file-token", "/api/files/soundboards/s1/boom.mp3", fileTokenAuthStub{claims: claims}, userRepo, acl); err == nil || errors.Is(err, errFileAuthRejected) {
+		t.Fatalf("failed access check answered as %v, want an internal error", err)
+	}
+
+	notMember := fileacl.NewChecker(nil, membershipLookup{}, nil, nil, nil, nil, nil)
+	if _, err := checkFileToken(r, "file-token", "/api/files/soundboards/s1/boom.mp3", fileTokenAuthStub{claims: claims}, userRepo, notMember); !errors.Is(err, errFileAuthRejected) {
+		t.Fatalf("a non-member answered as %v, want a rejection", err)
+	}
+}
+
+type membershipLookup struct{ err error }
+
+func (m membershipLookup) IsMember(context.Context, string, string) (bool, error) {
+	return false, m.err
+}
