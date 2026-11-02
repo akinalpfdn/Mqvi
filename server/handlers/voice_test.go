@@ -21,8 +21,9 @@ import (
 // testing the VoiceStates handler in isolation. VisibleVoiceStates scopes to the
 // asked servers and records who asked; the token methods are unused in this test.
 type stubVoiceService struct {
-	all      []models.VoiceState
-	askedFor string
+	all        []models.VoiceState
+	askedFor   string
+	micReports []models.MicHealthReport
 }
 
 func (s *stubVoiceService) GenerateToken(_ context.Context, _, _, _, _ string) (*models.VoiceTokenResponse, error) {
@@ -31,9 +32,9 @@ func (s *stubVoiceService) GenerateToken(_ context.Context, _, _, _, _ string) (
 func (s *stubVoiceService) GenerateScreenShareToken(_ context.Context, _, _, _, _ string) (*models.VoiceTokenResponse, error) {
 	return nil, nil
 }
-func (s *stubVoiceService) RecordScreenShareFallback(_, _, _, _, _ string) {}
+func (s *stubVoiceService) RecordScreenShareFallback(_, _, _, _, _ string)      {}
 func (s *stubVoiceService) RecordScreenShareStop(_, _, _, _, _ string, _ int64) {}
-func (s *stubVoiceService) RecordNoiseReductionFailure(_, _, _, _, _ string) {}
+func (s *stubVoiceService) RecordNoiseReductionFailure(_, _, _, _, _ string)    {}
 func (s *stubVoiceService) VisibleVoiceStates(_ context.Context, userID string, serverIDs []string) ([]models.VoiceState, map[string]int64) {
 	s.askedFor = userID
 	var out []models.VoiceState
@@ -47,6 +48,10 @@ func (s *stubVoiceService) VisibleVoiceStates(_ context.Context, userID string, 
 	return out, nil
 }
 
+func (s *stubVoiceService) RecordMicHealth(_ string, r models.MicHealthReport) {
+	s.micReports = append(s.micReports, r)
+}
+
 func voiceStatesRequest(serverID string) *http.Request {
 	req := httptest.NewRequest(http.MethodGet, "/api/servers/"+serverID+"/voice/states", nil)
 	req.SetPathValue("serverId", serverID)
@@ -57,8 +62,8 @@ func voiceStatesRequest(serverID string) *http.Request {
 // tests assert on the path, not on signature artifacts.
 type passthroughSigner struct{}
 
-func (passthroughSigner) SignURL(s string) string         { return s }
-func (passthroughSigner) SignURLPtr(p *string) *string    { return p }
+func (passthroughSigner) SignURL(s string) string      { return s }
+func (passthroughSigner) SignURLPtr(p *string) *string { return p }
 
 func TestVoiceStates_FiltersByServerID(t *testing.T) {
 	all := []models.VoiceState{
@@ -77,8 +82,8 @@ func TestVoiceStates_FiltersByServerID(t *testing.T) {
 		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
 	}
 	var env struct {
-		Success bool                 `json:"success"`
-		Data    []models.VoiceState  `json:"data"`
+		Success bool                `json:"success"`
+		Data    []models.VoiceState `json:"data"`
 	}
 	if err := json.NewDecoder(rr.Body).Decode(&env); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -144,8 +149,8 @@ func TestVoiceStates_EmptyServerReturnsEmpty(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 	var env struct {
-		Success bool                 `json:"success"`
-		Data    []models.VoiceState  `json:"data"`
+		Success bool                `json:"success"`
+		Data    []models.VoiceState `json:"data"`
 	}
 	if err := json.NewDecoder(rr.Body).Decode(&env); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -190,8 +195,8 @@ func TestVoiceStates_SignsAvatarOnEgress(t *testing.T) {
 		t.Fatalf("expected SignURL called once with raw avatar path, got %v", signer.signed)
 	}
 	var env struct {
-		Success bool                 `json:"success"`
-		Data    []models.VoiceState  `json:"data"`
+		Success bool                `json:"success"`
+		Data    []models.VoiceState `json:"data"`
 	}
 	if err := json.NewDecoder(rr.Body).Decode(&env); err != nil {
 		t.Fatalf("decode response: %v", err)

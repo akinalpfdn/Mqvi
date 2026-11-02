@@ -19,6 +19,9 @@ const (
 	// LogCategoryNoiseReduction covers the mic denoiser failing to attach — invisible otherwise,
 	// because the user just sounds noisy and nothing on the server ever hears about it.
 	LogCategoryNoiseReduction LogCategory = "noise_reduction"
+	// LogCategoryMic covers a microphone that should be sending and is not — reported by the client,
+	// because a dead mic is silent on every server-side signal.
+	LogCategoryMic         LogCategory = "mic"
 	LogCategoryWS          LogCategory = "ws"
 	LogCategoryAuth        LogCategory = "auth"
 	LogCategoryGeneral     LogCategory = "general"

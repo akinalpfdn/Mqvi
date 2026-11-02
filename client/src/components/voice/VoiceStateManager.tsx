@@ -28,6 +28,8 @@ import { GtcrnProcessor } from "../../audio/GtcrnProcessor";
 import { GtcrnUnsupportedSampleRateError } from "../../audio/gtcrnSampleRate";
 import { VadGateProcessor } from "../../audio/VadGateProcessor";
 import { useSystemAudioCapture } from "../../hooks/useSystemAudioCapture";
+import { useMicHealthReport } from "../../hooks/useMicHealthReport";
+import type { MicTrailEvent } from "../../audio/micHealth";
 import { startShareAudioRun } from "../../utils/shareAudioRun";
 import { outputDeviceAvailable } from "../../utils/outputDevice";
 import { isElectron, isCapacitor, resolveUserId } from "../../utils/constants";
@@ -110,9 +112,13 @@ function VoiceStateManager() {
   // Skip effects until initial connection sync is done
   const initialSyncDone = useRef(false);
 
+  // Mic-health trail entries only this component sees (push-to-talk presses); set once the hook below runs.
+  const noteMicRef = useRef<(e: MicTrailEvent) => void>(() => {});
+
   // PTT: bypass store, toggle mic directly on LiveKit participant
   const setMicEnabled = useCallback(
     (enabled: boolean) => {
+      noteMicRef.current(enabled ? "ptt_down" : "ptt_up");
       localParticipant.setMicrophoneEnabled(enabled).catch((err: unknown) => {
         console.error("[VoiceStateManager] PTT mic toggle failed:", err);
       });
@@ -842,6 +848,9 @@ function VoiceStateManager() {
     if (processorRef.current instanceof GtcrnProcessor) return "gtcrn";
     return "vadgate";
   }
+
+  // Reports a mic that should be sending and is not, with its cause (audio/micHealth).
+  noteMicRef.current = useMicHealthReport(room, () => processorRef.current, getCurrentProcessorType);
 
   // Switch processor when noiseReduction or micSensitivity changes
   useEffect(() => {

@@ -88,6 +88,15 @@ no pending join and no ConnectVoice (fresh resolve) holds an old token after bei
 voice, and is removed by exact identity. Anyone who may connect is kept — after a restart that is
 every user until their websocket re-asserts. A permission that cannot be read keeps them.
 
+**Mic health** (`client/src/audio/micHealth.ts`, `hooks/useMicHealthReport.ts`): a mic that should
+be sending and is not is invisible to the server, so the client reports it to the `mic` log category.
+A fault must hold 8 s (room connected, user not muted) before an episode opens; then one `dead` row
+and one closing row (`recovered` / `left_voice`), each with the cause code and a trail of the last
+mic, connection and machine events (screen lock and sleep come from Electron's powerMonitor). With a
+processor attached it watches the raw capture track — LiveKit's `mediaStreamTrack` is the processor
+output, and the OS mutes and ends the raw one. Push to talk is judged on capture faults only. The iOS
+app's voice is native and not covered.
+
 **AFK sweep**: three-phase, skips users who are streaming, groups DB lookups per channel, kicks via
 `DisconnectUser` → `LeaveChannel`.
 

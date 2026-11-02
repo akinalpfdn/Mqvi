@@ -322,6 +322,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getSystemIdleTime: (): Promise<number> =>
     ipcRenderer.invoke("get-system-idle-time"),
 
+  /** Screen lock / sleep notifications for the mic-health trail. Returns an unsubscribe. */
+  onPowerEvent: (cb: (event: string) => void): (() => void) => {
+    const handler = (_e: unknown, event: string) => cb(event);
+    ipcRenderer.on("power-event", handler);
+    return () => {
+      ipcRenderer.removeListener("power-event", handler);
+    };
+  },
+
   // ─── Event listeners (main → renderer) ───
 
   /** Update available */

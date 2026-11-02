@@ -426,6 +426,7 @@ func initRoutes(
 	mux.Handle("POST /api/servers/{serverId}/voice/screen-share-fallback", authServer(h.Voice.ScreenShareFallback))
 	mux.Handle("POST /api/servers/{serverId}/voice/screen-share-stopped", authServer(h.Voice.ScreenShareStop))
 	mux.Handle("POST /api/servers/{serverId}/voice/noise-reduction-failure", authServer(h.Voice.NoiseReductionFailure))
+	mux.Handle("POST /api/servers/{serverId}/voice/mic-health", authServer(h.Voice.MicHealth))
 	mux.Handle("GET /api/servers/{serverId}/voice/states", authServer(h.Voice.VoiceStates))
 
 	// Voice channel ephemeral chat — membership check (must be in voice) lives in the service

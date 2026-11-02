@@ -100,6 +100,7 @@ type RateLimiters struct {
 	// Its own bucket: this report follows no minted credential and a processor swap is cheap to
 	// trigger, so it must not be able to spend the screen-share budget.
 	NoiseReduction *ratelimit.MessageRateLimiter
+	MicHealth      *ratelimit.MessageRateLimiter
 	// Mark-read gets its own buckets, and DM and channel get one EACH. Not the message limiter:
 	// marking a conversation read must not spend the budget needed to send a message. And not one
 	// shared read bucket either — MessageRateLimiter keys on the user, so a busy channel would
@@ -335,6 +336,9 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	// and an attach only happens on a mode change or a track publish. Ten a minute is already far
 	// more than any honest client produces.
 	noiseReductionLimiter := ratelimit.NewMessageRateLimiter(10, 1*time.Minute, 30*time.Second)
+	// Two rows per mic episode at most, and an episode needs eight seconds of a dead mic to open.
+	// Six a minute is far above that; it only stops a loop.
+	micHealthLimiter := ratelimit.NewMessageRateLimiter(6, 1*time.Minute, 30*time.Second)
 	// One report per share that ends without the stop button. A user retrying a broken share every
 	// few seconds stays well inside this; a loop does not.
 	screenShareStopLimiter := ratelimit.NewMessageRateLimiter(20, 1*time.Minute, 30*time.Second)
@@ -416,6 +420,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		ScreenShare:     screenShareLimiter,
 		ScreenShareStop: screenShareStopLimiter,
 		NoiseReduction:  noiseReductionLimiter,
+		MicHealth:       micHealthLimiter,
 		DMRead:          dmReadLimiter,
 		ChannelRead:     channelReadLimiter,
 		DMDelivery:      dmDeliveryLimiter,

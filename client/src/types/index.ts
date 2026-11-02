@@ -746,6 +746,7 @@ export type AppLogCategory =
   | "video"
   | "screen_share"
   | "noise_reduction"
+  | "mic"
   | "ws"
   | "auth"
   | "general"

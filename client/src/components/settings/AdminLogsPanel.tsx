@@ -27,6 +27,7 @@ const CATEGORY_OPTIONS: { value: string; labelKey: string }[] = [
   { value: "video", labelKey: "platformLogsCategoryVideo" },
   { value: "screen_share", labelKey: "platformLogsCategoryScreenShare" },
   { value: "noise_reduction", labelKey: "platformLogsCategoryNoiseReduction" },
+  { value: "mic", labelKey: "platformLogsCategoryMic" },
   { value: "ws", labelKey: "platformLogsCategoryWs" },
   { value: "auth", labelKey: "platformLogsCategoryAuth" },
   { value: "general", labelKey: "platformLogsCategoryGeneral" },

@@ -10,6 +10,7 @@
 //	voice_e2ee.go        — per-room SFrame passphrase helpers
 //	voice_egress.go      — who is told about a voice change, in order (per-server queue)
 //	voice_visibility.go  — voice state filtered to what a member may see
+//	voice_mic_health.go  — client reports of a microphone that stopped sending
 //
 // All files share the single `voiceService` struct and its single `sync.RWMutex`,
 // so the concerns can cross-read each other's state without lock-ordering risk.
@@ -76,6 +77,8 @@ type VoiceService interface {
 	// RecordNoiseReductionFailure logs a mic denoiser that would not attach on a client. Also
 	// fire-and-forget: the call is unaffected, the user is just unfiltered.
 	RecordNoiseReductionFailure(userID, channelID, engine, reason, detail string)
+	// RecordMicHealth logs a client's report that its microphone died or came back. Fire-and-forget.
+	RecordMicHealth(userID string, report models.MicHealthReport)
 	JoinChannel(userID, username, displayName, avatarURL, channelID string, isMuted, isDeafened bool) error
 	LeaveChannel(userID string) error
 	// DisconnectUserFromServer and DisconnectUserFromChannel remove the user from voice only while
