@@ -459,6 +459,21 @@ func (s *voiceService) sweepAFKUsers() {
 // share still counts as present. LiveKit is the source of truth for room membership.
 // MUST NOT be called under s.mu (does DB lookups + network I/O).
 func (s *voiceService) listLiveKitParticipants(ctx context.Context, serverID, channelID string) (map[string]bool, error) {
+	identities, err := s.listRoomIdentities(ctx, serverID, channelID)
+	if err != nil {
+		return nil, err
+	}
+	present := make(map[string]bool, len(identities))
+	for _, identity := range identities {
+		userID, _ := SplitParticipantIdentity(identity)
+		present[userID] = true
+	}
+	return present, nil
+}
+
+// listRoomIdentities returns the identities connected to the channel's room as LiveKit reports
+// them, screen-share suffix included. MUST NOT be called under s.mu (DB lookups + network I/O).
+func (s *voiceService) listRoomIdentities(ctx context.Context, serverID, channelID string) ([]string, error) {
 	roomClient, err := s.newLiveKitRoomClient(ctx, channelID, "")
 	if errors.Is(err, errChannelNotBound) {
 		// No binding means no room, so nobody is in it. Say that rather than erroring: the caller
@@ -466,7 +481,7 @@ func (s *voiceService) listLiveKitParticipants(ctx context.Context, serverID, ch
 		// and the channel timer runs forever. Before per-channel binding this path always resolved
 		// and LiveKit answered for an absent room, which is the behaviour being restored here.
 		// A genuinely mid-move user is covered by livekitAbsentGrace, not by pretending to see them.
-		return map[string]bool{}, nil
+		return nil, nil
 	}
 	if err != nil {
 		return nil, err
@@ -480,16 +495,16 @@ func (s *voiceService) listLiveKitParticipants(ctx context.Context, serverID, ch
 		// CONFIRMED-empty signal (the exact phantom case), not a transient
 		// failure — return an empty set so its stale states get reaped.
 		if strings.Contains(err.Error(), "not_found") || strings.Contains(err.Error(), "not found") {
-			return map[string]bool{}, nil
+			return nil, nil
 		}
 		return nil, fmt.Errorf("list participants room=%s: %w", roomName, err)
 	}
 
-	present := make(map[string]bool, len(resp.Participants))
+	identities := make([]string, 0, len(resp.Participants))
 	for _, p := range resp.Participants {
-		present[strings.TrimSuffix(p.Identity, "_ss")] = true
+		identities = append(identities, p.Identity)
 	}
-	return present, nil
+	return identities, nil
 }
 
 // StartLiveKitReconciliation periodically reconciles in-memory voice state against
@@ -551,12 +566,25 @@ func (s *voiceService) sweepLiveKitReconciliation() {
 	}
 	var absent []absentUser
 	present := make(map[string]bool) // users confirmed in LiveKit (successfully queried channels)
+	var unknown []roomParticipant    // in the room with no voice state in this channel at snapshot time
 
 	for channelID, ci := range channels {
-		inRoom, err := s.listLiveKitParticipants(ctx, ci.serverID, channelID)
+		identities, err := s.listRoomIdentities(ctx, ci.serverID, channelID)
 		if err != nil {
 			log.Printf("[voice] livekit reconcile: list participants failed channel=%s: %v", channelID, err)
 			continue // skip channel entirely — no tracker changes on transient failure
+		}
+		inChannel := make(map[string]bool, len(ci.userIDs))
+		for _, userID := range ci.userIDs {
+			inChannel[userID] = true
+		}
+		inRoom := make(map[string]bool, len(identities))
+		for _, identity := range identities {
+			userID, _ := SplitParticipantIdentity(identity)
+			inRoom[userID] = true
+			if !inChannel[userID] {
+				unknown = append(unknown, roomParticipant{channelID: channelID, serverID: ci.serverID, identity: identity, userID: userID})
+			}
 		}
 		for _, userID := range ci.userIDs {
 			if inRoom[userID] {
@@ -613,4 +641,60 @@ func (s *voiceService) sweepLiveKitReconciliation() {
 	}
 
 	s.mu.Unlock()
+
+	// Phase 4: the other direction — in the room, but not in voice here.
+	s.removeUnentitledParticipants(unknown)
+}
+
+// roomParticipant is one identity in a channel's LiveKit room.
+type roomParticipant struct {
+	channelID string
+	serverID  string
+	identity  string // as LiveKit has it: the user's id, or "{id}_ss" for their screen share
+	userID    string
+}
+
+// removeUnentitledParticipants removes participants who hold an old token and nothing else. A user
+// taken out of voice (kick, ban, leaving the server, a revoked ConnectVoice) keeps the 24-hour token
+// they joined with, and LiveKit accepts it: without this they could reconnect to the room directly
+// and keep listening and speaking with no voice state the server can see.
+//
+// Only someone who may not connect is removed. Everyone else is left alone, because a participant
+// without a voice state is also every legitimate user after a server restart — states live in
+// memory and clients re-assert them only when their websocket returns, which on a backgrounded iOS
+// app can be hours. Such a user could rejoin anyway, so their presence opens nothing.
+func (s *voiceService) removeUnentitledParticipants(participants []roomParticipant) {
+	for _, p := range participants {
+		if s.mayBeInRoom(p.userID, p.channelID) {
+			continue
+		}
+		log.Printf("[voice] livekit reconcile: removing %s from channel %s (no voice state, no connect permission)", p.identity, p.channelID)
+		s.logWarn(models.LogCategoryVoice, &p.userID, "livekit reconcile: participant without voice state or permission removed", map[string]string{
+			"channel_id": p.channelID,
+			"identity":   p.identity,
+		})
+		s.removeParticipantFromLiveKit(p.serverID, p.channelID, p.identity, "")
+	}
+}
+
+// mayBeInRoom is the token rule (GenerateToken) re-asked now: in voice here, mid-join with a token
+// issued for here, or allowed to connect. A permission that cannot be resolved keeps them — in
+// doubt, never remove.
+func (s *voiceService) mayBeInRoom(userID, channelID string) bool {
+	s.mu.RLock()
+	st, inVoice := s.states[userID]
+	held := (inVoice && st.ChannelID == channelID) || s.hasPendingJoinForLocked(channelID, userID)
+	s.mu.RUnlock()
+	if held {
+		return true
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	perms, err := s.permResolver.ResolveChannelPermissionsFresh(ctx, userID, channelID)
+	if err != nil {
+		log.Printf("[voice] livekit reconcile: permission resolve user=%s channel=%s: %v (keeping)", userID, channelID, err)
+		return true
+	}
+	return perms.Has(models.PermConnectVoice)
 }

@@ -83,6 +83,10 @@ occupied channel. Skips a channel entirely on query error — a transient failur
 "nobody is there". Screen-share identities (`{userID}_ss`) are normalised with `TrimSuffix` so a
 user publishing a share still counts as present. `"room not found"` from LiveKit is treated as a
 **confirmed empty room**, not an error, because that is the SFU closing a room nobody is in.
+It also checks the other direction: a participant in the room with no voice state in that channel,
+no pending join and no ConnectVoice (fresh resolve) holds an old token after being taken out of
+voice, and is removed by exact identity. Anyone who may connect is kept — after a restart that is
+every user until their websocket re-asserts. A permission that cannot be read keeps them.
 
 **AFK sweep**: three-phase, skips users who are streaming, groups DB lookups per channel, kicks via
 `DisconnectUser` → `LeaveChannel`.
