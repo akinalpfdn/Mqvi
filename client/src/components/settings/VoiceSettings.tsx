@@ -146,7 +146,8 @@ function VoiceSettings() {
         noiseSuppression: true,
         autoGainControl: true,
         echoCancellation: true,
-        ...(inputDevice ? { deviceId: { exact: inputDevice } } : {}),
+        // Not exact, like the call: a saved mic that is not plugged in tests the default instead of failing.
+        ...(inputDevice ? { deviceId: inputDevice } : {}),
       };
       const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
       const ctx = new AudioContext();
