@@ -16,6 +16,8 @@ vi.mock("../api/dm", () => ({
   getDMSettings: vi.fn(async () => ({ success: false })),
   hideDM: vi.fn(), pinDMConversation: vi.fn(), unpinDMConversation: vi.fn(),
   muteDM: vi.fn(), unmuteDM: vi.fn(),
+  // fetchChannels reports delivery too (dmDelivery.test.ts covers it); without this every fetch here threw.
+  markDMsDeliveredLatest: vi.fn(async () => ({ success: true })),
 }));
 vi.mock("../i18n", () => ({ default: { t: (k: string) => k } }));
 vi.mock("./toastStore", () => ({ useToastStore: { getState: () => ({ addToast: vi.fn() }) } }));
