@@ -215,6 +215,7 @@ func NewVoiceService(
 	s.egress = newVoiceEgress(hub, serverOnline, visibility, urlSigner, func(message string, metadata map[string]string) {
 		s.logWarn(models.LogCategoryVoice, nil, message, metadata)
 	})
+	s.egress.retry = s.retryResync
 	return s
 }
 

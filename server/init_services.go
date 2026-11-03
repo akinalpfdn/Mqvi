@@ -268,7 +268,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	serverReportUploadService := services.NewServerReportUploadService(repos.ServerReport, uploadPipeline, cfg.Upload.MaxSize)
 
 	deviceService := services.NewDeviceService(repos.Device, hub)
-	e2eeService := services.NewE2EEService(repos.E2EEBackup, repos.GroupSession, channelPermService, hub, repos.Channel, hub)
+	e2eeService := services.NewE2EEService(repos.E2EEBackup, repos.GroupSession, channelPermService, hub, repos.Channel, hub, channelPermService)
 	pushTokenService := services.NewPushTokenService(repos.PushToken)
 	sessionService := services.NewSessionService(repos.Session, hub)
 

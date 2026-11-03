@@ -48,9 +48,18 @@ func (s *voiceService) resyncServer(serverID string, users []string) {
 	s.egress.replaceServer(serverID, users, snap)
 }
 
+// retryResync is the egress's next try after a failed audience read: a fresh snapshot, queued in
+// order like any resync. Sent even when the server is now empty, because the failed delivery may
+// have left members holding a participant who has since left.
+func (s *voiceService) retryResync(serverID string, users []string, attempt int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	s.egress.replaceServerAttempt(serverID, users, s.serverSnapshotLocked(serverID), attempt)
+}
+
 // VisibleVoiceStates returns the voice state of serverIDs that userID may see, and the timers of
 // those channels. One visibility read per server; a failed read leaves that server with only the
-// user's own channel.
+// user's own channel, and a resync follows.
 func (s *voiceService) VisibleVoiceStates(ctx context.Context, userID string, serverIDs []string) ([]models.VoiceState, map[string]int64) {
 	snaps := make(map[string]voiceSnapshot, len(serverIDs))
 	s.mu.RLock()
@@ -67,7 +76,11 @@ func (s *voiceService) VisibleVoiceStates(ctx context.Context, userID string, se
 	states := make([]models.VoiceState, 0)
 	timers := make(map[string]int64)
 	for serverID, snap := range snaps {
-		sees := s.egress.userVisibility(ctx, userID, serverID, snap).sees
+		vis := s.egress.userVisibility(ctx, userID, serverID, snap)
+		if vis.failed {
+			s.egress.retryLater(serverID, []string{userID}, 0)
+		}
+		sees := vis.sees
 		for _, st := range snap.states {
 			if !sees(st.ChannelID) {
 				continue

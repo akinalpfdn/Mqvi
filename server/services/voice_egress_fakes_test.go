@@ -28,6 +28,7 @@ type viewTable struct {
 	online  []string
 	viewers map[string][]string // channelID → users with ViewChannel
 	fail    bool                // every lookup errors
+	failN   int                 // the next failN lookups error
 	mu      sync.Mutex
 	calls   int // FilterUsersWithPermission calls
 }
@@ -49,7 +50,7 @@ func (v *viewTable) FilterUsersWithPermission(_ context.Context, channelID strin
 	v.mu.Lock()
 	v.calls++
 	v.mu.Unlock()
-	if v.fail {
+	if v.failing() {
 		return nil, errViewLookup
 	}
 	var out []string
@@ -61,8 +62,22 @@ func (v *viewTable) FilterUsersWithPermission(_ context.Context, channelID strin
 	return out, nil
 }
 
-func (v *viewTable) BuildVisibilityFilter(_ context.Context, userID, _ string) (*ChannelVisibilityFilter, error) {
+// failing reports whether this lookup errors, using up one of failN.
+func (v *viewTable) failing() bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
 	if v.fail {
+		return true
+	}
+	if v.failN > 0 {
+		v.failN--
+		return true
+	}
+	return false
+}
+
+func (v *viewTable) BuildVisibilityFilter(_ context.Context, userID, _ string) (*ChannelVisibilityFilter, error) {
+	if v.failing() {
 		return nil, errViewLookup
 	}
 	f := &ChannelVisibilityFilter{HiddenChannels: map[string]bool{}, GrantedChannels: map[string]bool{}}

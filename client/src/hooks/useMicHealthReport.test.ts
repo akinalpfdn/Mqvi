@@ -3,7 +3,9 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 
 vi.mock("@capacitor/app", () => ({ App: { getInfo: vi.fn() } }));
 
-import { micPlatform, readMicProbe } from "./useMicHealthReport";
+import { currentMicIntent, mayPublishMic, micPlatform, readMicProbe } from "./useMicHealthReport";
+import { MicHealthTracker } from "../audio/micHealth";
+import { useVoiceStore } from "../stores/voiceStore";
 import type { LocalTrackPublication } from "livekit-client";
 
 const mediaTrack = (over: Partial<MediaStreamTrack> = {}) =>
@@ -57,5 +59,66 @@ describe("micPlatform", () => {
 
   it("should be web in a browser", () => {
     expect(micPlatform()).toBe("web");
+  });
+});
+
+// A member without Speak gets a token with canPublish=false and LiveKit refuses the publish. That is
+// not a dead mic; reporting it wrote two WARN rows for every join to a listen-only channel.
+describe("mic intent and the token's publish permission", () => {
+  const MICROPHONE = 2;
+  const CAMERA = 1;
+  const SCREEN_SHARE = 3;
+
+  afterEach(() => {
+    useVoiceStore.setState({ isMuted: false, isServerMuted: false, inputMode: "voice_activity" });
+  });
+
+  it("should allow the mic when the token may publish anything", () => {
+    expect(mayPublishMic({ canPublish: true, canPublishSources: [] })).toBe(true);
+  });
+
+  it("should not allow the mic without publish permission", () => {
+    expect(mayPublishMic({ canPublish: false, canPublishSources: [] })).toBe(false);
+  });
+
+  // A server mute baked into the token: everything but the mic.
+  it("should not allow the mic when the sources leave it out", () => {
+    expect(mayPublishMic({ canPublish: true, canPublishSources: [CAMERA, SCREEN_SHARE] })).toBe(false);
+  });
+
+  it("should allow the mic when the sources name it", () => {
+    expect(mayPublishMic({ canPublish: true, canPublishSources: [MICROPHONE, SCREEN_SHARE] })).toBe(true);
+  });
+
+  it("should not judge before the room has said anything", () => {
+    expect(mayPublishMic(undefined)).toBe(true);
+  });
+
+  it("should count a live mic without publish permission as off", () => {
+    useVoiceStore.setState({ isMuted: false, isServerMuted: false, inputMode: "voice_activity" });
+
+    expect(currentMicIntent({ canPublish: false, canPublishSources: [] })).toBe("off");
+  });
+
+  it("should keep a live mic live when it may publish", () => {
+    useVoiceStore.setState({ isMuted: false, isServerMuted: false, inputMode: "voice_activity" });
+
+    expect(currentMicIntent({ canPublish: true, canPublishSources: [] })).toBe("live");
+  });
+
+  it("should write nothing for a listen-only member who stays in the call", () => {
+    useVoiceStore.setState({ isMuted: false, isServerMuted: false, inputMode: "voice_activity" });
+    const tracker = new MicHealthTracker();
+    const reports: unknown[] = [];
+
+    for (let t = 0; t <= 60_000; t += 2_000) {
+      const intent = currentMicIntent({ canPublish: false, canPublishSources: [] });
+      const report = tracker.evaluate(readMicProbe(undefined, true, intent, null).snapshot, t);
+      if (report) reports.push(report);
+    }
+    const closing = tracker.leave(60_000);
+
+    expect(reports).toEqual([]);
+    expect(closing).toBeNull();
   });
 });

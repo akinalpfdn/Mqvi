@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/akinalp/mqvi/models"
@@ -57,7 +58,7 @@ func (s *searchService) Search(ctx context.Context, userID, serverID, query stri
 		return nil, err
 	}
 	if channelID != nil {
-		if !containsString(readable, *channelID) {
+		if !slices.Contains(readable, *channelID) {
 			return nil, fmt.Errorf("%w: cannot search this channel", pkg.ErrForbidden)
 		}
 		readable = []string{*channelID}
@@ -93,13 +94,4 @@ func (s *searchService) readableChannelIDs(ctx context.Context, userID, serverID
 		}
 	}
 	return ids, nil
-}
-
-func containsString(list []string, v string) bool {
-	for _, s := range list {
-		if s == v {
-			return true
-		}
-	}
-	return false
 }

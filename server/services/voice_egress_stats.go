@@ -47,7 +47,7 @@ func newEgressStats(journal func(string), warn func(string, map[string]string)) 
 	return &egressStats{now: time.Now, journal: journal, warn: warn}
 }
 
-// task records one finished queue task; depth is how many were waiting behind it when it was queued.
+// task records one finished queue task; depth is how many were queued or running ahead of it.
 func (s *egressStats) task(wait, run time.Duration, depth int) {
 	if s == nil {
 		return

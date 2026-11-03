@@ -124,26 +124,10 @@ func (r *sqliteRoleRepo) GetByServerGroupedByUser(ctx context.Context, serverID 
 		WHERE ur.server_id = ?
 		ORDER BY r.position DESC`
 
-	rows, err := r.db.QueryContext(ctx, query, serverID)
-	if err != nil {
+	byUser := make(map[string][]models.Role)
+	if err := r.scanGroupedRoles(ctx, byUser, query, serverID); err != nil {
 		return nil, fmt.Errorf("failed to get roles grouped by user: %w", err)
 	}
-	defer rows.Close()
-
-	byUser := make(map[string][]models.Role)
-	for rows.Next() {
-		var userID string
-		var role models.Role
-		if err := scanRoleInto(rows, &role, &userID); err != nil {
-			return nil, fmt.Errorf("failed to scan grouped role row: %w", err)
-		}
-		byUser[userID] = append(byUser[userID], role)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating grouped role rows: %w", err)
-	}
-
 	return byUser, nil
 }
 

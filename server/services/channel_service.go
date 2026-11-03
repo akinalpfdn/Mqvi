@@ -68,7 +68,7 @@ type channelService struct {
 	voiceDisc     VoiceChannelDisconnector
 	fileCleanup   FileCleanupService
 	online        ServerOnlineLister
-	permResolver  ChannelPermResolver
+	audience      ChannelAudienceFilter
 }
 
 func NewChannelService(
@@ -80,7 +80,7 @@ func NewChannelService(
 	voiceDisc VoiceChannelDisconnector,
 	fileCleanup FileCleanupService,
 	online ServerOnlineLister,
-	permResolver ChannelPermResolver,
+	audience ChannelAudienceFilter,
 ) ChannelService {
 	return &channelService{
 		channelRepo:   channelRepo,
@@ -91,7 +91,7 @@ func NewChannelService(
 		voiceDisc:     voiceDisc,
 		fileCleanup:   fileCleanup,
 		online:        online,
-		permResolver:  permResolver,
+		audience:      audience,
 	}
 }
 
@@ -337,7 +337,7 @@ func (s *channelService) ReorderChannels(ctx context.Context, serverID string, r
 // channelUpdateAudience is who the sidebar shows this channel to: members with ViewChannel, plus a
 // member sitting in it as a voice channel (the sidebar force-includes that one, see GetAllGrouped).
 func (s *channelService) channelUpdateAudience(ctx context.Context, serverID, channelID string) []string {
-	audience := channelAudience(ctx, s.online, s.permResolver, serverID, channelID, models.PermViewChannel)
+	audience := channelAudience(ctx, s.online, s.audience, serverID, channelID, models.PermViewChannel)
 	if s.voiceProvider == nil {
 		return audience
 	}

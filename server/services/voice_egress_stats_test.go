@@ -107,8 +107,9 @@ func TestKeyedSerialQueue_ReportsWaitAndDepth(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if depths[0] != 0 || depths[1] != 0 || depths[2] != 1 {
-		t.Fatalf("depths %v, want [0 0 1] — waiting tasks ahead of each", depths)
+	// The busy task counts: behind a long batch the old count read zero and the alarm never fired.
+	if depths[0] != 0 || depths[1] != 1 || depths[2] != 2 {
+		t.Fatalf("depths %v, want [0 1 2] — tasks queued or running ahead of each", depths)
 	}
 	if waits[1] < 20*time.Millisecond {
 		t.Fatalf("second task waited %s behind a blocked one, want >= 20ms", waits[1])

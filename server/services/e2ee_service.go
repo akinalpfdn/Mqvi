@@ -38,6 +38,7 @@ type e2eeService struct {
 	hub              ws.Broadcaster
 	channels         ChannelGetter
 	online           ServerOnlineLister
+	audience         ChannelAudienceFilter
 }
 
 func NewE2EEService(
@@ -47,6 +48,7 @@ func NewE2EEService(
 	hub ws.Broadcaster,
 	channels ChannelGetter,
 	online ServerOnlineLister,
+	audience ChannelAudienceFilter,
 ) E2EEService {
 	return &e2eeService{
 		backupRepo:       backupRepo,
@@ -55,6 +57,7 @@ func NewE2EEService(
 		hub:              hub,
 		channels:         channels,
 		online:           online,
+		audience:         audience,
 	}
 }
 
@@ -117,7 +120,7 @@ func (s *e2eeService) UpsertGroupSession(ctx context.Context, channelID, userID,
 		log.Printf("[e2ee] group_session_new not sent for channel %s: channel lookup: %v", channelID, err)
 		return nil
 	}
-	audience := channelAudience(ctx, s.online, s.permResolver, channel.ServerID, channelID,
+	audience := channelAudience(ctx, s.online, s.audience, channel.ServerID, channelID,
 		models.PermViewChannel|models.PermReadMessages)
 	s.hub.BroadcastToUsers(audience, ws.Event{
 		Op: ws.OpGroupSessionNew,

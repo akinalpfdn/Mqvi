@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -87,6 +88,31 @@ func (p permTable) resolver(errUser string) *testutil.MockChannelPermResolver {
 	}
 }
 
+// tableFilter is the batch audience read over a permTable: Admin holds everything, as in
+// foldChannelPermissions. calls counts reads, so a test can see the read is one per event.
+type tableFilter struct {
+	table permTable
+	fail  bool
+	calls int
+}
+
+func (p permTable) filter(fail bool) *tableFilter { return &tableFilter{table: p, fail: fail} }
+
+func (f *tableFilter) FilterUsersWithPermission(_ context.Context, channelID string, userIDs []string, required models.Permission) ([]string, error) {
+	f.calls++
+	if f.fail {
+		return nil, errors.New("read failed")
+	}
+	var out []string
+	for _, uid := range userIDs {
+		perms := f.table[uid+":"+channelID]
+		if perms.Has(models.PermAdmin) || perms&required == required {
+			out = append(out, uid)
+		}
+	}
+	return out, nil
+}
+
 // ─── Static guard ───
 
 // BroadcastToAll reaches users who share no server with the data. It is allowed only where the data
@@ -127,18 +153,52 @@ func TestBroadcastToAll_OnlyForPlatformWideData(t *testing.T) {
 // ─── channelAudience ───
 
 func TestChannelAudience_KeepsOnlyUsersWithEveryRequiredBit(t *testing.T) {
-	online := fixedOnline{"srv": {"reader", "viewonly", "admin", "broken", "none"}}
+	online := fixedOnline{"srv": {"reader", "viewonly", "admin", "none"}}
 	perms := permTable{
 		"reader:ch":   models.PermViewChannel | models.PermReadMessages,
 		"viewonly:ch": models.PermViewChannel,
 		"admin:ch":    models.PermAdmin,
 	}
-	got := channelAudience(context.Background(), online, perms.resolver("broken"), "srv", "ch",
+	got := channelAudience(context.Background(), online, perms.filter(false), "srv", "ch",
 		models.PermViewChannel|models.PermReadMessages)
 	sort.Strings(got)
 	want := []string{"admin", "reader"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Fatalf("audience = %v, want %v (one bit is not enough, a resolve error drops the user)", got, want)
+		t.Fatalf("audience = %v, want %v (one bit is not enough)", got, want)
+	}
+}
+
+// One read for the whole server: per member it was ~3 queries each, thousands for one event.
+func TestChannelAudience_ReadsPermissionsOncePerEvent(t *testing.T) {
+	members := make([]string, 1000)
+	for i := range members {
+		members[i] = fmt.Sprintf("u%d", i)
+	}
+	filter := permTable{}.filter(false)
+
+	channelAudience(context.Background(), fixedOnline{"srv": members}, filter, "srv", "ch", models.PermViewChannel)
+
+	if filter.calls != 1 {
+		t.Fatalf("permission reads = %d for 1000 members, want 1", filter.calls)
+	}
+}
+
+func TestChannelAudience_TellsNobodyWhenThePermissionReadFails(t *testing.T) {
+	online := fixedOnline{"srv": {"reader", "admin"}}
+	perms := permTable{"reader:ch": models.PermViewChannel, "admin:ch": models.PermAdmin}
+
+	got := channelAudience(context.Background(), online, perms.filter(true), "srv", "ch", models.PermViewChannel)
+
+	if len(got) != 0 {
+		t.Fatalf("audience = %v on a failed read, want nobody — withheld, not leaked", got)
+	}
+}
+
+func TestChannelAudience_NoReadForAnEmptyServer(t *testing.T) {
+	filter := permTable{}.filter(false)
+
+	if got := channelAudience(context.Background(), fixedOnline{}, filter, "srv", "ch", models.PermViewChannel); len(got) != 0 || filter.calls != 0 {
+		t.Fatalf("audience %v, reads %d, want none of either", got, filter.calls)
 	}
 }
 
@@ -158,7 +218,7 @@ func TestChannelUpdate_GoesOnlyToMembersWhoSeeTheChannel(t *testing.T) {
 	online := fixedOnline{"srv": {"viewer", "outsider", "voiceonly"}}
 	perms := permTable{"viewer:staff-ch": models.PermViewChannel}
 	svc := NewChannelService(channels, nil, rec, nil,
-		fixedVoice{"voiceonly": "staff-ch"}, nil, nil, online, perms.resolver(""))
+		fixedVoice{"voiceonly": "staff-ch"}, nil, nil, online, perms.filter(false))
 
 	name := "secret-plans"
 	if _, err := svc.Update(context.Background(), "srv", "staff-ch", &models.UpdateChannelRequest{Name: &name}); err != nil {
@@ -182,7 +242,7 @@ func TestChannelDelete_StaysInTheServer(t *testing.T) {
 		},
 	}
 	svc := NewChannelService(channels, nil, rec, nil, nil, nil, noopFileCleanup{},
-		fixedOnline{}, permTable{}.resolver(""))
+		fixedOnline{}, permTable{}.filter(false))
 
 	if err := svc.Delete(context.Background(), "srv", "ch1"); err != nil {
 		t.Fatalf("delete: %v", err)
@@ -312,7 +372,7 @@ func TestGroupSessionNew_GoesOnlyToTheChannelsReaders(t *testing.T) {
 		},
 	}
 	svc := NewE2EEService(nil, nopGroupSessionRepo{}, perms.resolver(""), rec, channels,
-		fixedOnline{"srv": {"sender", "reader", "viewonly", "stranger"}})
+		fixedOnline{"srv": {"sender", "reader", "viewonly", "stranger"}}, perms.filter(false))
 
 	err := svc.UpsertGroupSession(context.Background(), "enc", "sender", "dev1",
 		&models.CreateGroupSessionRequest{SessionID: "s1", SessionData: "opaque"})

@@ -19,11 +19,19 @@ import (
 
 // VoiceVisibilityResolver answers who may see a voice channel. Implemented by channelPermService.
 type VoiceVisibilityResolver interface {
-	FilterUsersWithPermission(ctx context.Context, channelID string, userIDs []string, required models.Permission) ([]string, error)
+	ChannelAudienceFilter
 	BuildVisibilityFilter(ctx context.Context, userID, serverID string) (*ChannelVisibilityFilter, error)
 }
 
 const voiceEgressTimeout = 10 * time.Second
+
+// A failed audience read leaves members holding less than they may see: withheld, not leaked, but
+// wrong until something replaces it. Each failure is followed by a fresh resync of those members,
+// at most this many times in a row (2 s, 4 s, 8 s), so a database that stays down does not spin.
+const (
+	egressRetryMax  = 3
+	egressRetryBase = 2 * time.Second
+)
 
 // keyedSerialQueue runs tasks one at a time per key, in submission order, and keys concurrently.
 // A key's worker goroutine exists only while it has work: it exits as soon as its queue is empty,
@@ -32,26 +40,37 @@ type keyedSerialQueue struct {
 	mu sync.Mutex
 	// A key is present exactly while its worker runs, so presence is the "worker active" flag.
 	pending map[string][]func()
+	// outstanding counts a key's tasks from queued to finished. pending alone misses the batch the
+	// worker has taken and is running, which made the backlog read as zero behind a long batch.
+	outstanding map[string]int
 	// observe, if set, is told each task's wait (queued → started), run time and the backlog it
-	// joined.
+	// joined: the tasks queued or running ahead of it.
 	observe func(wait, run time.Duration, depth int)
 }
 
 func newKeyedSerialQueue(observe func(wait, run time.Duration, depth int)) *keyedSerialQueue {
-	return &keyedSerialQueue{pending: make(map[string][]func()), observe: observe}
+	return &keyedSerialQueue{pending: make(map[string][]func()), outstanding: make(map[string]int), observe: observe}
 }
 
 func (q *keyedSerialQueue) run(key string, task func()) {
 	queuedAt := time.Now()
 	q.mu.Lock()
 	_, active := q.pending[key]
-	depth := len(q.pending[key])
+	depth := q.outstanding[key]
+	q.outstanding[key]++
 	q.pending[key] = append(q.pending[key], func() {
 		started := time.Now()
+		defer func() { // a panicking task is still finished, or the count would only grow
+			q.mu.Lock()
+			if q.outstanding[key]--; q.outstanding[key] <= 0 {
+				delete(q.outstanding, key)
+			}
+			q.mu.Unlock()
+			if q.observe != nil {
+				q.observe(started.Sub(queuedAt), time.Since(started), depth)
+			}
+		}()
 		task()
-		if q.observe != nil {
-			q.observe(started.Sub(queuedAt), time.Since(started), depth)
-		}
 	})
 	q.mu.Unlock()
 	if !active {
@@ -125,6 +144,22 @@ type voiceEgress struct {
 	signer     FileURLSigner
 	run        func(serverID string, task func())
 	stats      *egressStats
+
+	// retry re-sends users (nil: the server's online members) a fresh view after a failed read. Set
+	// by the voice service: the snapshot must be taken under its lock to keep its place in the order.
+	retry func(serverID string, users []string, attempt int)
+	// after schedules a retry; time.AfterFunc outside tests.
+	after func(d time.Duration, f func())
+
+	retryMu sync.Mutex
+	retries map[string]*pendingRetry // serverID → the one retry waiting for it
+}
+
+// pendingRetry is a scheduled resync. Failures before it fires join it rather than add another.
+type pendingRetry struct {
+	all     bool
+	users   map[string]bool
+	attempt int
 }
 
 // newVoiceEgress builds the egress; warn receives the queue's slow-window report for the admin log.
@@ -137,7 +172,45 @@ func newVoiceEgress(hub ws.Broadcaster, online ServerOnlineLister, visibility Vo
 		signer:     signer,
 		run:        newKeyedSerialQueue(stats.task).run,
 		stats:      stats,
+		after:      func(d time.Duration, f func()) { time.AfterFunc(d, f) },
+		retries:    make(map[string]*pendingRetry),
 	}
+}
+
+// retryLater schedules a fresh view of serverID for users (nil: every online member) after a failed
+// audience read. One retry waits per server; failures meanwhile widen it instead of stacking.
+func (e *voiceEgress) retryLater(serverID string, users []string, attempt int) {
+	if e.retry == nil {
+		return
+	}
+	if attempt >= egressRetryMax {
+		log.Printf("[voice] egress: gave up resyncing server=%s after %d failed audience reads in a row", serverID, attempt)
+		return
+	}
+	e.retryMu.Lock()
+	defer e.retryMu.Unlock()
+	if p, ok := e.retries[serverID]; ok {
+		p.all = p.all || users == nil
+		for _, uid := range users {
+			p.users[uid] = true
+		}
+		return
+	}
+	p := &pendingRetry{all: users == nil, users: toUserSet(users), attempt: attempt}
+	e.retries[serverID] = p
+	e.after(egressRetryBase<<attempt, func() {
+		e.retryMu.Lock()
+		delete(e.retries, serverID)
+		var targets []string
+		if !p.all {
+			targets = make([]string, 0, len(p.users))
+			for uid := range p.users {
+				targets = append(targets, uid)
+			}
+		}
+		e.retryMu.Unlock()
+		e.retry(serverID, targets, p.attempt+1)
+	})
 }
 
 // channelEvent delivers event to the server's online members who can see channelID, plus always —
@@ -148,9 +221,13 @@ func (e *voiceEgress) channelEvent(serverID, channelID string, always []string, 
 		ctx, cancel := context.WithTimeout(context.Background(), voiceEgressTimeout)
 		defer cancel()
 		event.ServerID = serverID
-		audience := unionUserIDs(e.viewers(ctx, channelID, e.onlineIn(serverID)), always)
+		viewers, ok := e.viewers(ctx, channelID, e.onlineIn(serverID))
+		audience := unionUserIDs(viewers, always)
 		e.hub.BroadcastToUsers(audience, event)
 		e.stats.delivered(len(audience))
+		if !ok {
+			e.retryLater(serverID, nil, 0)
+		}
 	})
 }
 
@@ -165,6 +242,11 @@ func (e *voiceEgress) toUser(serverID, userID string, event ws.Event) {
 // replaceServer sends each target the server's voice states they may see now, replacing what they
 // had. users nil means the server's online members at delivery.
 func (e *voiceEgress) replaceServer(serverID string, users []string, snap voiceSnapshot) {
+	e.replaceServerAttempt(serverID, users, snap, 0)
+}
+
+// replaceServerAttempt is replaceServer as the attempt-th resync after failed reads.
+func (e *voiceEgress) replaceServerAttempt(serverID string, users []string, snap voiceSnapshot, attempt int) {
 	e.run(serverID, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), voiceEgressTimeout)
 		defer cancel()
@@ -177,8 +259,11 @@ func (e *voiceEgress) replaceServer(serverID string, users []string, snap voiceS
 		}
 
 		viewersByChannel := make(map[string]map[string]bool)
+		failed := false
 		for _, channelID := range snap.channelIDs() {
-			viewersByChannel[channelID] = toUserSet(e.viewers(ctx, channelID, targets))
+			viewers, ok := e.viewers(ctx, channelID, targets)
+			failed = failed || !ok
+			viewersByChannel[channelID] = toUserSet(viewers)
 		}
 		for _, uid := range targets {
 			own := snap.channelOf(uid)
@@ -188,6 +273,9 @@ func (e *voiceEgress) replaceServer(serverID string, users []string, snap voiceS
 				ServerID: serverID,
 				Data:     e.serverSyncData(serverID, snap, sees),
 			})
+		}
+		if failed {
+			e.retryLater(serverID, users, attempt)
 		}
 	})
 }
@@ -200,6 +288,9 @@ func (e *voiceEgress) replaceIfHidden(serverID, userID string, channelIDs []stri
 		ctx, cancel := context.WithTimeout(context.Background(), voiceEgressTimeout)
 		defer cancel()
 		vis := e.userVisibility(ctx, userID, serverID, snap)
+		if vis.failed {
+			defer e.retryLater(serverID, []string{userID}, 0)
+		}
 		hidden := false
 		for _, channelID := range channelIDs {
 			if !vis.canView(channelID) {
@@ -224,7 +315,11 @@ func (e *voiceEgress) joinSync(serverID, userID string, snap voiceSnapshot) {
 	e.run(serverID, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), voiceEgressTimeout)
 		defer cancel()
-		sees := e.userVisibility(ctx, userID, serverID, snap).sees
+		vis := e.userVisibility(ctx, userID, serverID, snap)
+		if vis.failed {
+			defer e.retryLater(serverID, []string{userID}, 0)
+		}
+		sees := vis.sees
 		started := make(map[string]bool)
 		var timers []ws.Event
 		for _, st := range snap.states {
@@ -251,6 +346,7 @@ func (e *voiceEgress) joinSync(serverID, userID string, snap voiceSnapshot) {
 type userVisibility struct {
 	own    string
 	filter *ChannelVisibilityFilter
+	failed bool // the read failed: only their own channel, until a retry
 }
 
 // canView is ViewChannel itself, without the own-channel exception.
@@ -270,6 +366,7 @@ func (e *voiceEgress) userVisibility(ctx context.Context, userID, serverID strin
 	f, err := e.visibility.BuildVisibilityFilter(ctx, userID, serverID)
 	if err != nil {
 		log.Printf("[voice] egress: visibility for user=%s server=%s: %v (only their own channel)", userID, serverID, err)
+		vis.failed = true
 		return vis
 	}
 	vis.filter = f
@@ -283,19 +380,19 @@ func (e *voiceEgress) onlineIn(serverID string) []string {
 	return e.online.GetOnlineUserIDsForServer(serverID)
 }
 
-// viewers keeps the users who hold ViewChannel in channelID. An error keeps nobody.
-func (e *voiceEgress) viewers(ctx context.Context, channelID string, users []string) []string {
+// viewers keeps the users who hold ViewChannel in channelID. An error keeps nobody and reports false.
+func (e *voiceEgress) viewers(ctx context.Context, channelID string, users []string) ([]string, bool) {
 	if e.visibility == nil || len(users) == 0 {
-		return nil
+		return nil, true
 	}
 	started := time.Now()
 	out, err := e.visibility.FilterUsersWithPermission(ctx, channelID, users, models.PermViewChannel)
 	e.stats.filter(time.Since(started), err != nil)
 	if err != nil {
 		log.Printf("[voice] egress: audience for channel=%s: %v (participants only)", channelID, err)
-		return nil
+		return nil, false
 	}
-	return out
+	return out, true
 }
 
 func (e *voiceEgress) serverSyncData(serverID string, snap voiceSnapshot, sees func(string) bool) ws.VoiceServerStatesSyncData {

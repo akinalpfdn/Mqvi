@@ -26,9 +26,26 @@ export type ProbeableProcessor = {
   processedTrack?: MediaStreamTrack;
 };
 
-export function currentMicIntent(): MicIntent {
+/** TrackSource.MICROPHONE in a token's canPublishSources (livekit protocol enum). */
+const MICROPHONE_SOURCE = 2;
+
+/** The part of LiveKit's ParticipantPermission that says what may be published. */
+export type PublishPermission = { canPublish: boolean; canPublishSources: readonly number[] };
+
+/**
+ * Whether the token lets this participant send a mic. A member without Speak gets canPublish=false,
+ * and a server mute leaves the mic out of the sources: LiveKit then refuses the publish, which is not
+ * a dead mic. Unknown before the room connects, when nothing is judged anyway.
+ */
+export function mayPublishMic(permissions: PublishPermission | undefined): boolean {
+  if (!permissions) return true;
+  if (!permissions.canPublish) return false;
+  return permissions.canPublishSources.length === 0 || permissions.canPublishSources.includes(MICROPHONE_SOURCE);
+}
+
+export function currentMicIntent(permissions?: PublishPermission): MicIntent {
   const { isMuted, isServerMuted, inputMode } = useVoiceStore.getState();
-  if (isMuted || isServerMuted) return "off";
+  if (isMuted || isServerMuted || !mayPublishMic(permissions)) return "off";
   return inputMode === "push_to_talk" ? "ptt" : "live";
 }
 
@@ -200,7 +217,7 @@ export function useMicHealthReport(
 
     function tick() {
       const pub = room.localParticipant.getTrackPublication(Track.Source.Microphone) as LocalTrackPublication | undefined;
-      const probe = readMicProbe(pub, room.state === ConnectionState.Connected, currentMicIntent(), getProcessorRef.current());
+      const probe = readMicProbe(pub, room.state === ConnectionState.Connected, currentMicIntent(room.localParticipant.permissions), getProcessorRef.current());
       rebind(probe);
       const report = tracker.evaluate(probe.snapshot, Date.now());
       if (report) send(report);
@@ -217,8 +234,8 @@ export function useMicHealthReport(
     const onPublished = (pub: TrackPublication) => { if (isLocalMic(pub)) { note("mic_published"); tick(); } };
     const onUnpublished = (pub: TrackPublication) => { if (isLocalMic(pub)) { note("mic_unpublished"); tick(); } };
     // A mute the user asked for (or push to talk releasing) is expected; only the SDK's own is evidence.
-    const onMuted = (pub: TrackPublication, p: Participant) => { if (isLocalMic(pub, p) && currentMicIntent() === "live") note("sdk_muted"); };
-    const onUnmuted = (pub: TrackPublication, p: Participant) => { if (isLocalMic(pub, p) && currentMicIntent() === "live") note("sdk_unmuted"); };
+    const onMuted = (pub: TrackPublication, p: Participant) => { if (isLocalMic(pub, p) && currentMicIntent(room.localParticipant.permissions) === "live") note("sdk_muted"); };
+    const onUnmuted = (pub: TrackPublication, p: Participant) => { if (isLocalMic(pub, p) && currentMicIntent(room.localParticipant.permissions) === "live") note("sdk_unmuted"); };
     const onDeviceError = (err: Error, kind?: MediaDeviceKind) => {
       if (kind && kind !== "audioinput") return;
       tracker.noteDeviceError(`${err.name}: ${err.message}`, Date.now());

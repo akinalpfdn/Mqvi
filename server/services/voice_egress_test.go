@@ -101,6 +101,22 @@ func TestKeyedSerialQueue_PanicDoesNotStopTheQueue(t *testing.T) {
 	}
 }
 
+// A panicking task still leaves the count, or every later depth would be inflated by one.
+func TestKeyedSerialQueue_DepthRecoversAfterAPanic(t *testing.T) {
+	q := newKeyedSerialQueue(nil)
+	q.run("srv", func() { panic("boom") })
+	done := make(chan struct{})
+	q.run("srv", func() { close(done) })
+	<-done
+	waitFor(t, "drain", func() bool { return q.idle("srv") })
+
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if n := q.outstanding["srv"]; n != 0 {
+		t.Fatalf("outstanding after the queue drained = %d, want 0", n)
+	}
+}
+
 // Many writers enqueueing at once (every voice change does it under s.mu, from many goroutines).
 // Meaningful under -race.
 func TestKeyedSerialQueue_ConcurrentEnqueue(t *testing.T) {
