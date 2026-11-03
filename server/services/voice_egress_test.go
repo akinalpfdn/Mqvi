@@ -37,7 +37,7 @@ func (q *keyedSerialQueue) idle(key string) bool {
 // A server's voice events must reach clients in the order they happened: a leave overtaking its
 // join leaves a ghost participant on every screen.
 func TestKeyedSerialQueue_RunsAKeysTasksInOrder(t *testing.T) {
-	q := newKeyedSerialQueue()
+	q := newKeyedSerialQueue(nil)
 	var mu sync.Mutex
 	var got []int
 	for i := range 500 {
@@ -57,7 +57,7 @@ func TestKeyedSerialQueue_RunsAKeysTasksInOrder(t *testing.T) {
 
 // One server's slow audience resolution must not hold up another server's events.
 func TestKeyedSerialQueue_KeysDoNotBlockEachOther(t *testing.T) {
-	q := newKeyedSerialQueue()
+	q := newKeyedSerialQueue(nil)
 	release := make(chan struct{})
 	q.run("slow", func() { <-release })
 
@@ -74,7 +74,7 @@ func TestKeyedSerialQueue_KeysDoNotBlockEachOther(t *testing.T) {
 // The worker exists only while there is work; a drained key leaves no goroutine behind and the next
 // task starts a new one.
 func TestKeyedSerialQueue_WorkerExitsWhenDrainedAndRestarts(t *testing.T) {
-	q := newKeyedSerialQueue()
+	q := newKeyedSerialQueue(nil)
 	ran := make(chan struct{}, 2)
 	q.run("srv", func() { ran <- struct{}{} })
 	<-ran
@@ -90,7 +90,7 @@ func TestKeyedSerialQueue_WorkerExitsWhenDrainedAndRestarts(t *testing.T) {
 
 // A task that panics must not take the process down or swallow the server's later events.
 func TestKeyedSerialQueue_PanicDoesNotStopTheQueue(t *testing.T) {
-	q := newKeyedSerialQueue()
+	q := newKeyedSerialQueue(nil)
 	q.run("srv", func() { panic("boom") })
 	done := make(chan struct{})
 	q.run("srv", func() { close(done) })
@@ -104,7 +104,7 @@ func TestKeyedSerialQueue_PanicDoesNotStopTheQueue(t *testing.T) {
 // Many writers enqueueing at once (every voice change does it under s.mu, from many goroutines).
 // Meaningful under -race.
 func TestKeyedSerialQueue_ConcurrentEnqueue(t *testing.T) {
-	q := newKeyedSerialQueue()
+	q := newKeyedSerialQueue(nil)
 	var mu sync.Mutex
 	count := 0
 	var wg sync.WaitGroup

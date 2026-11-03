@@ -191,7 +191,7 @@ func NewVoiceService(
 	encryptionKey []byte,
 	urlSigner FileURLSigner,
 ) VoiceService {
-	return &voiceService{
+	s := &voiceService{
 		states:             make(map[string]*models.VoiceState),
 		roomPassphrases:    make(map[string]string),
 		screenShareViewers: make(map[string]map[string]bool),
@@ -207,12 +207,15 @@ func NewVoiceService(
 		livekitGetter:      livekitGetter,
 		permResolver:       permResolver,
 		hub:                hub,
-		egress:             newVoiceEgress(hub, serverOnline, visibility, urlSigner),
 		onlineChecker:      onlineChecker,
 		afkTimeoutGetter:   afkTimeoutGetter,
 		encryptionKey:      encryptionKey,
 		urlSigner:          urlSigner,
 	}
+	s.egress = newVoiceEgress(hub, serverOnline, visibility, urlSigner, func(message string, metadata map[string]string) {
+		s.logWarn(models.LogCategoryVoice, nil, message, metadata)
+	})
+	return s
 }
 
 func (s *voiceService) SetAppLogger(logger VoiceAppLogger) {

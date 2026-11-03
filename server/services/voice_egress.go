@@ -32,16 +32,27 @@ type keyedSerialQueue struct {
 	mu sync.Mutex
 	// A key is present exactly while its worker runs, so presence is the "worker active" flag.
 	pending map[string][]func()
+	// observe, if set, is told each task's wait (queued → started), run time and the backlog it
+	// joined.
+	observe func(wait, run time.Duration, depth int)
 }
 
-func newKeyedSerialQueue() *keyedSerialQueue {
-	return &keyedSerialQueue{pending: make(map[string][]func())}
+func newKeyedSerialQueue(observe func(wait, run time.Duration, depth int)) *keyedSerialQueue {
+	return &keyedSerialQueue{pending: make(map[string][]func()), observe: observe}
 }
 
 func (q *keyedSerialQueue) run(key string, task func()) {
+	queuedAt := time.Now()
 	q.mu.Lock()
 	_, active := q.pending[key]
-	q.pending[key] = append(q.pending[key], task)
+	depth := len(q.pending[key])
+	q.pending[key] = append(q.pending[key], func() {
+		started := time.Now()
+		task()
+		if q.observe != nil {
+			q.observe(started.Sub(queuedAt), time.Since(started), depth)
+		}
+	})
 	q.mu.Unlock()
 	if !active {
 		go q.drain(key)
@@ -113,15 +124,19 @@ type voiceEgress struct {
 	visibility VoiceVisibilityResolver
 	signer     FileURLSigner
 	run        func(serverID string, task func())
+	stats      *egressStats
 }
 
-func newVoiceEgress(hub ws.Broadcaster, online ServerOnlineLister, visibility VoiceVisibilityResolver, signer FileURLSigner) *voiceEgress {
+// newVoiceEgress builds the egress; warn receives the queue's slow-window report for the admin log.
+func newVoiceEgress(hub ws.Broadcaster, online ServerOnlineLister, visibility VoiceVisibilityResolver, signer FileURLSigner, warn func(string, map[string]string)) *voiceEgress {
+	stats := newEgressStats(func(line string) { log.Print(line) }, warn)
 	return &voiceEgress{
 		hub:        hub,
 		online:     online,
 		visibility: visibility,
 		signer:     signer,
-		run:        newKeyedSerialQueue().run,
+		run:        newKeyedSerialQueue(stats.task).run,
+		stats:      stats,
 	}
 }
 
@@ -135,6 +150,7 @@ func (e *voiceEgress) channelEvent(serverID, channelID string, always []string, 
 		event.ServerID = serverID
 		audience := unionUserIDs(e.viewers(ctx, channelID, e.onlineIn(serverID)), always)
 		e.hub.BroadcastToUsers(audience, event)
+		e.stats.delivered(len(audience))
 	})
 }
 
@@ -272,7 +288,9 @@ func (e *voiceEgress) viewers(ctx context.Context, channelID string, users []str
 	if e.visibility == nil || len(users) == 0 {
 		return nil
 	}
+	started := time.Now()
 	out, err := e.visibility.FilterUsersWithPermission(ctx, channelID, users, models.PermViewChannel)
+	e.stats.filter(time.Since(started), err != nil)
 	if err != nil {
 		log.Printf("[voice] egress: audience for channel=%s: %v (participants only)", channelID, err)
 		return nil
