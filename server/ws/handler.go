@@ -31,7 +31,10 @@ type BanChecker interface {
 
 // VoiceStatesProvider returns the voice states a user may see, for the ready event.
 type VoiceStatesProvider interface {
-	VisibleVoiceStates(ctx context.Context, userID string, serverIDs []string) ([]models.VoiceState, map[string]int64)
+	// ReadyVoiceStates also returns each server's place in its voice event order at the read.
+	ReadyVoiceStates(ctx context.Context, userID string, serverIDs []string) ([]models.VoiceState, map[string]int64, map[string]uint64)
+	// ResyncVoiceSince queues a replace for userID in every server whose voice events moved past mark.
+	ResyncVoiceSince(userID string, mark map[string]uint64)
 }
 
 // IncomingCallProvider returns a pending RINGING incoming-call payload for a user,
@@ -470,7 +473,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	// Send voice states sync so frontend can initialize voiceStore: the user's servers only, and
 	// within them only the channels they may see — the same rule as the live voice events.
 	if h.voiceStatesProvider != nil {
-		visible, timers := h.voiceStatesProvider.VisibleVoiceStates(r.Context(), claims.UserID, serverIDs)
+		visible, timers, mark := h.voiceStatesProvider.ReadyVoiceStates(r.Context(), claims.UserID, serverIDs)
 		items := make([]VoiceStateItem, 0, len(visible))
 		for _, s := range visible {
 			items = append(items, VoiceStateItem{
@@ -493,6 +496,9 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 			Op:   OpVoiceStatesSync,
 			Data: VoiceStatesSyncData{States: items, ChannelTimers: timers},
 		})
+		// This connection is registered, so a voice event queued after the read may already be ahead
+		// of the sync, which then replaced it. A per-server replace queued now lands after both.
+		h.voiceStatesProvider.ResyncVoiceSince(claims.UserID, mark)
 	}
 
 	// Re-deliver a ringing incoming call so a receiver who connects after missing the

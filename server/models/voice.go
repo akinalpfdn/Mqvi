@@ -21,6 +21,9 @@ type VoiceState struct {
 	IsServerMuted    bool      `json:"is_server_muted"`
 	IsServerDeafened bool      `json:"is_server_deafened"`
 	LastActivity     time.Time `json:"-"` // not serialized — server-side AFK tracking only
+	// MovedIn: put in this channel by someone else's move, which stands in for the access they may
+	// lack here. Server-side only.
+	MovedIn bool `json:"-"`
 }
 
 type VoiceTokenRequest struct {

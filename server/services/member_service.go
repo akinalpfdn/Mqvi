@@ -306,11 +306,29 @@ func (s *memberService) ModifyRoles(ctx context.Context, serverID, actorID, targ
 		targetSet[id] = true
 	}
 
+	// The user's role set changed: drop their stale cached perms so join/send gates see the new set
+	// immediately, enforce it live if they're already in voice (S3), and resync what they may see.
+	// A write that landed stands even when a later one fails, so a failed save follows it too.
+	followRoles := func() {
+		if s.permInvalidator != nil {
+			s.permInvalidator.InvalidateUserPermissions(targetID)
+		}
+		if s.voiceEnforcer != nil {
+			go s.voiceEnforcer.EnforceUserVoicePermissions(targetID)
+			s.voiceEnforcer.ResyncUserVisibility(serverID, targetID)
+		}
+	}
+	written := false
+
 	for _, id := range roleIDs {
 		if !currentSet[id] {
 			if err := s.roleRepo.AssignToUser(ctx, targetID, id, serverID); err != nil {
+				if written {
+					followRoles()
+				}
 				return nil, fmt.Errorf("failed to assign role: %w", err)
 			}
+			written = true
 		}
 	}
 
@@ -323,24 +341,21 @@ func (s *memberService) ModifyRoles(ctx context.Context, serverID, actorID, targ
 				continue
 			}
 			if err := s.roleRepo.RemoveFromUser(ctx, targetID, r.ID); err != nil {
+				if written {
+					followRoles()
+				}
 				return nil, fmt.Errorf("failed to remove role: %w", err)
 			}
+			written = true
 		}
 	}
+
+	// Before the read below: the roles are saved, and its failure must not skip what follows them.
+	followRoles()
 
 	member, err := s.GetByID(ctx, serverID, targetID)
 	if err != nil {
 		return nil, err
-	}
-
-	// The user's role set changed: drop their stale cached perms so join/send gates see the
-	// new set immediately, and enforce it live if they're already in voice (S3).
-	if s.permInvalidator != nil {
-		s.permInvalidator.InvalidateUserPermissions(targetID)
-	}
-	if s.voiceEnforcer != nil {
-		go s.voiceEnforcer.EnforceUserVoicePermissions(targetID)
-		s.voiceEnforcer.ResyncUserVisibility(serverID, targetID)
 	}
 
 	// Role changes are server-scoped — only broadcast to that server

@@ -102,6 +102,7 @@ func bindingHarness(t *testing.T) (*voiceService, *uniqueInstanceGetter) {
 		nil, // afkTimeoutGetter
 		key,
 		nil, // urlSigner
+		nil, // membership
 	).(*voiceService)
 	return svc, getter
 }
@@ -962,7 +963,7 @@ func TestPendingJoin_LastLeaverDoesNotReleaseUnderAConnectingJoiner(t *testing.T
 	s.mu.Unlock()
 
 	// V asks for a token and starts connecting. No voice state yet.
-	s.markPendingJoin("chan1", "v")
+	s.markPendingJoin("chan1", "v", false)
 
 	// U leaves. The channel has no states, but V is mid-handshake.
 	s.mu.Lock()
@@ -1000,7 +1001,7 @@ func TestPendingJoin_AnUnusedTokenStopsPinningTheChannel(t *testing.T) {
 	if _, err := s.resolveRoomInstance(withRegion(models.RegionUSEast), "srv1", "chan1"); err != nil {
 		t.Fatalf("token: %v", err)
 	}
-	s.markPendingJoin("chan1", "u1")
+	s.markPendingJoin("chan1", "u1", false)
 
 	// While the marker is live the channel is held.
 	s.mu.Lock()
@@ -1013,7 +1014,7 @@ func TestPendingJoin_AnUnusedTokenStopsPinningTheChannel(t *testing.T) {
 
 	// The join never arrives and the marker expires.
 	s.mu.Lock()
-	s.pendingJoins["chan1"]["u1"] = time.Now().Add(-time.Second)
+	s.pendingJoins["chan1"]["u1"] = pendingJoin{deadline: time.Now().Add(-time.Second)}
 	s.sweepAbandonedBindingsLocked()
 	leaked, stillBound := s.channelInstances["chan1"]
 	s.mu.Unlock()
@@ -1047,7 +1048,7 @@ func TestPendingJoin_SweepLeavesOccupiedChannelsAlone(t *testing.T) {
 func TestPendingJoin_ClearedOnceTheJoinLands(t *testing.T) {
 	s, _ := bindingHarness(t)
 
-	s.markPendingJoin("chan1", "u1")
+	s.markPendingJoin("chan1", "u1", false)
 	s.mu.Lock()
 	s.clearPendingJoinLocked("chan1", "u1")
 	pending := s.hasPendingJoinLocked("chan1")
@@ -1097,12 +1098,13 @@ func tokenHarness(t *testing.T, perms models.Permission) (*voiceService, *unique
 		nil,                                // afkTimeoutGetter
 		key,
 		&testutil.MockFileURLSigner{},
+		nil,
 	).(*voiceService)
 	return svc, getter
 }
 
 func TestGenerateToken_MarksTheChannelWhileTheJoinerConnects(t *testing.T) {
-	s, _ := tokenHarness(t, models.PermConnectVoice|models.PermSpeak)
+	s, _ := tokenHarness(t, models.PermViewChannel|models.PermConnectVoice|models.PermSpeak)
 
 	if _, err := s.GenerateToken(context.Background(), "u1", "u", "", "chan1"); err != nil {
 		t.Fatalf("token: %v", err)
@@ -1117,7 +1119,7 @@ func TestGenerateToken_MarksTheChannelWhileTheJoinerConnects(t *testing.T) {
 }
 
 func TestJoinChannel_ClearsTheMarkerTheTokenLeft(t *testing.T) {
-	s, _ := tokenHarness(t, models.PermConnectVoice|models.PermSpeak)
+	s, _ := tokenHarness(t, models.PermViewChannel|models.PermConnectVoice|models.PermSpeak)
 
 	if _, err := s.GenerateToken(context.Background(), "u1", "u", "", "chan1"); err != nil {
 		t.Fatalf("token: %v", err)
@@ -1163,14 +1165,14 @@ func TestGenerateToken_RefusedCallerLeavesNoBinding(t *testing.T) {
 
 // The sweep has to be reached by the periodic pass, not merely exist.
 func TestOrphanSweep_ReleasesAnAbandonedBinding(t *testing.T) {
-	s, _ := tokenHarness(t, models.PermConnectVoice)
+	s, _ := tokenHarness(t, models.PermViewChannel|models.PermConnectVoice)
 
 	if _, err := s.GenerateToken(context.Background(), "u1", "u", "", "chan1"); err != nil {
 		t.Fatalf("token: %v", err)
 	}
 	// The join never arrives and the marker ages out.
 	s.mu.Lock()
-	s.pendingJoins["chan1"]["u1"] = time.Now().Add(-time.Second)
+	s.pendingJoins["chan1"]["u1"] = pendingJoin{deadline: time.Now().Add(-time.Second)}
 	s.mu.Unlock()
 
 	s.sweepOrphanStates()
@@ -1263,7 +1265,7 @@ func TestUnbound_StoredBindingIsClearedWhenTheCallEnds(t *testing.T) {
 // The token is issued before the marker used to be set, and the sweep runs every five seconds.
 // A tick landing in that gap released a binding whose token had already gone out.
 func TestPendingJoin_SweepCannotCatchTheGapAfterTheClaim(t *testing.T) {
-	s, _ := tokenHarness(t, models.PermConnectVoice|models.PermSpeak)
+	s, _ := tokenHarness(t, models.PermViewChannel|models.PermConnectVoice|models.PermSpeak)
 
 	if _, err := s.GenerateToken(context.Background(), "u1", "u", "", "chan1"); err != nil {
 		t.Fatalf("token: %v", err)
@@ -1281,7 +1283,7 @@ func TestPendingJoin_SweepCannotCatchTheGapAfterTheClaim(t *testing.T) {
 // The screen share sub-participant joins a room that exists. Claiming there would pin the channel
 // using a request that carries no region at all — the screen-share handler never sets one.
 func TestScreenShare_FollowsTheBindingInsteadOfClaiming(t *testing.T) {
-	s, getter := tokenHarness(t, models.PermConnectVoice|models.PermSpeak)
+	s, getter := tokenHarness(t, models.PermViewChannel|models.PermConnectVoice|models.PermSpeak)
 	s.mu.Lock()
 	s.states["u1"] = &models.VoiceState{UserID: "u1", ChannelID: "chan1", ServerID: "srv1"}
 	s.mu.Unlock()

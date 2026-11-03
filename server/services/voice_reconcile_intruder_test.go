@@ -93,7 +93,7 @@ func connectPerms(allowed ...string) *testutil.MockChannelPermResolver {
 			}
 			for _, a := range allowed {
 				if a == userID {
-					return models.PermConnectVoice, nil
+					return models.PermViewChannel | models.PermConnectVoice, nil
 				}
 			}
 			return 0, nil
@@ -141,15 +141,65 @@ func TestReconcile_KeepsAParticipantWhoMayConnect(t *testing.T) {
 }
 
 // Between the token and the websocket join a user is in the room with no state. A force-moved user
-// has no ConnectVoice, so the pending join is what covers them.
-func TestReconcile_KeepsAUserMidJoin(t *testing.T) {
+// has no ConnectVoice, so the token minted on the grant is what covers them while they are a member.
+func TestReconcile_KeepsAForceMovedUserMidJoin(t *testing.T) {
 	s, sfu := intruderHarness(t, connectPerms("member"), "joining")
-	s.markPendingJoin("ch1", "joining")
+	s.membership = memberOf{"srv1:joining": true}
+	s.markPendingJoin("ch1", "joining", true)
+
+	s.sweepLiveKitReconciliation()
+
+	if got := sfu.removedIDs(); len(got) != 0 {
+		t.Fatalf("removed %v — a force-moved user mid-join lost the call", got)
+	}
+}
+
+// An ordinary user mid-join is kept by their ConnectVoice, not by the token.
+func TestReconcile_KeepsAUserMidJoinWhoMayConnect(t *testing.T) {
+	s, sfu := intruderHarness(t, connectPerms("member", "joining"), "joining")
+	s.markPendingJoin("ch1", "joining", false)
 
 	s.sweepLiveKitReconciliation()
 
 	if got := sfu.removedIDs(); len(got) != 0 {
 		t.Fatalf("removed %v — a user mid-join lost the call", got)
+	}
+}
+
+// A removed member keeps a token fresh by asking for one every 50 s. It must not keep them in the room.
+func TestReconcile_RemovesAUserWhoseOnlyClaimIsAFreshToken(t *testing.T) {
+	s, sfu := intruderHarness(t, connectPerms("member"), "kicked")
+	s.membership = memberOf{}
+	s.markPendingJoin("ch1", "kicked", false)
+
+	s.sweepLiveKitReconciliation()
+
+	if got := sfu.removedIDs(); len(got) != 1 || got[0] != "kicked" {
+		t.Fatalf("removed %v, want exactly [kicked]", got)
+	}
+}
+
+func TestReconcile_ForceMoveTokenNeedsMembership(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		user    string
+		removed bool
+	}{
+		{"no longer a member: removed", "kicked", true},
+		{"membership unreadable: kept", "broken", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, sfu := intruderHarness(t, connectPerms("member"), tc.user)
+			s.membership = memberOf{}
+			s.markPendingJoin("ch1", tc.user, true)
+
+			s.sweepLiveKitReconciliation()
+
+			got := sfu.removedIDs()
+			if tc.removed != (len(got) == 1 && got[0] == tc.user) || len(got) > 1 {
+				t.Fatalf("removed %v, want removed=%v for %s", got, tc.removed, tc.user)
+			}
+		})
 	}
 }
 
@@ -226,5 +276,24 @@ func TestReconcile_LeavesVoiceMembersAlone(t *testing.T) {
 	}
 	if s.GetUserVoiceState("member") == nil {
 		t.Fatal("a member present in the room was reaped")
+	}
+}
+
+// ConnectVoice without ViewChannel is a hidden channel: an old token for it is no right to be there.
+func TestReconcile_RemovesAParticipantWhoCannotSeeTheChannel(t *testing.T) {
+	perms := &testutil.MockChannelPermResolver{
+		ResolveChannelPermissionsFn: func(_ context.Context, userID, _ string) (models.Permission, error) {
+			if userID == "member" {
+				return models.PermViewChannel | models.PermConnectVoice, nil
+			}
+			return models.PermConnectVoice, nil
+		},
+	}
+	s, sfu := intruderHarness(t, perms, "hidden")
+
+	s.sweepLiveKitReconciliation()
+
+	if got := sfu.removedIDs(); len(got) != 1 || got[0] != "hidden" {
+		t.Fatalf("removed %v, want exactly [hidden]", got)
 	}
 }

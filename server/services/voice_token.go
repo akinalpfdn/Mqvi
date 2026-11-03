@@ -32,7 +32,7 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 		return nil, fmt.Errorf("failed to resolve channel permissions: %w", err)
 	}
 
-	if !effectivePerms.Has(models.PermConnectVoice) {
+	if !mayEnterVoice(effectivePerms) {
 		// Check for a one-time force-move grant (admin moved this user here)
 		s.mu.Lock()
 		grant, hasGrant := s.forceMoveGrants[userID]
@@ -45,6 +45,9 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 				delete(s.forceMoveGrants, userID) // expired or wrong channel — clean up
 			}
 			s.mu.Unlock()
+			if !effectivePerms.Has(models.PermViewChannel) {
+				return nil, pkg.ErrNotFound // a hidden channel answers like a missing one
+			}
 			return nil, fmt.Errorf("%w: missing voice connect permission", pkg.ErrForbidden)
 		}
 	}
@@ -66,8 +69,9 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 
 	// Marked before the claim, not after. The claim persists a row and the abandoned-binding sweep
 	// runs every five seconds; a tick landing in between saw a channel with no participants and
-	// nobody connecting, and released a binding whose token had already gone out.
-	s.markPendingJoin(channelID, userID)
+	// nobody connecting, and released a binding whose token had already gone out. Reaching here
+	// without voice access means a force-move grant was consumed above.
+	s.markPendingJoin(channelID, userID, !mayEnterVoice(effectivePerms))
 
 	// Only now. Resolving claims the channel's LiveKit instance on first use — an actual write, to
 	// memory and to channel_voice_bindings — and it used to run before any of the checks above. A

@@ -357,20 +357,27 @@ func SplitParticipantIdentity(identity string) (userID string, isScreenShare boo
 // used from pinning a channel for longer than that.
 const pendingJoinTTL = time.Minute
 
+// pendingJoin is a token issued for a channel whose websocket join has not landed yet.
+type pendingJoin struct {
+	deadline time.Time
+	// viaMove: minted on a force-move grant, which stands in for ConnectVoice in the target.
+	viaMove bool
+}
+
 // markPendingJoin records that a token was issued for this channel and the join has not landed yet.
 //
 // The binding is claimed here, at token time, but everything that ends its life keys off s.states,
 // which only exists once the websocket join arrives. That gap is what this closes.
-func (s *voiceService) markPendingJoin(channelID, userID string) {
+func (s *voiceService) markPendingJoin(channelID, userID string, viaMove bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.pendingJoins == nil {
-		s.pendingJoins = make(map[string]map[string]time.Time)
+		s.pendingJoins = make(map[string]map[string]pendingJoin)
 	}
 	if s.pendingJoins[channelID] == nil {
-		s.pendingJoins[channelID] = make(map[string]time.Time)
+		s.pendingJoins[channelID] = make(map[string]pendingJoin)
 	}
-	s.pendingJoins[channelID][userID] = time.Now().Add(pendingJoinTTL)
+	s.pendingJoins[channelID][userID] = pendingJoin{deadline: time.Now().Add(pendingJoinTTL), viaMove: viaMove}
 }
 
 // clearPendingJoinLocked drops the marker once the real voice state exists.
@@ -386,11 +393,14 @@ func (s *voiceService) clearPendingJoinLocked(channelID, userID string) {
 	}
 }
 
-// hasPendingJoinForLocked reports whether a token was issued to this user for this channel and has
-// not expired. Read-only, so an RLock is enough.
-func (s *voiceService) hasPendingJoinForLocked(channelID, userID string) bool {
-	deadline, ok := s.pendingJoins[channelID][userID]
-	return ok && time.Now().Before(deadline)
+// movedJoinPendingLocked reports whether userID holds an unexpired token for channelID minted on a
+// force-move grant. Read-only, so an RLock is enough.
+//
+// An ordinary token is deliberately not asked about here: it outlives a kick, a ban and a lost
+// permission, so whoever relies on it must ask the permission itself.
+func (s *voiceService) movedJoinPendingLocked(channelID, userID string) bool {
+	pj, ok := s.pendingJoins[channelID][userID]
+	return ok && pj.viaMove && time.Now().Before(pj.deadline)
 }
 
 // hasPendingJoinLocked reports whether anyone is still mid-handshake into this channel, pruning
@@ -401,8 +411,8 @@ func (s *voiceService) hasPendingJoinLocked(channelID string) bool {
 		return false
 	}
 	now := time.Now()
-	for userID, deadline := range pending {
-		if now.After(deadline) {
+	for userID, pj := range pending {
+		if now.After(pj.deadline) {
 			delete(pending, userID)
 		}
 	}

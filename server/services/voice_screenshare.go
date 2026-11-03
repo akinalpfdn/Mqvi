@@ -7,6 +7,9 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
+// WatchScreenShare counts viewerUserID in or out of streamerUserID's audience. Only a participant
+// of the streamer's channel can watch (the stream is in that room); anyone else is ignored, as the
+// reply would tell them where the streamer is and that they are streaming.
 func (s *voiceService) WatchScreenShare(viewerUserID, streamerUserID string, watching bool) {
 	s.mu.Lock()
 
@@ -18,16 +21,25 @@ func (s *voiceService) WatchScreenShare(viewerUserID, streamerUserID string, wat
 	}
 
 	if watching {
+		viewer, inVoice := s.states[viewerUserID]
+		if !inVoice || viewer.ChannelID != streamerState.ChannelID {
+			s.mu.Unlock()
+			return
+		}
 		if s.screenShareViewers[streamerUserID] == nil {
 			s.screenShareViewers[streamerUserID] = make(map[string]bool)
 		}
 		s.screenShareViewers[streamerUserID][viewerUserID] = true
 	} else {
-		if viewers, exists := s.screenShareViewers[streamerUserID]; exists {
-			delete(viewers, viewerUserID)
-			if len(viewers) == 0 {
-				delete(s.screenShareViewers, streamerUserID)
-			}
+		// A viewer who left the channel was already dropped from the set, and the count sent then.
+		viewers := s.screenShareViewers[streamerUserID]
+		if !viewers[viewerUserID] {
+			s.mu.Unlock()
+			return
+		}
+		delete(viewers, viewerUserID)
+		if len(viewers) == 0 {
+			delete(s.screenShareViewers, streamerUserID)
 		}
 	}
 
@@ -38,7 +50,8 @@ func (s *voiceService) WatchScreenShare(viewerUserID, streamerUserID string, wat
 		action = "join"
 	}
 
-	// Queued under the lock so the count lands in order with the streamer's own state changes.
+	// Queued under the lock so the count lands in order with the streamer's own state changes. The
+	// viewer is a participant, so the channel's audience already includes them.
 	s.emitChannelLocked(streamerState.ServerID, streamerState.ChannelID, ws.Event{
 		Op: ws.OpScreenShareViewerUpdate,
 		Data: ws.ScreenShareViewerUpdateData{
@@ -48,7 +61,7 @@ func (s *voiceService) WatchScreenShare(viewerUserID, streamerUserID string, wat
 			ViewerUserID:   viewerUserID,
 			Action:         action,
 		},
-	}, viewerUserID)
+	})
 	s.mu.Unlock()
 }
 

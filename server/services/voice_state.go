@@ -5,6 +5,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -536,27 +537,58 @@ func (s *voiceService) GetUserVoiceChannelID(userID string) string {
 	return ""
 }
 
+// voiceAccessPerms is what entering a voice channel takes: seeing it and connecting to it. A channel
+// a member cannot see is hidden from them, and learning its id must not let them in.
+const voiceAccessPerms = models.PermViewChannel | models.PermConnectVoice
+
+func mayEnterVoice(perms models.Permission) bool { return hasAllPermissions(perms, voiceAccessPerms) }
+
 // ErrVoiceJoinRefused is a websocket join that no token was issued for and that the user's
 // permissions do not allow.
 var ErrVoiceJoinRefused = fmt.Errorf("%w: not allowed to join this voice channel", pkg.ErrForbidden)
 
-// joinAuthorized: the voice state is the credential for voice chat and the screen-share token, so
-// only a join GenerateToken already authorized, or one the user's permissions allow, may create it.
-// The token marker covers a force-moved user, whose one-time grant was consumed by that token.
+// joinAuthorized: the voice state is the credential for voice chat and the screen-share token, so a
+// join that creates it is held to the token rule as it stands now — ConnectVoice, read fresh. A token
+// alone proves nothing: it outlives a kick, a ban and a lost permission, and anyone can keep one fresh.
+// The one exception is a token minted on a force-move grant, which stands in for ConnectVoice and so
+// needs only the membership the move was made under.
 func (s *voiceService) joinAuthorized(userID string, channel *models.Channel) bool {
 	if channel.Type != models.ChannelTypeVoice {
 		return false
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), voiceJoinAuthTimeout)
+	defer cancel()
+
 	s.mu.RLock()
-	pending := s.hasPendingJoinForLocked(channel.ID, userID)
+	moved := s.movedJoinPendingLocked(channel.ID, userID)
 	s.mu.RUnlock()
-	if pending {
-		return true
+	if moved {
+		member, err := s.isServerMember(ctx, channel.ServerID, userID)
+		if err != nil {
+			log.Printf("[voice] join authorization: membership user=%s server=%s: %v", userID, channel.ServerID, err)
+			return false
+		}
+		return member
 	}
-	perms, err := s.permResolver.ResolveChannelPermissions(context.Background(), userID, channel.ID)
+
+	perms, err := s.permResolver.ResolveChannelPermissionsFresh(ctx, userID, channel.ID)
 	if err != nil {
 		log.Printf("[voice] join authorization: resolve user=%s channel=%s: %v", userID, channel.ID, err)
 		return false
 	}
-	return perms.Has(models.PermConnectVoice)
+	return mayEnterVoice(perms)
+}
+
+const voiceJoinAuthTimeout = 5 * time.Second
+
+// isServerMember fails without a membership source rather than guessing.
+func (s *voiceService) isServerMember(ctx context.Context, serverID, userID string) (bool, error) {
+	if s.membership == nil {
+		return false, errors.New("no membership source")
+	}
+	member, err := s.membership.IsMember(ctx, serverID, userID)
+	if err != nil {
+		return false, fmt.Errorf("is member: %w", err)
+	}
+	return member, nil
 }

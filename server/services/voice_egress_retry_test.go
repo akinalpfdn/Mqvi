@@ -1,10 +1,13 @@
 package services
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/testutil"
 	"github.com/akinalp/mqvi/ws"
 )
 
@@ -193,5 +196,71 @@ func TestEgressRetry_NothingScheduledWhenReadsSucceed(t *testing.T) {
 
 	if len(timers.pending) != 0 {
 		t.Fatalf("%d retries scheduled with every read succeeding", len(timers.pending))
+	}
+}
+
+// Deleting a voice channel read its audience after the row was gone: every leave and timer stop
+// counted as a failed read, the window was reported SLOW to the admin log, and members who saw the
+// call without being in it kept it until a retry two seconds later.
+func TestChannelDelete_ADeletedChannelIsNotAFailedRead(t *testing.T) {
+	h, timers := newRetryHarness(t)
+	h.join("member", openCh)
+	h.join("insider", hiddenCh) // a call elsewhere in the server stays
+	h.log.reset()
+	h.view.gone = map[string]bool{openCh: true} // the row and its overrides went first
+	channels := &channelService{
+		channelRepo: &testutil.MockChannelRepo{GetByIDFn: func(_ context.Context, id string) (*models.Channel, error) {
+			return &models.Channel{ID: id, ServerID: audServer, Type: models.ChannelTypeVoice}, nil
+		}},
+		hub:         &testutil.MockBroadcaster{},
+		voiceDisc:   h.svc,
+		fileCleanup: noopFileCleanup{},
+	}
+
+	if err := channels.Delete(context.Background(), audServer, openCh); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	h.requireReceived("member", ws.OpVoiceStateUpdate, "leave", openCh)
+	// wanderer saw the call without being in it: their view of the server is replaced without it.
+	if got, ok := lastSync(h, "wanderer"); !ok || got != "" {
+		t.Fatalf("wanderer's resync = %q (sent %v), want an empty server", got, ok)
+	}
+	if got, ok := lastSync(h, "admin"); !ok || got != "insider@"+hiddenCh {
+		t.Fatalf("admin's resync = %q (sent %v), want only the call that is still running", got, ok)
+	}
+	h.svc.egress.stats.mu.Lock()
+	failedReads := h.svc.egress.stats.filterErrors
+	h.svc.egress.stats.mu.Unlock()
+	if failedReads != 0 {
+		t.Fatalf("%d audience reads counted as failed — a deleted channel would raise a SLOW window", failedReads)
+	}
+	if len(timers.pending) != 0 {
+		t.Fatalf("%d retries scheduled for a channel that no longer exists", len(timers.pending))
+	}
+}
+
+// The deleted channel held the server's only call: the replace still goes out, empty, or the members
+// who saw the call keep it.
+func TestChannelDelete_ReplacesTheViewEvenWhenNoCallIsLeft(t *testing.T) {
+	h, _ := newRetryHarness(t)
+	h.join("member", openCh)
+	h.log.reset()
+	h.view.gone = map[string]bool{openCh: true}
+	channels := &channelService{
+		channelRepo: &testutil.MockChannelRepo{GetByIDFn: func(_ context.Context, id string) (*models.Channel, error) {
+			return &models.Channel{ID: id, ServerID: audServer, Type: models.ChannelTypeVoice}, nil
+		}},
+		hub:         &testutil.MockBroadcaster{},
+		voiceDisc:   h.svc,
+		fileCleanup: noopFileCleanup{},
+	}
+
+	if err := channels.Delete(context.Background(), audServer, openCh); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	if got, ok := lastSync(h, "wanderer"); !ok || got != "" {
+		t.Fatalf("wanderer's resync = %q (sent %v), want an empty server", got, ok)
 	}
 }

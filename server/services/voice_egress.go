@@ -8,12 +8,14 @@ package services
 
 import (
 	"context"
+	"errors"
 	"log"
 	"runtime/debug"
 	"sync"
 	"time"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/ws"
 )
 
@@ -153,6 +155,68 @@ type voiceEgress struct {
 
 	retryMu sync.Mutex
 	retries map[string]*pendingRetry // serverID → the one retry waiting for it
+
+	// queued counts every task ever submitted per server. A reader holding s.mu sees a value that
+	// matches its snapshot, so a later different value means something was queued since.
+	queuedMu sync.Mutex
+	queued   map[string]uint64
+
+	// deleted marks channels being deleted, from just before their row goes (see markDeleted).
+	deletedMu sync.Mutex
+	deleted   map[string]time.Time // channelID → marked at
+}
+
+// deletedChannelTTL bounds how long a mark outlives its delete. It only has to cover the reads that
+// started before the delete, which time out after voiceEgressTimeout; channel ids are never reused.
+const deletedChannelTTL = time.Minute
+
+// markDeleted hides channelID's call from every audience decided from now on. A channel's overrides
+// go with its row, after which a hidden channel reads as visible to the base view: a snapshot taken
+// before the delete and judged after it would show the call to members who never could see it.
+func (e *voiceEgress) markDeleted(channelID string) {
+	e.deletedMu.Lock()
+	defer e.deletedMu.Unlock()
+	now := time.Now()
+	if e.deleted == nil {
+		e.deleted = make(map[string]time.Time)
+	}
+	for id, at := range e.deleted {
+		if now.Sub(at) > deletedChannelTTL {
+			delete(e.deleted, id)
+		}
+	}
+	e.deleted[channelID] = now
+}
+
+func (e *voiceEgress) unmarkDeleted(channelID string) {
+	e.deletedMu.Lock()
+	defer e.deletedMu.Unlock()
+	delete(e.deleted, channelID)
+}
+
+func (e *voiceEgress) isDeleted(channelID string) bool {
+	e.deletedMu.Lock()
+	defer e.deletedMu.Unlock()
+	_, ok := e.deleted[channelID]
+	return ok
+}
+
+// submit queues task in serverID's order. Every egress task goes through here.
+func (e *voiceEgress) submit(serverID string, task func()) {
+	e.queuedMu.Lock()
+	if e.queued == nil {
+		e.queued = make(map[string]uint64)
+	}
+	e.queued[serverID]++
+	e.queuedMu.Unlock()
+	e.run(serverID, task)
+}
+
+// position is how many tasks serverID has had queued so far.
+func (e *voiceEgress) position(serverID string) uint64 {
+	e.queuedMu.Lock()
+	defer e.queuedMu.Unlock()
+	return e.queued[serverID]
 }
 
 // pendingRetry is a scheduled resync. Failures before it fires join it rather than add another.
@@ -217,7 +281,7 @@ func (e *voiceEgress) retryLater(serverID string, users []string, attempt int) {
 // the channel's participants at the time of the change and its subject, who are told whether or
 // not they can see the channel.
 func (e *voiceEgress) channelEvent(serverID, channelID string, always []string, event ws.Event) {
-	e.run(serverID, func() {
+	e.submit(serverID, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), voiceEgressTimeout)
 		defer cancel()
 		event.ServerID = serverID
@@ -234,7 +298,7 @@ func (e *voiceEgress) channelEvent(serverID, channelID string, always []string, 
 // toUser delivers a signal meant for one user (force move, force disconnect, AFK kick) in order
 // with the server's voice events.
 func (e *voiceEgress) toUser(serverID, userID string, event ws.Event) {
-	e.run(serverID, func() {
+	e.submit(serverID, func() {
 		e.hub.BroadcastToUser(userID, event)
 	})
 }
@@ -247,7 +311,7 @@ func (e *voiceEgress) replaceServer(serverID string, users []string, snap voiceS
 
 // replaceServerAttempt is replaceServer as the attempt-th resync after failed reads.
 func (e *voiceEgress) replaceServerAttempt(serverID string, users []string, snap voiceSnapshot, attempt int) {
-	e.run(serverID, func() {
+	e.submit(serverID, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), voiceEgressTimeout)
 		defer cancel()
 		targets := users
@@ -267,7 +331,9 @@ func (e *voiceEgress) replaceServerAttempt(serverID string, users []string, snap
 		}
 		for _, uid := range targets {
 			own := snap.channelOf(uid)
-			sees := func(channelID string) bool { return channelID == own || viewersByChannel[channelID][uid] }
+			sees := func(channelID string) bool {
+				return !e.isDeleted(channelID) && (channelID == own || viewersByChannel[channelID][uid])
+			}
 			e.hub.BroadcastToUser(uid, ws.Event{
 				Op:       ws.OpVoiceServerStatesSync,
 				ServerID: serverID,
@@ -284,7 +350,7 @@ func (e *voiceEgress) replaceServerAttempt(serverID string, users []string, snap
 // A participant receives the channel's events without ViewChannel; once they leave, nothing would
 // clear what they saw, and on joining they hold none of it.
 func (e *voiceEgress) replaceIfHidden(serverID, userID string, channelIDs []string, snap voiceSnapshot) {
-	e.run(serverID, func() {
+	e.submit(serverID, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), voiceEgressTimeout)
 		defer cancel()
 		vis := e.userVisibility(ctx, userID, serverID, snap)
@@ -312,7 +378,7 @@ func (e *voiceEgress) replaceIfHidden(serverID, userID string, channelIDs []stri
 // joinSync tells a new member about the calls already running that they may see. Additive join
 // events rather than a replace: they hold nothing for this server yet, and old clients understand it.
 func (e *voiceEgress) joinSync(serverID, userID string, snap voiceSnapshot) {
-	e.run(serverID, func() {
+	e.submit(serverID, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), voiceEgressTimeout)
 		defer cancel()
 		vis := e.userVisibility(ctx, userID, serverID, snap)
@@ -347,19 +413,26 @@ type userVisibility struct {
 	own    string
 	filter *ChannelVisibilityFilter
 	failed bool // the read failed: only their own channel, until a retry
+	// deleted is asked when the answer is used, which is after the read: a channel deleted in
+	// between is seen by nobody, whatever the read made of its missing overrides.
+	deleted func(channelID string) bool
 }
 
 // canView is ViewChannel itself, without the own-channel exception.
 func (v userVisibility) canView(channelID string) bool {
-	return v.filter != nil && v.filter.CanSee(channelID)
+	return v.filter != nil && v.filter.CanSee(channelID) && !v.gone(channelID)
 }
 
 func (v userVisibility) sees(channelID string) bool {
-	return channelID == v.own || v.canView(channelID)
+	return !v.gone(channelID) && (channelID == v.own || v.canView(channelID))
+}
+
+func (v userVisibility) gone(channelID string) bool {
+	return v.deleted != nil && v.deleted(channelID)
 }
 
 func (e *voiceEgress) userVisibility(ctx context.Context, userID, serverID string, snap voiceSnapshot) userVisibility {
-	vis := userVisibility{own: snap.channelOf(userID)}
+	vis := userVisibility{own: snap.channelOf(userID), deleted: e.isDeleted}
 	if e.visibility == nil {
 		return vis
 	}
@@ -381,12 +454,21 @@ func (e *voiceEgress) onlineIn(serverID string) []string {
 }
 
 // viewers keeps the users who hold ViewChannel in channelID. An error keeps nobody and reports false.
+// A deleted channel is seen by nobody, and that is an answer, not a failed read: no retry, and no
+// slow window raised for a database that is fine.
 func (e *voiceEgress) viewers(ctx context.Context, channelID string, users []string) ([]string, bool) {
+	if e.isDeleted(channelID) {
+		return nil, true
+	}
 	if e.visibility == nil || len(users) == 0 {
 		return nil, true
 	}
 	started := time.Now()
 	out, err := e.visibility.FilterUsersWithPermission(ctx, channelID, users, models.PermViewChannel)
+	if errors.Is(err, pkg.ErrNotFound) {
+		e.stats.filter(time.Since(started), false)
+		return nil, true
+	}
 	e.stats.filter(time.Since(started), err != nil)
 	if err != nil {
 		log.Printf("[voice] egress: audience for channel=%s: %v (participants only)", channelID, err)

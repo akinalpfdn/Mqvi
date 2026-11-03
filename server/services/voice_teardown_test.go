@@ -9,7 +9,7 @@ import (
 
 // S2 (Phase 44): server-delete teardown enumerates voice participants by server.
 func TestGetServerParticipants_FiltersByServer(t *testing.T) {
-	svc, _ := newTimerTestVoiceService(nil, models.PermConnectVoice)
+	svc, _ := newTimerTestVoiceService(nil, models.PermViewChannel|models.PermConnectVoice)
 	svc.states = map[string]*models.VoiceState{
 		"u1": {UserID: "u1", ChannelID: "c1", ServerID: "srv1"},
 		"u2": {UserID: "u2", ChannelID: "c2", ServerID: "srv1"},

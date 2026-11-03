@@ -665,7 +665,7 @@ type roomParticipant struct {
 // app can be hours. Such a user could rejoin anyway, so their presence opens nothing.
 func (s *voiceService) removeUnentitledParticipants(participants []roomParticipant) {
 	for _, p := range participants {
-		if s.mayBeInRoom(p.userID, p.channelID) {
+		if s.mayBeInRoom(p.serverID, p.userID, p.channelID) {
 			continue
 		}
 		log.Printf("[voice] livekit reconcile: removing %s from channel %s (no voice state, no connect permission)", p.identity, p.channelID)
@@ -677,13 +677,15 @@ func (s *voiceService) removeUnentitledParticipants(participants []roomParticipa
 	}
 }
 
-// mayBeInRoom is the token rule (GenerateToken) re-asked now: in voice here, mid-join with a token
-// issued for here, or allowed to connect. A permission that cannot be resolved keeps them — in
-// doubt, never remove.
-func (s *voiceService) mayBeInRoom(userID, channelID string) bool {
+// mayBeInRoom is the join rule (joinAuthorized) re-asked now: in voice here, mid-join on a force-move
+// token while still a member, or allowed to connect. An ordinary token does not keep anyone — whoever
+// is mid-join on one may connect, or their token is all they have left. A permission or membership
+// that cannot be read keeps them — in doubt, never remove.
+func (s *voiceService) mayBeInRoom(serverID, userID, channelID string) bool {
 	s.mu.RLock()
 	st, inVoice := s.states[userID]
-	held := (inVoice && st.ChannelID == channelID) || s.hasPendingJoinForLocked(channelID, userID)
+	held := inVoice && st.ChannelID == channelID
+	moved := !held && s.movedJoinPendingLocked(channelID, userID)
 	s.mu.RUnlock()
 	if held {
 		return true
@@ -691,10 +693,18 @@ func (s *voiceService) mayBeInRoom(userID, channelID string) bool {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	if moved {
+		member, err := s.isServerMember(ctx, serverID, userID)
+		if err != nil {
+			log.Printf("[voice] livekit reconcile: membership user=%s server=%s: %v (keeping)", userID, serverID, err)
+			return true
+		}
+		return member
+	}
 	perms, err := s.permResolver.ResolveChannelPermissionsFresh(ctx, userID, channelID)
 	if err != nil {
 		log.Printf("[voice] livekit reconcile: permission resolve user=%s channel=%s: %v (keeping)", userID, channelID, err)
 		return true
 	}
-	return perms.Has(models.PermConnectVoice)
+	return mayEnterVoice(perms)
 }

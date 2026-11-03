@@ -72,6 +72,7 @@ func seedPermWorld(t *testing.T) permWorld {
 		repository.NewSQLiteRoleRepo(f.DB),
 		repository.NewSQLiteChannelRepo(f.DB),
 		&testutil.MockBroadcaster{},
+		nil,
 	).(*channelPermService)
 	return w
 }
@@ -159,5 +160,60 @@ func TestFilterUsersWithPermission_UnknownChannelIsAnError(t *testing.T) {
 	w := seedPermWorld(t)
 	if _, err := w.svc.FilterUsersWithPermission(context.Background(), "no-such-channel", w.users, models.PermViewChannel); err == nil {
 		t.Fatal("an unknown channel resolved an audience; callers fail closed only on an error")
+	}
+}
+
+// An override change used to go to the whole server, carrying a hidden channel's id and its
+// permissions to members who never could see it. It goes to whoever saw the channel before the
+// change or sees it after: losers drop it from the sidebar, gainers fetch it, nobody else hears.
+func TestOverrideChange_ToldToViewersBeforeAndAfterOnly(t *testing.T) {
+	// w.users: everyone-only, staff-too, staff-only, admin, no-view-role, roleless, plain-role
+	const everyoneOnly, staffToo, staffOnly, admin = 0, 1, 2, 3
+	for _, tc := range []struct {
+		name   string
+		change func(ctx context.Context, w permWorld) error
+		want   []int
+	}{
+		{"visibility unchanged", func(ctx context.Context, w permWorld) error {
+			return w.svc.SetOverride(ctx, w.server, w.channel, "muted", &models.SetOverrideRequest{Allow: models.PermReadMessages})
+		}, []int{staffToo, staffOnly, admin}},
+		{"staff loses it", func(ctx context.Context, w permWorld) error {
+			return w.svc.DeleteOverride(ctx, w.server, w.channel, "staff")
+		}, []int{staffToo, staffOnly, admin}},
+		{"everyone gains it (cleared override)", func(ctx context.Context, w permWorld) error {
+			return w.svc.SetOverride(ctx, w.server, w.channel, "everyone", &models.SetOverrideRequest{})
+		}, []int{everyoneOnly, staffToo, staffOnly, admin}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			w := seedPermWorld(t)
+			rec := newScopeRecorder()
+			w.svc.hub = rec
+			w.svc.online = fixedOnline{w.server: w.users}
+
+			if err := tc.change(ctx, w); err != nil {
+				t.Fatalf("change: %v", err)
+			}
+
+			if len(rec.toAll) != 0 || len(rec.toServer[w.server]) != 0 {
+				t.Fatalf("override change broadcast wide (all=%d server=%d)", len(rec.toAll), len(rec.toServer[w.server]))
+			}
+			if len(rec.toUsers) != 1 {
+				t.Fatalf("%d deliveries, want one", len(rec.toUsers))
+			}
+			got := map[string]bool{}
+			for _, uid := range rec.toUsers[0].users {
+				got[uid] = true
+			}
+			want := map[string]bool{}
+			for _, i := range tc.want {
+				want[w.users[i]] = true
+			}
+			for _, uid := range w.users {
+				if got[uid] != want[uid] {
+					t.Errorf("%s told=%v, want %v", uid, got[uid], want[uid])
+				}
+			}
+		})
 	}
 }

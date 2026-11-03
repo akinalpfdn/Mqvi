@@ -73,7 +73,9 @@ func (s *voiceService) enforceVoicePermissionForParticipant(p models.VoiceState)
 		return
 	}
 
-	if !perms.Has(models.PermConnectVoice) {
+	// Someone else's move stands in for access the participant lacks in that channel, so it is not
+	// taken back by an unrelated permission change; Speak below still applies.
+	if !mayEnterVoice(perms) && !p.MovedIn {
 		// Lost the right to be in voice at all — disconnect (in-memory + LiveKit + broadcast).
 		// The fresh resolve above also blocks an immediate rejoin (GenerateToken re-checks
 		// ConnectVoice against the now-fresh cache). Tell the target's own client to tear its

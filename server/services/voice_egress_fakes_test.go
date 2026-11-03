@@ -3,9 +3,11 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/ws"
 )
 
@@ -29,6 +31,8 @@ type viewTable struct {
 	viewers map[string][]string // channelID → users with ViewChannel
 	fail    bool                // every lookup errors
 	failN   int                 // the next failN lookups error
+	gone    map[string]bool     // deleted channels: their lookups answer not found
+	onRead  func()              // runs once, at the start of the next lookup
 	mu      sync.Mutex
 	calls   int // FilterUsersWithPermission calls
 }
@@ -47,9 +51,14 @@ func (v *viewTable) canView(userID, channelID string) bool {
 }
 
 func (v *viewTable) FilterUsersWithPermission(_ context.Context, channelID string, userIDs []string, _ models.Permission) ([]string, error) {
+	v.reading()
 	v.mu.Lock()
 	v.calls++
+	gone := v.gone[channelID]
 	v.mu.Unlock()
+	if gone {
+		return nil, fmt.Errorf("get channel %s: %w", channelID, pkg.ErrNotFound)
+	}
 	if v.failing() {
 		return nil, errViewLookup
 	}
@@ -76,7 +85,20 @@ func (v *viewTable) failing() bool {
 	return false
 }
 
+// reading runs and clears onRead: whatever it changes lands between the caller's snapshot and the
+// answer the caller reads.
+func (v *viewTable) reading() {
+	v.mu.Lock()
+	hook := v.onRead
+	v.onRead = nil
+	v.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+}
+
 func (v *viewTable) BuildVisibilityFilter(_ context.Context, userID, _ string) (*ChannelVisibilityFilter, error) {
+	v.reading()
 	if v.failing() {
 		return nil, errViewLookup
 	}

@@ -90,12 +90,13 @@ func voiceServiceThatCanMint(t *testing.T) (VoiceService, *captureLogger) {
 		nil, // binding store: these tests keep the binding in memory only
 		&testutil.MockChannelPermResolver{
 			ResolveChannelPermissionsFn: func(_ context.Context, _, _ string) (models.Permission, error) {
-				return models.PermConnectVoice | models.PermSpeak, nil
+				return models.PermViewChannel | models.PermConnectVoice | models.PermSpeak, nil
 			},
 		},
 		&testutil.MockBroadcaster{},
 		openAudience{}, openAudience{}, // audience: everyone sees everything, as before filtering
 		nil, nil, key, &testutil.MockFileURLSigner{},
+		nil,
 	)
 	svc.SetAppLogger(logger)
 	return svc, logger
@@ -194,6 +195,7 @@ func TestScreenShareToken_RefusesAndLogsForATextChannel(t *testing.T) {
 		&mockLiveKitGetter{}, nil, &testutil.MockChannelPermResolver{}, hub,
 		openAudience{}, openAudience{}, // audience: everyone sees everything, as before filtering
 		nil, nil, nil, &testutil.MockFileURLSigner{},
+		nil,
 	)
 	svc.SetAppLogger(logger)
 

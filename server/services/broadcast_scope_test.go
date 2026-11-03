@@ -234,7 +234,38 @@ func TestChannelUpdate_GoesOnlyToMembersWhoSeeTheChannel(t *testing.T) {
 	}
 }
 
-func TestChannelDelete_StaysInTheServer(t *testing.T) {
+// A hidden channel's id is not for members who never saw it, deleted or not. The audience is read
+// before the delete: afterwards the overrides are gone and everyone would read as a viewer.
+func TestChannelDelete_GoesOnlyToMembersWhoSawTheChannel(t *testing.T) {
+	rec := newScopeRecorder()
+	perms := permTable{"viewer:staff-ch": models.PermViewChannel}
+	channels := &testutil.MockChannelRepo{
+		GetByIDFn: func(_ context.Context, id string) (*models.Channel, error) {
+			return &models.Channel{ID: id, ServerID: "srv", Type: models.ChannelTypeText}, nil
+		},
+		DeleteFn: func(context.Context, string) error {
+			perms["outsider:staff-ch"] = models.PermViewChannel // overrides gone: everyone "sees" it
+			return nil
+		},
+	}
+	online := fixedOnline{"srv": {"viewer", "outsider", "voiceonly"}}
+	svc := NewChannelService(channels, nil, rec, nil, fixedVoice{"voiceonly": "staff-ch"}, nil, noopFileCleanup{},
+		online, perms.filter(false))
+
+	if err := svc.Delete(context.Background(), "srv", "staff-ch"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if len(rec.toAll) != 0 || len(rec.toServer["srv"]) != 0 {
+		t.Fatalf("channel_delete was broadcast wide (all=%d server=%d)", len(rec.toAll), len(rec.toServer["srv"]))
+	}
+	if got := rec.usersFor(ws.OpChannelDelete); strings.Join(got, ",") != "viewer,voiceonly" {
+		t.Fatalf("channel_delete recipients = %v, want [viewer voiceonly]", got)
+	}
+}
+
+// A failed read tells the whole server: a deleted channel's id is worth less than a channel stuck in
+// every sidebar. Never every connected client.
+func TestChannelDelete_AFailedReadTellsTheServer(t *testing.T) {
 	rec := newScopeRecorder()
 	channels := &testutil.MockChannelRepo{
 		GetByIDFn: func(_ context.Context, id string) (*models.Channel, error) {
@@ -242,7 +273,7 @@ func TestChannelDelete_StaysInTheServer(t *testing.T) {
 		},
 	}
 	svc := NewChannelService(channels, nil, rec, nil, nil, nil, noopFileCleanup{},
-		fixedOnline{}, permTable{}.filter(false))
+		fixedOnline{"srv": {"viewer"}}, permTable{}.filter(true))
 
 	if err := svc.Delete(context.Background(), "srv", "ch1"); err != nil {
 		t.Fatalf("delete: %v", err)
@@ -326,7 +357,10 @@ func TestRoleEvents_StayInTheServer(t *testing.T) {
 
 // ─── Channel permission overrides ───
 
-func TestOverrideEvents_StayInTheServer(t *testing.T) {
+// Who saw the channel cannot be read here (no online source): the whole server is told, never every
+// connected client. The scoped audience is tested against the real schema in
+// channel_permission_filter_test.go.
+func TestOverrideEvents_AFailedReadStaysInTheServer(t *testing.T) {
 	ctx := context.Background()
 	channels := &testutil.MockChannelRepo{
 		GetByIDFn: func(_ context.Context, id string) (*models.Channel, error) {
@@ -335,14 +369,14 @@ func TestOverrideEvents_StayInTheServer(t *testing.T) {
 	}
 
 	rec := newScopeRecorder()
-	svc := NewChannelPermissionService(&testutil.MockChannelPermRepo{}, &testutil.MockRoleRepo{}, channels, rec)
+	svc := NewChannelPermissionService(&testutil.MockChannelPermRepo{}, &testutil.MockRoleRepo{}, channels, rec, nil)
 	if err := svc.SetOverride(ctx, "srv", "ch1", "r1", &models.SetOverrideRequest{Deny: models.PermViewChannel}); err != nil {
 		t.Fatalf("set: %v", err)
 	}
 	rec.requireOnlyServer(t, "srv", ws.OpChannelPermissionUpdate)
 
 	rec = newScopeRecorder()
-	svc = NewChannelPermissionService(&testutil.MockChannelPermRepo{}, &testutil.MockRoleRepo{}, channels, rec)
+	svc = NewChannelPermissionService(&testutil.MockChannelPermRepo{}, &testutil.MockRoleRepo{}, channels, rec, nil)
 	if err := svc.DeleteOverride(ctx, "srv", "ch1", "r1"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}

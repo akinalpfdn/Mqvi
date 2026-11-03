@@ -151,6 +151,7 @@ func TestVoiceEgress_DeliversInOrderThroughTheQueue(t *testing.T) {
 			return models.PermAll, nil
 		}},
 		log.broadcaster(), view, view, nil, nil, nil, &testutil.MockFileURLSigner{},
+		nil,
 	)
 
 	yes, no := true, false

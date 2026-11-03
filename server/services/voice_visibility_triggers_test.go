@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -178,6 +179,74 @@ func TestModifyRoles_ResyncsTheMembersVoiceVisibility(t *testing.T) {
 	requireOnly(t, "user resyncs", hooks.userSync, "srv/target")
 }
 
+// A role save writes one role at a time. When a later step fails, the roles already written stand:
+// the member's cached permissions, live voice and voice visibility must follow them anyway.
+func TestModifyRoles_AFailedSaveStillFollowsWhatWasWritten(t *testing.T) {
+	errWrite := errors.New("disk full")
+	for _, tc := range []struct {
+		name    string
+		fail    func(m *memberService, roles *testutil.MockRoleRepo)
+		roleIDs []string
+		follows bool
+	}{
+		{"second assign fails", func(_ *memberService, roles *testutil.MockRoleRepo) {
+			n := 0
+			roles.AssignToUserFn = func(context.Context, string, string, string) error {
+				if n++; n == 2 {
+					return errWrite
+				}
+				return nil
+			}
+		}, []string{"base", "r-a", "r-b"}, true},
+		{"remove fails after an assign", func(_ *memberService, roles *testutil.MockRoleRepo) {
+			roles.RemoveFromUserFn = func(context.Context, string, string) error { return errWrite }
+		}, []string{"r-a"}, true}, // drops the non-default "extra" the target holds
+		{"reading the member back fails", func(m *memberService, _ *testutil.MockRoleRepo) {
+			m.userRepo = &testutil.MockUserRepo{GetActiveByIDFn: func(context.Context, string) (*models.User, error) {
+				return nil, errWrite
+			}}
+		}, []string{"base", "r-a"}, true},
+		{"the first write fails: nothing changed", func(_ *memberService, roles *testutil.MockRoleRepo) {
+			roles.AssignToUserFn = func(context.Context, string, string, string) error { return errWrite }
+		}, []string{"base", "r-a"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hooks := &voiceHooks{}
+			inv := &invalidations{}
+			m := memberUnderTest(hooks)
+			m.permInvalidator = inv
+			roles := hierarchyRoles()
+			base := roles.GetByUserIDAndServerFn
+			roles.GetByUserIDAndServerFn = func(ctx context.Context, userID, serverID string) ([]models.Role, error) {
+				if userID == "target" {
+					return []models.Role{
+						{ID: "base", ServerID: serverID, Position: 1, IsDefault: true},
+						{ID: "extra", ServerID: serverID, Position: 2},
+					}, nil
+				}
+				return base(ctx, userID, serverID)
+			}
+			m.roleRepo = roles
+			tc.fail(m, roles)
+
+			if _, err := m.ModifyRoles(context.Background(), "srv", "actor", "target", tc.roleIDs); err == nil {
+				t.Fatal("ModifyRoles succeeded; the failure must still be reported")
+			}
+
+			if !tc.follows {
+				if len(inv.users) != 0 || len(hooks.userSync) != 0 {
+					t.Fatalf("nothing was written, yet invalidated %v and resynced %v", inv.users, hooks.userSync)
+				}
+				return
+			}
+			if len(inv.users) != 1 || inv.users[0] != "target" {
+				t.Fatalf("invalidated %v, want target — stale permissions outlive the saved roles", inv.users)
+			}
+			requireOnly(t, "user resyncs after a partial save", hooks.userSync, "srv/target")
+		})
+	}
+}
+
 // Kick and ban end the member's call on this server only.
 func TestKickAndBan_DisconnectOnlyThisServersVoice(t *testing.T) {
 	ctx := context.Background()
@@ -296,36 +365,77 @@ func TestPermissionWrites_ResyncVoiceVisibility(t *testing.T) {
 	}
 }
 
-type channelDisconnects struct {
-	participants []models.VoiceState
-	left         []string // userID@channelID
+// deleteSteps records the order of a channel delete: the voice hooks, the row, the file cleanup.
+type deleteSteps struct{ steps *[]string }
+
+func (d deleteSteps) BeginChannelDelete(serverID, channelID string) {
+	*d.steps = append(*d.steps, "begin:"+channelID)
+}
+func (d deleteSteps) AbortChannelDelete(serverID, channelID string) {
+	*d.steps = append(*d.steps, "abort:"+channelID)
+}
+func (d deleteSteps) FinishChannelDelete(serverID, channelID string) {
+	*d.steps = append(*d.steps, "finish:"+channelID)
 }
 
-func (c *channelDisconnects) GetChannelParticipants(string) []models.VoiceState {
-	return c.participants
-}
-func (c *channelDisconnects) DisconnectUserFromChannel(userID, channelID string) bool {
-	c.left = append(c.left, userID+"@"+channelID)
-	return true
+// orderedFileCleanup records when the slow disk cleanup runs.
+type orderedFileCleanup struct {
+	noopFileCleanup
+	steps *[]string
 }
 
-// Deleting a voice channel disconnects its participants from that channel only: one who moved on
-// between the listing and the disconnect is in another call now.
-func TestChannelDelete_DisconnectsFromThatChannelOnly(t *testing.T) {
-	disc := &channelDisconnects{participants: []models.VoiceState{{UserID: "u1", ChannelID: "vc"}, {UserID: "u2", ChannelID: "vc"}}}
-	svc := &channelService{
-		channelRepo: &testutil.MockChannelRepo{GetByIDFn: func(_ context.Context, id string) (*models.Channel, error) {
-			return &models.Channel{ID: id, ServerID: "srv", Type: models.ChannelTypeVoice}, nil
-		}},
+func (f orderedFileCleanup) Execute(*CleanupPlan) { *f.steps = append(*f.steps, "files") }
+
+func deleteHarness(channelType models.ChannelType, rowErr error) (*channelService, *[]string) {
+	steps := &[]string{}
+	return &channelService{
+		channelRepo: &testutil.MockChannelRepo{
+			GetByIDFn: func(_ context.Context, id string) (*models.Channel, error) {
+				return &models.Channel{ID: id, ServerID: "srv", Type: channelType}, nil
+			},
+			DeleteFn: func(context.Context, string) error {
+				*steps = append(*steps, "row")
+				return rowErr
+			},
+		},
 		hub:         &testutil.MockBroadcaster{},
-		voiceDisc:   disc,
-		fileCleanup: noopFileCleanup{},
-	}
+		voiceDisc:   deleteSteps{steps: steps},
+		fileCleanup: orderedFileCleanup{steps: steps},
+	}, steps
+}
+
+// The call is hidden before the row goes (its overrides go with it, after which a hidden channel
+// reads as visible), closed after it, and all of that before the slow file cleanup.
+func TestChannelDelete_HidesTheCallBeforeTheRowAndClosesItAfter(t *testing.T) {
+	svc, steps := deleteHarness(models.ChannelTypeVoice, nil)
 
 	if err := svc.Delete(context.Background(), "srv", "vc"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if len(disc.left) != 2 || disc.left[0] != "u1@vc" || disc.left[1] != "u2@vc" {
-		t.Fatalf("disconnects %v, want both participants from vc only", disc.left)
+	if got := strings.Join(*steps, ","); got != "begin:vc,row,finish:vc,files" {
+		t.Fatalf("steps %s, want begin:vc,row,finish:vc,files", got)
+	}
+}
+
+// A failed delete kicks nobody and gives the call back.
+func TestChannelDelete_AFailedDeleteGivesTheCallBack(t *testing.T) {
+	svc, steps := deleteHarness(models.ChannelTypeVoice, errors.New("locked"))
+
+	if err := svc.Delete(context.Background(), "srv", "vc"); err == nil {
+		t.Fatal("Delete succeeded on a failed row delete")
+	}
+	if got := strings.Join(*steps, ","); got != "begin:vc,row,abort:vc" {
+		t.Fatalf("steps %s, want begin:vc,row,abort:vc", got)
+	}
+}
+
+func TestChannelDelete_ATextChannelHasNoCall(t *testing.T) {
+	svc, steps := deleteHarness(models.ChannelTypeText, nil)
+
+	if err := svc.Delete(context.Background(), "srv", "tc"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if got := strings.Join(*steps, ","); got != "row,files" {
+		t.Fatalf("steps %s, want row,files", got)
 	}
 }

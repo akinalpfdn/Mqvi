@@ -14,6 +14,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -87,6 +88,7 @@ type channelPermService struct {
 	roleRepo      repository.RoleRepository
 	channelGetter ChannelGetter
 	hub           ws.Broadcaster
+	online        ServerOnlineLister
 	voiceEnforcer VoiceChannelPermissionEnforcer // set post-construction, may be nil
 
 	// Cache for ResolveChannelPermissions results. Key: "userID:channelID".
@@ -113,12 +115,14 @@ func NewChannelPermissionService(
 	roleRepo repository.RoleRepository,
 	channelGetter ChannelGetter,
 	hub ws.Broadcaster,
+	online ServerOnlineLister,
 ) ChannelPermissionService {
 	return &channelPermService{
 		permRepo:      permRepo,
 		roleRepo:      roleRepo,
 		channelGetter: channelGetter,
 		hub:           hub,
+		online:        online,
 		permCache:     cache.New[string, models.Permission](permCacheTTL, permCacheCleanup),
 	}
 }
@@ -159,6 +163,8 @@ func (s *channelPermService) SetOverride(ctx context.Context, serverID, channelI
 		return fmt.Errorf("%w: channel does not belong to this server", pkg.ErrForbidden)
 	}
 
+	before, beforeErr := s.viewersNow(ctx, serverID, channelID)
+
 	// allow=0, deny=0 -> no effect (same as inherit), delete
 	if req.Allow == 0 && req.Deny == 0 {
 		if err := s.permRepo.Delete(ctx, channelID, roleID); err != nil {
@@ -168,7 +174,7 @@ func (s *channelPermService) SetOverride(ctx context.Context, serverID, channelI
 		s.invalidateChannelCache(channelID)
 		s.enforceChannelVoice(serverID, channelID)
 
-		s.hub.BroadcastToServer(serverID, ws.Event{
+		s.tellOverrideChange(ctx, serverID, channelID, before, beforeErr, ws.Event{
 			Op: ws.OpChannelPermissionDelete,
 			Data: map[string]string{
 				"channel_id": channelID,
@@ -193,7 +199,7 @@ func (s *channelPermService) SetOverride(ctx context.Context, serverID, channelI
 	s.invalidateChannelCache(channelID)
 	s.enforceChannelVoice(serverID, channelID)
 
-	s.hub.BroadcastToServer(serverID, ws.Event{
+	s.tellOverrideChange(ctx, serverID, channelID, before, beforeErr, ws.Event{
 		Op:   ws.OpChannelPermissionUpdate,
 		Data: override,
 	})
@@ -211,6 +217,8 @@ func (s *channelPermService) DeleteOverride(ctx context.Context, serverID, chann
 		return fmt.Errorf("%w: channel does not belong to this server", pkg.ErrForbidden)
 	}
 
+	before, beforeErr := s.viewersNow(ctx, serverID, channelID)
+
 	if err := s.permRepo.Delete(ctx, channelID, roleID); err != nil {
 		return fmt.Errorf("failed to delete channel override: %w", err)
 	}
@@ -218,7 +226,7 @@ func (s *channelPermService) DeleteOverride(ctx context.Context, serverID, chann
 	s.invalidateChannelCache(channelID)
 	s.enforceChannelVoice(serverID, channelID)
 
-	s.hub.BroadcastToServer(serverID, ws.Event{
+	s.tellOverrideChange(ctx, serverID, channelID, before, beforeErr, ws.Event{
 		Op: ws.OpChannelPermissionDelete,
 		Data: map[string]string{
 			"channel_id": channelID,
@@ -227,6 +235,28 @@ func (s *channelPermService) DeleteOverride(ctx context.Context, serverID, chann
 	})
 
 	return nil
+}
+
+// viewersNow is who of the server's online members can see channelID at this moment.
+func (s *channelPermService) viewersNow(ctx context.Context, serverID, channelID string) ([]string, error) {
+	if s.online == nil {
+		return nil, errors.New("no online member source")
+	}
+	return channelAudienceOrErr(ctx, s.online, s, serverID, channelID, models.PermViewChannel)
+}
+
+// tellOverrideChange sends event to whoever saw the channel before the change or sees it after:
+// the ones who lose it must drop it from their sidebar, the ones who gain it must fetch it, and
+// nobody else may learn a hidden channel's id or its permissions. A failed read on either side tells
+// the whole server, as a sidebar left wrong is worse than the id.
+func (s *channelPermService) tellOverrideChange(ctx context.Context, serverID, channelID string, before []string, beforeErr error, event ws.Event) {
+	after, afterErr := s.viewersNow(ctx, serverID, channelID)
+	if err := errors.Join(beforeErr, afterErr); err != nil {
+		log.Printf("[channel-perm] override change on %s: %v (told the whole server)", channelID, err)
+		s.hub.BroadcastToServer(serverID, event)
+		return
+	}
+	s.hub.BroadcastToUsers(unionUserIDs(before, after), event)
 }
 
 // BuildVisibilityFilter builds a per-user channel visibility filter.

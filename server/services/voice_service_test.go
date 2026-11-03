@@ -69,6 +69,7 @@ func TestRemoveParticipantFromLiveKit_ReachesSFUAfterChannelDeleted(t *testing.T
 		nil, // afkTimeoutGetter
 		nil, // encryptionKey
 		&testutil.MockFileURLSigner{},
+		nil,
 	).(*voiceService)
 
 	svc.removeParticipantFromLiveKit("srv1", "deleted-chan", "u1", "lk-the-room-was-here")
@@ -110,7 +111,7 @@ func newTestVoiceService() (VoiceService, *testutil.MockBroadcaster) {
 		// An ordinary member: joins are authorized by ConnectVoice since these tests skip the token.
 		&testutil.MockChannelPermResolver{
 			ResolveChannelPermissionsFn: func(context.Context, string, string) (models.Permission, error) {
-				return models.PermConnectVoice | models.PermSpeak, nil
+				return models.PermViewChannel | models.PermConnectVoice | models.PermSpeak, nil
 			},
 		},
 		hub,
@@ -119,6 +120,7 @@ func newTestVoiceService() (VoiceService, *testutil.MockBroadcaster) {
 		nil, // afkTimeoutGetter
 		nil, // encryptionKey
 		&testutil.MockFileURLSigner{},
+		nil,
 	)
 	return inlineEgress(svc), hub
 }
@@ -422,6 +424,8 @@ func TestVoiceCleanupViewersForStreamer(t *testing.T) {
 	hub.BroadcastToUsersFn = func(_ []string, _ ws.Event) {}
 
 	_ = svc.JoinChannel("streamer", "alice", "Alice", "", "ch1", false, false)
+	_ = svc.JoinChannel("v1", "bob", "Bob", "", "ch1", false, false)
+	_ = svc.JoinChannel("v2", "carol", "Carol", "", "ch1", false, false)
 	truev := true
 	_ = svc.UpdateState("streamer", nil, nil, &truev, nil)
 

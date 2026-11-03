@@ -61,12 +61,21 @@ func (s *voiceService) retryResync(serverID string, users []string, attempt int)
 // those channels. One visibility read per server; a failed read leaves that server with only the
 // user's own channel, and a resync follows.
 func (s *voiceService) VisibleVoiceStates(ctx context.Context, userID string, serverIDs []string) ([]models.VoiceState, map[string]int64) {
+	states, timers, _ := s.ReadyVoiceStates(ctx, userID, serverIDs)
+	return states, timers
+}
+
+// ReadyVoiceStates is VisibleVoiceStates plus each server's place in its voice event order at the
+// moment its states were read, for ResyncVoiceSince.
+func (s *voiceService) ReadyVoiceStates(ctx context.Context, userID string, serverIDs []string) ([]models.VoiceState, map[string]int64, map[string]uint64) {
 	snaps := make(map[string]voiceSnapshot, len(serverIDs))
+	mark := make(map[string]uint64, len(serverIDs))
 	s.mu.RLock()
 	for _, serverID := range serverIDs {
-		if _, done := snaps[serverID]; done {
+		if _, done := mark[serverID]; done {
 			continue
 		}
+		mark[serverID] = s.egress.position(serverID)
 		if snap := s.serverSnapshotLocked(serverID); len(snap.states) > 0 {
 			snaps[serverID] = snap
 		}
@@ -91,5 +100,20 @@ func (s *voiceService) VisibleVoiceStates(ctx context.Context, userID string, se
 			}
 		}
 	}
-	return states, timers
+	return states, timers, mark
+}
+
+// ResyncVoiceSince follows the ready sync, which goes out beside the servers' event order and
+// replaces everything the client holds. The client is registered while the states are read, so an
+// event queued after the read can reach it first and then be undone by the older sync. Each server
+// whose order moved past mark gets a replace for userID, queued behind whatever moved it.
+func (s *voiceService) ResyncVoiceSince(userID string, mark map[string]uint64) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for serverID, at := range mark {
+		if s.egress.position(serverID) == at {
+			continue
+		}
+		s.egress.replaceServer(serverID, []string{userID}, s.serverSnapshotLocked(serverID))
+	}
 }

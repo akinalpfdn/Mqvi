@@ -143,10 +143,11 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 
 	// Order-sensitive services
 	channelPermService := services.NewChannelPermissionService(
-		repos.ChannelPermission, repos.Role, repos.Channel, hub,
+		repos.ChannelPermission, repos.Role, repos.Channel, hub, hub,
 	)
 	voiceService := services.NewVoiceService(
 		repos.Channel, repos.LiveKit, repos.LiveKit, channelPermService, hub, hub, channelPermService, hub, repos.Server, encryptionKey, urlSigner,
+		repos.Server,
 	)
 	p2pCallService := services.NewP2PCallService(repos.Friendship, repos.User, hub, urlSigner, cfg.CallGraceWindow)
 

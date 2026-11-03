@@ -56,7 +56,7 @@ func newAudienceHarness(t *testing.T) *audienceHarness {
 		},
 	}
 	svc := NewVoiceService(channels, &mockLiveKitGetter{}, nil, gates, log.broadcaster(), view, view,
-		nil, nil, nil, &testutil.MockFileURLSigner{})
+		nil, nil, nil, &testutil.MockFileURLSigner{}, nil)
 	return &audienceHarness{t: t, svc: inlineEgress(svc), log: log, view: view}
 }
 
@@ -193,6 +193,68 @@ func TestHiddenVoice_ScreenShareViewersStayInside(t *testing.T) {
 
 	h.requireReceived("admin", ws.OpScreenShareViewerUpdate, "", "")
 	h.requireNothingAbout("member", hiddenCh, "insider")
+}
+
+// screen_share_watch names any user id. The reply carried the streamer's channel and server and went
+// to whoever asked, so anyone could locate a streamer in a hidden channel, even on a server they are
+// not in. Only a participant of the streamer's channel may watch.
+func TestHiddenVoice_ScreenShareWatchFromOutsideTellsNothing(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		viewer string
+		setup  func(h *audienceHarness)
+	}{
+		{"not in voice, other server", "stranger", func(*audienceHarness) {}},
+		{"member, in another channel", "member", func(h *audienceHarness) { h.join("member", openCh) }},
+		{"member, not in voice", "member", func(*audienceHarness) {}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newAudienceHarness(t)
+			h.join("insider", hiddenCh)
+			yes := true
+			if err := h.svc.UpdateState("insider", nil, nil, &yes, nil); err != nil {
+				t.Fatal(err)
+			}
+			tc.setup(h)
+			h.log.reset()
+
+			h.svc.WatchScreenShare(tc.viewer, "insider", true)
+			h.svc.WatchScreenShare(tc.viewer, "insider", false)
+
+			h.requireNothingAbout(tc.viewer, hiddenCh, "insider")
+			if got := h.svc.GetScreenShareViewerCount("insider"); got != 0 {
+				t.Fatalf("viewer count = %d; an outsider must not be counted", got)
+			}
+			if got := h.log.to("insider"); len(got) != 0 {
+				t.Fatalf("streamer was told %s about an outsider", opsOf(got))
+			}
+		})
+	}
+}
+
+// A stop for someone not in the audience changes nothing and is not answered.
+func TestHiddenVoice_ScreenShareUnwatchByNonViewerIsIgnored(t *testing.T) {
+	h := newAudienceHarness(t)
+	h.join("insider", hiddenCh)
+	h.join("admin", hiddenCh)
+	yes := true
+	if err := h.svc.UpdateState("insider", nil, nil, &yes, nil); err != nil {
+		t.Fatal(err)
+	}
+	h.svc.WatchScreenShare("admin", "insider", true)
+	h.log.reset()
+
+	h.svc.WatchScreenShare("member", "insider", false)
+
+	if got := h.svc.GetScreenShareViewerCount("insider"); got != 1 {
+		t.Fatalf("viewer count = %d, want 1", got)
+	}
+	if got := h.log.to("member"); len(got) != 0 {
+		t.Fatalf("member got %s", opsOf(got))
+	}
+	if got := h.log.to("admin"); len(got) != 0 {
+		t.Fatalf("admin got %s for a stop that changed nothing", opsOf(got))
+	}
 }
 
 func TestHiddenVoice_AdminMuteStaysInside(t *testing.T) {

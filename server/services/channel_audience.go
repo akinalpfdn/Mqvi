@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	"github.com/akinalp/mqvi/models"
@@ -29,14 +30,33 @@ func channelAudience(
 	serverID, channelID string,
 	required models.Permission,
 ) []string {
-	users := online.GetOnlineUserIDsForServer(serverID)
-	if len(users) == 0 {
-		return nil
-	}
-	audience, err := filter.FilterUsersWithPermission(ctx, channelID, users, required)
+	audience, err := channelAudienceOrErr(ctx, online, filter, serverID, channelID, required)
 	if err != nil {
 		log.Printf("[ws] audience for channel=%s: %v (event withheld)", channelID, err)
 		return nil
 	}
 	return audience
+}
+
+// channelAudienceOrErr is channelAudience for a caller whose safe answer to a failed read is not
+// "nobody".
+func channelAudienceOrErr(
+	ctx context.Context,
+	online ServerOnlineLister,
+	filter ChannelAudienceFilter,
+	serverID, channelID string,
+	required models.Permission,
+) ([]string, error) {
+	if online == nil || filter == nil {
+		return nil, fmt.Errorf("audience for channel %s: no source", channelID)
+	}
+	users := online.GetOnlineUserIDsForServer(serverID)
+	if len(users) == 0 {
+		return nil, nil
+	}
+	audience, err := filter.FilterUsersWithPermission(ctx, channelID, users, required)
+	if err != nil {
+		return nil, fmt.Errorf("audience for channel %s: %w", channelID, err)
+	}
+	return audience, nil
 }

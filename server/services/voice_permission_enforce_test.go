@@ -22,7 +22,7 @@ func TestEnforceChannelVoicePermissions_DisconnectsOnConnectVoiceLost(t *testing
 // A participant who retains ConnectVoice must NOT be disconnected (only their publish is
 // re-asserted, which the honest client already mirrors).
 func TestEnforceChannelVoicePermissions_KeepsUserWithConnectVoice(t *testing.T) {
-	svc, _ := newTimerTestVoiceService(nil, models.PermConnectVoice) // has ConnectVoice, no Speak
+	svc, _ := newTimerTestVoiceService(nil, models.PermViewChannel|models.PermConnectVoice) // has ConnectVoice, no Speak
 	svc.states["u1"] = &models.VoiceState{UserID: "u1", ChannelID: "ch1", ServerID: "srv1"}
 
 	svc.EnforceChannelVoicePermissions("ch1")
@@ -94,5 +94,30 @@ func TestCurrentServerMuteState_ReadsLiveNotSnapshot(t *testing.T) {
 	// A user who left voice between snapshot and now must report not-in-voice (skip SFU).
 	if _, in := svc.currentServerMuteState("ghost"); in {
 		t.Fatal("a user not in voice must report stillInVoice=false")
+	}
+}
+
+// Losing sight of the channel is losing the right to be in it, ConnectVoice or not.
+func TestEnforceChannelVoicePermissions_DisconnectsOnViewChannelLost(t *testing.T) {
+	svc, _ := newTimerTestVoiceService(nil, models.PermConnectVoice|models.PermSpeak)
+	svc.states["u1"] = &models.VoiceState{UserID: "u1", ChannelID: "ch1", ServerID: "srv1"}
+
+	svc.EnforceChannelVoicePermissions("ch1")
+
+	if svc.GetUserVoiceState("u1") != nil {
+		t.Fatal("a participant who can no longer see the channel must be disconnected")
+	}
+}
+
+// Someone moved into a channel they lack access to was put there on purpose; an unrelated
+// permission change must not take them out.
+func TestEnforceChannelVoicePermissions_KeepsAMovedInParticipant(t *testing.T) {
+	svc, _ := newTimerTestVoiceService(nil, 0)
+	svc.states["u1"] = &models.VoiceState{UserID: "u1", ChannelID: "ch1", ServerID: "srv1", MovedIn: true}
+
+	svc.EnforceChannelVoicePermissions("ch1")
+
+	if svc.GetUserVoiceState("u1") == nil {
+		t.Fatal("a moved-in participant was disconnected by an unrelated permission change")
 	}
 }
