@@ -31,7 +31,7 @@ import { useSystemAudioCapture } from "../../hooks/useSystemAudioCapture";
 import { useMicHealthReport } from "../../hooks/useMicHealthReport";
 import type { MicTrailEvent } from "../../audio/micHealth";
 import { startShareAudioRun } from "../../utils/shareAudioRun";
-import { savedDeviceStatus } from "../../utils/savedAudioDevice";
+import { useSavedAudioDevices } from "../../hooks/useSavedAudioDevices";
 import { isElectron, isCapacitor, resolveUserId } from "../../utils/constants";
 import { startNativeScreenShare, stopNativeScreenShare, onNativeScreenShareStopped } from "../../utils/nativePlugins";
 import * as voiceApi from "../../api/voice";
@@ -478,88 +478,8 @@ function VoiceStateManager() {
     };
   }, [room, localParticipant]);
 
-  // Apply output device (sinkId) to all LiveKit audio elements.
-  // Runs on every outputDevice change, on (re)connect and when devices come and go — switchActiveDevice
-  // stores the preference on the Room so new tracks also honor it. A saved device that is not plugged
-  // in is not applied (see savedDeviceStatus): LiveKit keeps the default output and the saved choice
-  // comes back when the device does. The user is told once, and only about a device this machine
-  // has had: an id from another machine is never coming.
-  useEffect(() => {
-    if (!outputDevice) return;
-    let cancelled = false;
-    let toldMissing = false;
-
-    async function applyOutputDevice() {
-      const status = await savedDeviceStatus("audiooutput", outputDevice).catch(() => "unknown" as const);
-      if (cancelled) return;
-      if (status === "missing" || status === "foreign") {
-        if (status === "missing" && !toldMissing) {
-          toldMissing = true;
-          useToastStore.getState().addToast("warning", i18n.t("voice:outputDeviceMissing"), 8_000);
-        }
-        return;
-      }
-      toldMissing = false;
-      try {
-        await room.switchActiveDevice("audiooutput", outputDevice);
-      } catch (err) {
-        console.error("[VoiceStateManager] Failed to switch output device:", err);
-      }
-    }
-
-    function applyWhenConnected() {
-      if (room.state === ConnectionState.Connected) void applyOutputDevice();
-    }
-
-    applyWhenConnected();
-    room.on(RoomEvent.Connected, applyWhenConnected);
-    room.on(RoomEvent.Reconnected, applyWhenConnected);
-    navigator.mediaDevices?.addEventListener("devicechange", applyWhenConnected);
-
-    return () => {
-      cancelled = true;
-      room.off(RoomEvent.Connected, applyWhenConnected);
-      room.off(RoomEvent.Reconnected, applyWhenConnected);
-      navigator.mediaDevices?.removeEventListener("devicechange", applyWhenConnected);
-    };
-  }, [room, outputDevice]);
-
-  // The saved microphone, when it is plugged in after the call started. LiveKit leaves a call on the
-  // mic it began with. "default"/"communications" follow the OS by themselves. Not exact: a mic
-  // that later disappears must restart on the default, not fail.
-  useEffect(() => {
-    if (!inputDevice || inputDevice === "default" || inputDevice === "communications") return;
-    let cancelled = false;
-
-    async function applyInputDevice() {
-      const track = localParticipant.getTrackPublication(Track.Source.Microphone)?.track;
-      if (!track) return; // not published yet: the capture defaults already ask for this device
-      const status = await savedDeviceStatus("audioinput", inputDevice).catch(() => "unknown" as const);
-      if (cancelled || status !== "present") return;
-      if ((await track.getDeviceId(false)) === inputDevice || cancelled) return;
-      try {
-        await room.switchActiveDevice("audioinput", inputDevice, false);
-      } catch (err) {
-        console.error("[VoiceStateManager] Failed to switch input device:", err);
-      }
-    }
-
-    function applyWhenConnected() {
-      if (room.state === ConnectionState.Connected) void applyInputDevice();
-    }
-
-    applyWhenConnected();
-    room.on(RoomEvent.Connected, applyWhenConnected);
-    room.on(RoomEvent.Reconnected, applyWhenConnected);
-    navigator.mediaDevices?.addEventListener("devicechange", applyWhenConnected);
-
-    return () => {
-      cancelled = true;
-      room.off(RoomEvent.Connected, applyWhenConnected);
-      room.off(RoomEvent.Reconnected, applyWhenConnected);
-      navigator.mediaDevices?.removeEventListener("devicechange", applyWhenConnected);
-    };
-  }, [room, localParticipant, inputDevice]);
+  // Saved speaker and microphone, and back on them when they are plugged in mid-call.
+  useSavedAudioDevices(room, localParticipant, inputDevice, outputDevice);
 
   // RTT polling: try signaling RTT first, fall back to WebRTC stats ICE candidate-pair
   useEffect(() => {
