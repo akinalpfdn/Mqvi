@@ -54,6 +54,14 @@ type ChannelBindingStore interface {
 	ClearChannelBinding(ctx context.Context, channelID, instanceID string) error
 }
 
+// ChannelRoomNameStore persists the room name a rotation gave a channel (see roomNameFor). Optional:
+// a nil store keeps rotated names in memory only, which is what the service tests run with.
+type ChannelRoomNameStore interface {
+	// GetChannelRoomName returns pkg.ErrNotFound for a channel that was never rotated.
+	GetChannelRoomName(ctx context.Context, channelID string) (string, error)
+	SetChannelRoomName(ctx context.Context, channelID, roomName string) error
+}
+
 // OnlineUserChecker checks connected users. Used by orphan state cleanup.
 type OnlineUserChecker interface {
 	GetOnlineUserIDs() []string
@@ -175,7 +183,14 @@ type voiceService struct {
 	// Without this the channel looks empty during the LiveKit handshake, which both leaks bindings
 	// (a token nobody uses pins the channel forever) and lets the last person leaving release a
 	// binding out from under someone who is still connecting.
-	pendingJoins   map[string]map[string]pendingJoin
+	pendingJoins map[string]map[string]pendingJoin
+	// Guarded by roomNamesMu, not mu: room names are read from paths that run under mu or inside
+	// egress hooks (channel delete), and a cache miss reads the store.
+	roomNamesMu sync.Mutex
+	// channelID -> LiveKit room name, filled on first use (see roomNameFor).
+	roomNames map[string]string
+	// room name -> a room a channel left because an intruder was in it (see rotateRoom).
+	retiredRooms   map[string]retiredRoom
 	onChannelEmpty func(string) // optional callback fired (async) on N→0 — installed via SetOnChannelEmpty
 	mu             sync.RWMutex
 
@@ -191,6 +206,7 @@ type voiceService struct {
 	appLogger        VoiceAppLogger
 	urlSigner        FileURLSigner
 	membership       ServerMembershipChecker
+	roomNameStore    ChannelRoomNameStore
 }
 
 func NewVoiceService(
@@ -206,6 +222,7 @@ func NewVoiceService(
 	encryptionKey []byte,
 	urlSigner FileURLSigner,
 	membership ServerMembershipChecker,
+	roomNameStore ChannelRoomNameStore,
 ) VoiceService {
 	s := &voiceService{
 		states:             make(map[string]*models.VoiceState),
@@ -218,6 +235,8 @@ func NewVoiceService(
 		channelStartedAt:   make(map[string]time.Time),
 		channelInstances:   make(map[string]string),
 		pendingJoins:       make(map[string]map[string]pendingJoin),
+		roomNames:          make(map[string]string),
+		retiredRooms:       make(map[string]retiredRoom),
 		channelGetter:      channelGetter,
 		bindingStore:       bindingStore,
 		livekitGetter:      livekitGetter,
@@ -228,6 +247,7 @@ func NewVoiceService(
 		encryptionKey:      encryptionKey,
 		urlSigner:          urlSigner,
 		membership:         membership,
+		roomNameStore:      roomNameStore,
 	}
 	s.egress = newVoiceEgress(hub, serverOnline, visibility, urlSigner, func(message string, metadata map[string]string) {
 		s.logWarn(models.LogCategoryVoice, nil, message, metadata)

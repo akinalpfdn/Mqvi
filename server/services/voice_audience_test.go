@@ -56,7 +56,7 @@ func newAudienceHarness(t *testing.T) *audienceHarness {
 		},
 	}
 	svc := NewVoiceService(channels, &mockLiveKitGetter{}, nil, gates, log.broadcaster(), view, view,
-		nil, nil, nil, &testutil.MockFileURLSigner{}, nil)
+		nil, nil, nil, &testutil.MockFileURLSigner{}, nil, nil)
 	return &audienceHarness{t: t, svc: inlineEgress(svc), log: log, view: view}
 }
 

@@ -117,6 +117,7 @@ func sfuHarnessWithChecker(t *testing.T, sfu *countingSFU, checker interface{ Ge
 		&urlPinnedGetter{url: sfu.srv.URL, apiKey: apiKey, apiSecret: apiSecret},
 		nil, &testutil.MockChannelPermResolver{}, hub, openAudience{}, openAudience{}, checker, nil, key, &testutil.MockFileURLSigner{},
 		nil,
+		nil, // roomNameStore
 	)
 	s := inlineEgress(svc)
 	bindChannel(s, "ch1")

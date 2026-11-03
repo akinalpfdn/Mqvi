@@ -283,19 +283,31 @@ func (s *voiceService) sweepOrphanStates() {
 // a release nothing else can say where the room was. "" means "wherever the channel is currently
 // bound", which is right for callers acting on a channel that still has people in it.
 //
+// Returns the room the client is for: its name (roomNameFor) and the instance it is on.
+//
 // MUST NOT be called under mu.Lock (does DB lookups).
-func (s *voiceService) newLiveKitRoomClient(ctx context.Context, channelID, instanceID string) (*lksdk.RoomServiceClient, error) {
-	var room *roomCredentials
+func (s *voiceService) newLiveKitRoomClient(ctx context.Context, serverID, channelID, instanceID string) (*lksdk.RoomServiceClient, roomRef, error) {
+	var creds *roomCredentials
 	var err error
 	if instanceID != "" {
-		room, err = s.credentialsByID(ctx, instanceID)
+		creds, err = s.credentialsByID(ctx, instanceID)
 	} else {
-		room, err = s.boundRoomInstance(ctx, channelID)
+		creds, err = s.boundRoomInstance(ctx, channelID)
 	}
 	if err != nil {
-		return nil, err
+		return nil, roomRef{}, err
 	}
-	return lksdk.NewRoomServiceClient(room.URL, room.APIKey, room.APISecret), nil
+	name, err := s.roomNameFor(ctx, serverID, channelID)
+	if err != nil {
+		return nil, roomRef{}, err
+	}
+	return lksdk.NewRoomServiceClient(creds.URL, creds.APIKey, creds.APISecret), roomRef{name: name, instanceID: creds.InstanceID}, nil
+}
+
+// roomRef is a channel's room as a server-side LiveKit call addresses it.
+type roomRef struct {
+	name       string
+	instanceID string
 }
 
 // removeParticipantFromLiveKit explicitly removes a participant from the LiveKit server.
@@ -311,7 +323,7 @@ func (s *voiceService) removeParticipantFromLiveKit(serverID, channelID, userID,
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	roomClient, err := s.newLiveKitRoomClient(ctx, channelID, instanceID)
+	roomClient, room, err := s.newLiveKitRoomClient(ctx, serverID, channelID, instanceID)
 	if errors.Is(err, errChannelNotBound) {
 		return // no room was ever opened for this channel, so there is no participant to remove
 	}
@@ -322,8 +334,7 @@ func (s *voiceService) removeParticipantFromLiveKit(serverID, channelID, userID,
 		})
 		return
 	}
-
-	roomName := generateRoomName(serverID, channelID)
+	roomName := room.name
 
 	_, err = roomClient.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{
 		Room:     roomName,
@@ -459,7 +470,7 @@ func (s *voiceService) sweepAFKUsers() {
 // share still counts as present. LiveKit is the source of truth for room membership.
 // MUST NOT be called under s.mu (does DB lookups + network I/O).
 func (s *voiceService) listLiveKitParticipants(ctx context.Context, serverID, channelID string) (map[string]bool, error) {
-	identities, err := s.listRoomIdentities(ctx, serverID, channelID)
+	identities, _, err := s.listRoomIdentities(ctx, serverID, channelID)
 	if err != nil {
 		return nil, err
 	}
@@ -472,39 +483,38 @@ func (s *voiceService) listLiveKitParticipants(ctx context.Context, serverID, ch
 }
 
 // listRoomIdentities returns the identities connected to the channel's room as LiveKit reports
-// them, screen-share suffix included. MUST NOT be called under s.mu (DB lookups + network I/O).
-func (s *voiceService) listRoomIdentities(ctx context.Context, serverID, channelID string) ([]string, error) {
-	roomClient, err := s.newLiveKitRoomClient(ctx, channelID, "")
+// them, screen-share suffix included, and the room it listed (zero when the channel has none).
+// MUST NOT be called under s.mu (DB lookups + network I/O).
+func (s *voiceService) listRoomIdentities(ctx context.Context, serverID, channelID string) ([]string, roomRef, error) {
+	roomClient, room, err := s.newLiveKitRoomClient(ctx, serverID, channelID, "")
 	if errors.Is(err, errChannelNotBound) {
 		// No binding means no room, so nobody is in it. Say that rather than erroring: the caller
 		// skips a channel it cannot query, and skipping means phantom participants are never reaped
 		// and the channel timer runs forever. Before per-channel binding this path always resolved
 		// and LiveKit answered for an absent room, which is the behaviour being restored here.
 		// A genuinely mid-move user is covered by livekitAbsentGrace, not by pretending to see them.
-		return nil, nil
+		return nil, roomRef{}, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, roomRef{}, err
 	}
 
-	roomName := generateRoomName(serverID, channelID)
-
-	resp, err := roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: roomName})
+	resp, err := roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: room.name})
 	if err != nil {
 		// Room not found = the SFU closed it because it's empty. That is a
 		// CONFIRMED-empty signal (the exact phantom case), not a transient
 		// failure — return an empty set so its stale states get reaped.
 		if strings.Contains(err.Error(), "not_found") || strings.Contains(err.Error(), "not found") {
-			return nil, nil
+			return nil, room, nil
 		}
-		return nil, fmt.Errorf("list participants room=%s: %w", roomName, err)
+		return nil, roomRef{}, fmt.Errorf("list participants room=%s: %w", room.name, err)
 	}
 
 	identities := make([]string, 0, len(resp.Participants))
 	for _, p := range resp.Participants {
 		identities = append(identities, p.Identity)
 	}
-	return identities, nil
+	return identities, room, nil
 }
 
 // StartLiveKitReconciliation periodically reconciles in-memory voice state against
@@ -533,6 +543,10 @@ func (s *voiceService) StartLiveKitReconciliation() {
 // Reaping reuses the exact leave broadcast + timer-stop the orphan sweep already
 // uses, so observable join/leave behavior is unchanged.
 func (s *voiceService) sweepLiveKitReconciliation() {
+	// Before the early return below: a room a channel left must be deleted again even when nobody
+	// is in voice any more.
+	s.sweepRetiredRooms()
+
 	// Phase 1: snapshot active channels and their users.
 	type chanInfo struct {
 		serverID string
@@ -569,7 +583,7 @@ func (s *voiceService) sweepLiveKitReconciliation() {
 	var unknown []roomParticipant    // in the room with no voice state in this channel at snapshot time
 
 	for channelID, ci := range channels {
-		identities, err := s.listRoomIdentities(ctx, ci.serverID, channelID)
+		identities, room, err := s.listRoomIdentities(ctx, ci.serverID, channelID)
 		if err != nil {
 			log.Printf("[voice] livekit reconcile: list participants failed channel=%s: %v", channelID, err)
 			continue // skip channel entirely — no tracker changes on transient failure
@@ -583,7 +597,7 @@ func (s *voiceService) sweepLiveKitReconciliation() {
 			userID, _ := SplitParticipantIdentity(identity)
 			inRoom[userID] = true
 			if !inChannel[userID] {
-				unknown = append(unknown, roomParticipant{channelID: channelID, serverID: ci.serverID, identity: identity, userID: userID})
+				unknown = append(unknown, roomParticipant{channelID: channelID, serverID: ci.serverID, room: room, identity: identity, userID: userID})
 			}
 		}
 		for _, userID := range ci.userIDs {
@@ -650,31 +664,9 @@ func (s *voiceService) sweepLiveKitReconciliation() {
 type roomParticipant struct {
 	channelID string
 	serverID  string
-	identity  string // as LiveKit has it: the user's id, or "{id}_ss" for their screen share
+	room      roomRef // the room it was listed in
+	identity  string  // as LiveKit has it: the user's id, or "{id}_ss" for their screen share
 	userID    string
-}
-
-// removeUnentitledParticipants removes participants who hold an old token and nothing else. A user
-// taken out of voice (kick, ban, leaving the server, a revoked ConnectVoice) keeps the 24-hour token
-// they joined with, and LiveKit accepts it: without this they could reconnect to the room directly
-// and keep listening and speaking with no voice state the server can see.
-//
-// Only someone who may not connect is removed. Everyone else is left alone, because a participant
-// without a voice state is also every legitimate user after a server restart — states live in
-// memory and clients re-assert them only when their websocket returns, which on a backgrounded iOS
-// app can be hours. Such a user could rejoin anyway, so their presence opens nothing.
-func (s *voiceService) removeUnentitledParticipants(participants []roomParticipant) {
-	for _, p := range participants {
-		if s.mayBeInRoom(p.serverID, p.userID, p.channelID) {
-			continue
-		}
-		log.Printf("[voice] livekit reconcile: removing %s from channel %s (no voice state, no connect permission)", p.identity, p.channelID)
-		s.logWarn(models.LogCategoryVoice, &p.userID, "livekit reconcile: participant without voice state or permission removed", map[string]string{
-			"channel_id": p.channelID,
-			"identity":   p.identity,
-		})
-		s.removeParticipantFromLiveKit(p.serverID, p.channelID, p.identity, "")
-	}
 }
 
 // mayBeInRoom is the join rule (joinAuthorized) re-asked now: in voice here, mid-join on a force-move

@@ -1,10 +1,23 @@
 // Package services — closing the call of a voice channel that is being deleted.
 package services
 
+import (
+	"context"
+	"log"
+	"time"
+)
+
 // BeginChannelDelete hides channelID's call from every audience decided from now on, before its row
-// and overrides go (see markDeleted).
-func (s *voiceService) BeginChannelDelete(_, channelID string) {
+// and overrides go (see markDeleted). The room name is read now too: a rotated name is stored with
+// the channel and goes with its row, and the teardown in FinishChannelDelete still has to address
+// the room the call is in.
+func (s *voiceService) BeginChannelDelete(serverID, channelID string) {
 	s.egress.markDeleted(channelID)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := s.roomNameFor(ctx, serverID, channelID); err != nil {
+		log.Printf("[voice] channel delete %s: room name not read, teardown may miss a rotated room: %v", channelID, err)
+	}
 }
 
 // AbortChannelDelete follows a delete that failed: the call is visible again, and what its viewers

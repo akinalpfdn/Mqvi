@@ -474,3 +474,32 @@ func (r *sqliteLiveKitRepo) ClearChannelBinding(ctx context.Context, channelID, 
 	}
 	return nil
 }
+
+// GetChannelRoomName returns the room name a rotation gave this channel, or pkg.ErrNotFound when it
+// was never rotated.
+func (r *sqliteLiveKitRepo) GetChannelRoomName(ctx context.Context, channelID string) (string, error) {
+	var roomName string
+	err := r.db.QueryRowContext(ctx,
+		`SELECT room_name FROM channel_voice_rooms WHERE channel_id = ?`, channelID,
+	).Scan(&roomName)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", pkg.ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("get channel room name %s: %w", channelID, err)
+	}
+	return roomName, nil
+}
+
+// SetChannelRoomName records a rotation. Upsert: a channel can be rotated more than once.
+func (r *sqliteLiveKitRepo) SetChannelRoomName(ctx context.Context, channelID, roomName string) error {
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO channel_voice_rooms (channel_id, room_name) VALUES (?, ?)
+		 ON CONFLICT(channel_id) DO UPDATE SET room_name = excluded.room_name, rotated_at = CURRENT_TIMESTAMP`,
+		channelID, roomName,
+	)
+	if err != nil {
+		return fmt.Errorf("set channel room name %s: %w", channelID, err)
+	}
+	return nil
+}

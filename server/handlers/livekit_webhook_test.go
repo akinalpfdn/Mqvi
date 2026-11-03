@@ -171,6 +171,19 @@ func TestLogEvent_UserInAnotherChannel(t *testing.T) {
 	}
 }
 
+// A channel whose room was rotated is in "server:channel:x"; its events still map to the channel.
+func TestLogEvent_RotatedRoomMapsToItsChannel(t *testing.T) {
+	log := &capturingLog{}
+	h := NewLiveKitWebhookHandler(nil, nil, log, inChannel("u1", "c1"))
+
+	h.logEvent(leftEvent("s1:c1:k7q2", "u1", livekit.DisconnectReason_CLIENT_INITIATED))
+
+	e := single(t, log)
+	if e.metadata["room_malformed"] == "true" || e.metadata["server_id"] != "s1" || e.metadata["channel_id"] != "c1" {
+		t.Errorf("rotated room not mapped to s1/c1: %v", e.metadata)
+	}
+}
+
 func TestLogEvent_ScreenShareResolvesToItsOwner(t *testing.T) {
 	log := &capturingLog{}
 	h := NewLiveKitWebhookHandler(nil, nil, log, inChannel("u1", "c1"))
@@ -194,7 +207,7 @@ func TestLogEvent_MalformedRoomIsRecordedNotGuessed(t *testing.T) {
 	log := &capturingLog{}
 	h := NewLiveKitWebhookHandler(nil, nil, log, presence)
 
-	for _, room := range []string{"garbage", "", "a:b:c", ":c1"} {
+	for _, room := range []string{"garbage", "", "a:b:c:d", ":c1"} {
 		h.logEvent(leftEvent(room, "u1", livekit.DisconnectReason_CLIENT_INITIATED))
 	}
 

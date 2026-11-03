@@ -103,6 +103,7 @@ func bindingHarness(t *testing.T) (*voiceService, *uniqueInstanceGetter) {
 		key,
 		nil, // urlSigner
 		nil, // membership
+		nil, // roomNameStore
 	).(*voiceService)
 	return svc, getter
 }
@@ -811,7 +812,7 @@ func TestTeardown_WithOccupantsLeftFollowsTheLiveBinding(t *testing.T) {
 
 	// The only part of teardown that touches bindings. Called directly so the test does not wait on
 	// a real SFU round trip to a fake URL.
-	if _, err := s.newLiveKitRoomClient(context.Background(), "chan1", released); err != nil {
+	if _, _, err := s.newLiveKitRoomClient(context.Background(), "srv1", "chan1", released); err != nil {
 		t.Fatalf("teardown could not reach the live room: %v", err)
 	}
 
@@ -1099,6 +1100,7 @@ func tokenHarness(t *testing.T, perms models.Permission) (*voiceService, *unique
 		key,
 		&testutil.MockFileURLSigner{},
 		nil,
+		nil, // roomNameStore
 	).(*voiceService)
 	return svc, getter
 }

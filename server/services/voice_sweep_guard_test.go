@@ -68,6 +68,7 @@ func sweepHarness(t *testing.T, instanceURL string, online ...string) (*voiceSer
 		key,
 		&testutil.MockFileURLSigner{},
 		nil,
+		nil, // roomNameStore
 	)
 	return inlineEgress(svc), broadcasts
 }

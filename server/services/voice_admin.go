@@ -171,7 +171,7 @@ func (s *voiceService) enforceServerMicMuteAtSFU(serverID, channelID, userID str
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	roomClient, err := s.newLiveKitRoomClient(ctx, channelID, "")
+	roomClient, room, err := s.newLiveKitRoomClient(ctx, serverID, channelID, "")
 	if errors.Is(err, errChannelNotBound) {
 		// No room to enforce against yet. Safe to skip rather than log an error: GenerateToken bakes
 		// a server mute into the publish grant, so the token this user needs before they can be in
@@ -186,7 +186,7 @@ func (s *voiceService) enforceServerMicMuteAtSFU(serverID, channelID, userID str
 		return
 	}
 
-	roomName := generateRoomName(serverID, channelID)
+	roomName := room.name
 	req := &livekit.UpdateParticipantRequest{
 		Room:       roomName,
 		Identity:   userID,

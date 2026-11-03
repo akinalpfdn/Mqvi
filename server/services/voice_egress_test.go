@@ -152,6 +152,7 @@ func TestVoiceEgress_DeliversInOrderThroughTheQueue(t *testing.T) {
 		}},
 		log.broadcaster(), view, view, nil, nil, nil, &testutil.MockFileURLSigner{},
 		nil,
+		nil, // roomNameStore
 	)
 
 	yes, no := true, false

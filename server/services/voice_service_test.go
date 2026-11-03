@@ -70,6 +70,7 @@ func TestRemoveParticipantFromLiveKit_ReachesSFUAfterChannelDeleted(t *testing.T
 		nil, // encryptionKey
 		&testutil.MockFileURLSigner{},
 		nil,
+		nil, // roomNameStore
 	).(*voiceService)
 
 	svc.removeParticipantFromLiveKit("srv1", "deleted-chan", "u1", "lk-the-room-was-here")
@@ -121,6 +122,7 @@ func newTestVoiceService() (VoiceService, *testutil.MockBroadcaster) {
 		nil, // encryptionKey
 		&testutil.MockFileURLSigner{},
 		nil,
+		nil, // roomNameStore
 	)
 	return inlineEgress(svc), hub
 }

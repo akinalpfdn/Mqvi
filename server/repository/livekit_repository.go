@@ -37,6 +37,10 @@ type LiveKitRepository interface {
 	// server_count: placement is per channel and by region, so an instance with no servers
 	// registered against it can still be carrying calls.
 	CountChannelBindings(ctx context.Context, instanceID string) (int, error)
+	// The room name of a channel whose room was rotated (migration 104). GetChannelRoomName returns
+	// pkg.ErrNotFound for a channel that never was; it uses the fixed name.
+	GetChannelRoomName(ctx context.Context, channelID string) (string, error)
+	SetChannelRoomName(ctx context.Context, channelID, roomName string) error
 	IncrementServerCount(ctx context.Context, instanceID string) error
 	DecrementServerCount(ctx context.Context, instanceID string) error
 	Update(ctx context.Context, instance *models.LiveKitInstance) error

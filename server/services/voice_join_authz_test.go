@@ -69,6 +69,7 @@ func newAuthzVoiceService(t *testing.T, g grants) (*voiceService, *[]ws.Event) {
 		openAudience{}, openAudience{}, // audience: everyone sees everything, as before filtering
 		nil, nil, key, &testutil.MockFileURLSigner{},
 		nil,
+		nil, // roomNameStore
 	).(*voiceService)
 	svc.egress.run = runVoiceEgressInline
 	return svc, broadcasts

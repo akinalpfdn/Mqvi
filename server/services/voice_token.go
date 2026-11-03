@@ -67,6 +67,16 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 		}
 	}
 
+	// Read before anything is marked or claimed: a store that cannot say which room this channel is
+	// in fails the request rather than guessing one (see roomNameFor).
+	roomName, err := s.roomNameFor(ctx, channel.ServerID, channelID)
+	if err != nil {
+		s.logError(models.LogCategoryVoice, &userID, "voice room name unavailable", map[string]string{
+			"channel_id": channelID, "error": err.Error(),
+		})
+		return nil, err
+	}
+
 	// Marked before the claim, not after. The claim persists a row and the abandoned-binding sweep
 	// runs every five seconds; a tick landing in between saw a channel with no participants and
 	// nobody connecting, and released a binding whose token had already gone out. Reaching here
@@ -91,8 +101,6 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 	canPublishData := true
 
 	at := auth.NewAccessToken(room.APIKey, room.APISecret)
-
-	roomName := generateRoomName(channel.ServerID, channelID)
 
 	grant := &auth.VideoGrant{
 		RoomJoin:       true,
@@ -307,9 +315,13 @@ func (s *voiceService) GenerateScreenShareToken(ctx context.Context, userID, use
 	canSubscribe := false   // screen share participant doesn't need to subscribe
 	canPublishData := false // no data channel needed
 
-	at := auth.NewAccessToken(room.APIKey, room.APISecret)
+	roomName, err := s.roomNameFor(ctx, channel.ServerID, channelID)
+	if err != nil {
+		s.logScreenShareRefusal(models.LogLevelError, userID, channelID, "room_name_unavailable", map[string]string{"server_id": channel.ServerID, "error": err.Error()})
+		return nil, err
+	}
 
-	roomName := generateRoomName(channel.ServerID, channelID)
+	at := auth.NewAccessToken(room.APIKey, room.APISecret)
 
 	grant := &auth.VideoGrant{
 		RoomJoin:       true,

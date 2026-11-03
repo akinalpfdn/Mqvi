@@ -18,14 +18,18 @@ import (
 	"github.com/akinalp/mqvi/testutil"
 )
 
-// rosterSFU answers ListParticipants with a roster and records exactly which identities are removed.
+// rosterSFU answers ListParticipants with a roster and records exactly which identities are removed,
+// which rooms are deleted, and which room every call addressed.
 type rosterSFU struct {
-	srv     *httptest.Server
-	mu      sync.Mutex
-	roster  []string
-	removed []string
-	failLst bool
-	onList  func() // runs while the sweep waits on the list — after its snapshot, before judging
+	srv        *httptest.Server
+	mu         sync.Mutex
+	roster     []string
+	removed    []string
+	deleted    []string
+	calls      []string // "Method room", in order
+	failLst    bool
+	failDelete bool
+	onList     func() // runs while the sweep waits on the list — after its snapshot, before judging
 }
 
 func newRosterSFU(t *testing.T, roster ...string) *rosterSFU {
@@ -36,6 +40,7 @@ func newRosterSFU(t *testing.T, roster ...string) *rosterSFU {
 		var msg proto.Message
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/ListParticipants"):
+			sfu.record(t, r, "ListParticipants", &livekit.ListParticipantsRequest{})
 			sfu.mu.Lock()
 			fail, roster, hook := sfu.failLst, append([]string(nil), sfu.roster...), sfu.onList
 			sfu.mu.Unlock()
@@ -52,15 +57,29 @@ func newRosterSFU(t *testing.T, roster ...string) *rosterSFU {
 			}
 			msg = resp
 		case strings.HasSuffix(r.URL.Path, "/RemoveParticipant"):
-			body, _ := io.ReadAll(r.Body)
 			req := &livekit.RoomParticipantIdentity{}
-			if err := proto.Unmarshal(body, req); err != nil {
-				t.Errorf("decode RemoveParticipant: %v", err)
-			}
+			sfu.record(t, r, "RemoveParticipant", req)
 			sfu.mu.Lock()
 			sfu.removed = append(sfu.removed, req.GetIdentity())
 			sfu.mu.Unlock()
 			msg = &livekit.RemoveParticipantResponse{}
+		case strings.HasSuffix(r.URL.Path, "/DeleteRoom"):
+			req := &livekit.DeleteRoomRequest{}
+			sfu.record(t, r, "DeleteRoom", req)
+			sfu.mu.Lock()
+			fail := sfu.failDelete
+			if !fail {
+				sfu.deleted = append(sfu.deleted, req.GetRoom())
+			}
+			sfu.mu.Unlock()
+			if fail {
+				http.Error(w, "unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			msg = &livekit.DeleteRoomResponse{}
+		case strings.HasSuffix(r.URL.Path, "/UpdateParticipant"):
+			sfu.record(t, r, "UpdateParticipant", &livekit.UpdateParticipantRequest{})
+			msg = &livekit.ParticipantInfo{}
 		default:
 			t.Errorf("unexpected LiveKit call %s", r.URL.Path)
 			msg = &livekit.ListParticipantsResponse{}
@@ -74,6 +93,45 @@ func newRosterSFU(t *testing.T, roster ...string) *rosterSFU {
 	}))
 	t.Cleanup(sfu.srv.Close)
 	return sfu
+}
+
+// roomRequest is every request that names a room.
+type roomRequest interface {
+	proto.Message
+	GetRoom() string
+}
+
+func (s *rosterSFU) record(t *testing.T, r *http.Request, method string, req roomRequest) {
+	body, _ := io.ReadAll(r.Body)
+	if err := proto.Unmarshal(body, req); err != nil {
+		t.Errorf("decode %s: %v", method, err)
+	}
+	s.mu.Lock()
+	s.calls = append(s.calls, method+" "+req.GetRoom())
+	s.mu.Unlock()
+}
+
+func (s *rosterSFU) callLog() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.calls...)
+}
+
+func (s *rosterSFU) deletedRooms() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.deleted...)
+}
+
+// ejected is everyone the sweep pushed out: identities removed and rooms deleted.
+func (s *rosterSFU) ejected() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := append([]string(nil), s.removed...)
+	for _, room := range s.deleted {
+		out = append(out, "room "+room)
+	}
+	return out
 }
 
 func (s *rosterSFU) removedIDs() []string {
@@ -122,9 +180,7 @@ func TestReconcile_RemovesAParticipantWithNoStateAndNoRight(t *testing.T) {
 
 	s.sweepLiveKitReconciliation()
 
-	if got := sfu.removedIDs(); len(got) != 1 || got[0] != "kicked" {
-		t.Fatalf("removed %v, want exactly [kicked]", got)
-	}
+	requireRotated(t, s, sfu)
 }
 
 // After a restart every voice state is gone while the calls go on; clients re-assert when their
@@ -135,7 +191,7 @@ func TestReconcile_KeepsAParticipantWhoMayConnect(t *testing.T) {
 
 	s.sweepLiveKitReconciliation()
 
-	if got := sfu.removedIDs(); len(got) != 0 {
+	if got := sfu.ejected(); len(got) != 0 {
 		t.Fatalf("removed %v — a user who could rejoin anyway lost the call", got)
 	}
 }
@@ -149,7 +205,7 @@ func TestReconcile_KeepsAForceMovedUserMidJoin(t *testing.T) {
 
 	s.sweepLiveKitReconciliation()
 
-	if got := sfu.removedIDs(); len(got) != 0 {
+	if got := sfu.ejected(); len(got) != 0 {
 		t.Fatalf("removed %v — a force-moved user mid-join lost the call", got)
 	}
 }
@@ -161,7 +217,7 @@ func TestReconcile_KeepsAUserMidJoinWhoMayConnect(t *testing.T) {
 
 	s.sweepLiveKitReconciliation()
 
-	if got := sfu.removedIDs(); len(got) != 0 {
+	if got := sfu.ejected(); len(got) != 0 {
 		t.Fatalf("removed %v — a user mid-join lost the call", got)
 	}
 }
@@ -174,9 +230,7 @@ func TestReconcile_RemovesAUserWhoseOnlyClaimIsAFreshToken(t *testing.T) {
 
 	s.sweepLiveKitReconciliation()
 
-	if got := sfu.removedIDs(); len(got) != 1 || got[0] != "kicked" {
-		t.Fatalf("removed %v, want exactly [kicked]", got)
-	}
+	requireRotated(t, s, sfu)
 }
 
 func TestReconcile_ForceMoveTokenNeedsMembership(t *testing.T) {
@@ -195,9 +249,10 @@ func TestReconcile_ForceMoveTokenNeedsMembership(t *testing.T) {
 
 			s.sweepLiveKitReconciliation()
 
-			got := sfu.removedIDs()
-			if tc.removed != (len(got) == 1 && got[0] == tc.user) || len(got) > 1 {
-				t.Fatalf("removed %v, want removed=%v for %s", got, tc.removed, tc.user)
+			if tc.removed {
+				requireRotated(t, s, sfu)
+			} else if got := sfu.ejected(); len(got) != 0 {
+				t.Fatalf("ejected %v, want %s kept", got, tc.user)
 			}
 		})
 	}
@@ -216,20 +271,22 @@ func TestReconcile_KeepsAUserWhoJoinedAfterTheSnapshot(t *testing.T) {
 
 	s.sweepLiveKitReconciliation()
 
-	if got := sfu.removedIDs(); len(got) != 0 {
+	if got := sfu.ejected(); len(got) != 0 {
 		t.Fatalf("removed %v — judged against the snapshot instead of the current state", got)
 	}
 }
 
-// A screen share is judged by its owner, and the exact identity is what gets removed.
+// A screen share is judged by its owner: a member's own share is no intruder, a removed user's is.
 func TestReconcile_ScreenShareJudgedByItsOwner(t *testing.T) {
-	s, sfu := intruderHarness(t, connectPerms("member"), "member_ss", "kicked_ss")
-
+	s, sfu := intruderHarness(t, connectPerms("member"), "member_ss")
 	s.sweepLiveKitReconciliation()
-
-	if got := sfu.removedIDs(); len(got) != 1 || got[0] != "kicked_ss" {
-		t.Fatalf("removed %v, want exactly [kicked_ss] — the member's own share stays", got)
+	if got := sfu.ejected(); len(got) != 0 {
+		t.Fatalf("ejected %v — the member's own share", got)
 	}
+
+	s, sfu = intruderHarness(t, connectPerms("member"), "member_ss", "kicked_ss")
+	s.sweepLiveKitReconciliation()
+	requireRotated(t, s, sfu)
 }
 
 // In doubt, never remove: a permission that cannot be read keeps the participant.
@@ -238,7 +295,7 @@ func TestReconcile_KeepsAParticipantWhosePermissionCannotBeRead(t *testing.T) {
 
 	s.sweepLiveKitReconciliation()
 
-	if got := sfu.removedIDs(); len(got) != 0 {
+	if got := sfu.ejected(); len(got) != 0 {
 		t.Fatalf("removed %v on an unreadable permission", got)
 	}
 }
@@ -252,7 +309,7 @@ func TestReconcile_RemovesNobodyWhenTheRoomCannotBeListed(t *testing.T) {
 
 	s.sweepLiveKitReconciliation()
 
-	if got := sfu.removedIDs(); len(got) != 0 {
+	if got := sfu.ejected(); len(got) != 0 {
 		t.Fatalf("removed %v from a room it could not list", got)
 	}
 	if s.GetUserVoiceState("member") == nil {
@@ -271,7 +328,7 @@ func TestReconcile_LeavesVoiceMembersAlone(t *testing.T) {
 	s.mu.Unlock()
 	s.sweepLiveKitReconciliation()
 
-	if got := sfu.removedIDs(); len(got) != 0 {
+	if got := sfu.ejected(); len(got) != 0 {
 		t.Fatalf("removed %v — a member in voice and in the room", got)
 	}
 	if s.GetUserVoiceState("member") == nil {
@@ -293,7 +350,21 @@ func TestReconcile_RemovesAParticipantWhoCannotSeeTheChannel(t *testing.T) {
 
 	s.sweepLiveKitReconciliation()
 
-	if got := sfu.removedIDs(); len(got) != 1 || got[0] != "hidden" {
-		t.Fatalf("removed %v, want exactly [hidden]", got)
+	requireRotated(t, s, sfu)
+}
+
+// requireRotated: the intruder's room was deleted (which takes everyone in it out) and ch1 is in a new
+// room now. Nobody was removed one by one — that is only the fallback.
+func requireRotated(t *testing.T, s *voiceService, sfu *rosterSFU) {
+	t.Helper()
+	if got := sfu.deletedRooms(); len(got) != 1 || got[0] != "srv1:ch1" {
+		t.Fatalf("deleted rooms %v, want exactly [srv1:ch1]", got)
+	}
+	if got := sfu.removedIDs(); len(got) != 0 {
+		t.Fatalf("removed %v one by one although the room was deleted", got)
+	}
+	now, err := s.roomNameFor(context.Background(), "srv1", "ch1")
+	if err != nil || now == "srv1:ch1" {
+		t.Fatalf("ch1 is still in %q (%v) — the intruder's token still names the live room", now, err)
 	}
 }

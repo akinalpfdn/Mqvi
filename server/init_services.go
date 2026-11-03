@@ -147,7 +147,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	)
 	voiceService := services.NewVoiceService(
 		repos.Channel, repos.LiveKit, repos.LiveKit, channelPermService, hub, hub, channelPermService, hub, repos.Server, encryptionKey, urlSigner,
-		repos.Server,
+		repos.Server, repos.LiveKit,
 	)
 	p2pCallService := services.NewP2PCallService(repos.Friendship, repos.User, hub, urlSigner, cfg.CallGraceWindow)
 

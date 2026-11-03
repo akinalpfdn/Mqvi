@@ -27,9 +27,9 @@ type roomCredentials struct {
 //
 // Every path that needs it goes through here — the join token, the screen-share sub-participant
 // token, and the server-side room client used for participant removal, listing and mute
-// enforcement. That is not tidiness. The room name is `serverID:channelID` (see generateRoomName)
-// and carries no instance identity, so if two of those paths ever resolved differently they would
-// each open a room of the same name on a different SFU. Both halves would work, neither would hear
+// enforcement. That is not tidiness. The room name (see roomNameFor) carries no instance identity,
+// so if two of those paths ever resolved differently they would each open a room of the same name
+// on a different SFU. Both halves would work, neither would hear
 // the other, and nothing would error. One function makes that disagreement impossible rather than
 // merely unlikely.
 //
@@ -324,23 +324,6 @@ func (s *voiceService) persistBinding(ctx context.Context, channelID, instanceID
 				map[string]string{"channel_id": channelID, "instance_id": instanceID, "error": err.Error()})
 		}
 	}
-}
-
-// generateRoomName is the one place a room is named. Kept beside the resolver because the two are
-// a pair: the name says which room, the resolver says which server it lives on, and a room is only
-// unambiguous when both agree.
-func generateRoomName(serverID, channelID string) string {
-	return serverID + ":" + channelID
-}
-
-// ParseRoomName inverts generateRoomName. IDs are 16 hex characters or the literal "default", so a
-// room with an empty side or a second ':' is not one of ours and is rejected rather than guessed at.
-func ParseRoomName(room string) (serverID, channelID string, ok bool) {
-	serverID, channelID, found := strings.Cut(room, ":")
-	if !found || serverID == "" || channelID == "" || strings.Contains(channelID, ":") {
-		return "", "", false
-	}
-	return serverID, channelID, true
 }
 
 // SplitParticipantIdentity strips the screen-share sub-participant suffix so the identity resolves

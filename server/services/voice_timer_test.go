@@ -43,6 +43,7 @@ func newTimerTestVoiceService(online []string, perms models.Permission) (*voiceS
 		nil, // encryptionKey
 		&testutil.MockFileURLSigner{},
 		nil,
+		nil, // roomNameStore
 	)
 	return inlineEgress(svc), broadcasts
 }
