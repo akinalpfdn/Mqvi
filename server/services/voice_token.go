@@ -135,6 +135,10 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 		SetIdentity(userID).
 		SetName(participantName).
 		SetValidFor(24 * time.Hour)
+	if !mayEnterVoice(effectivePerms) {
+		// Reaching here without voice access means a force-move grant was consumed above.
+		at.SetAttributes(map[string]string{movedInAttribute: "1"})
+	}
 
 	token, err := at.ToJWT()
 	if err != nil {
@@ -345,6 +349,11 @@ func (s *voiceService) GenerateScreenShareToken(ctx context.Context, userID, use
 		SetIdentity(ssIdentity).
 		SetName(participantName).
 		SetValidFor(4 * time.Hour)
+	if state.MovedIn {
+		// The share is judged by its owner; it carries the owner's mark for when the owner's own
+		// participant is gone from the listing.
+		at.SetAttributes(map[string]string{movedInAttribute: "1"})
+	}
 
 	token, err := at.ToJWT()
 	if err != nil {

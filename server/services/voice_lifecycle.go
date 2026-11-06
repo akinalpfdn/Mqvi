@@ -470,22 +470,27 @@ func (s *voiceService) sweepAFKUsers() {
 // share still counts as present. LiveKit is the source of truth for room membership.
 // MUST NOT be called under s.mu (does DB lookups + network I/O).
 func (s *voiceService) listLiveKitParticipants(ctx context.Context, serverID, channelID string) (map[string]bool, error) {
-	identities, _, err := s.listRoomIdentities(ctx, serverID, channelID)
+	listing, err := s.listRoom(ctx, serverID, channelID)
 	if err != nil {
 		return nil, err
 	}
-	present := make(map[string]bool, len(identities))
-	for _, identity := range identities {
+	present := make(map[string]bool, len(listing.identities))
+	for _, identity := range listing.identities {
 		userID, _ := SplitParticipantIdentity(identity)
 		present[userID] = true
 	}
 	return present, nil
 }
 
-// listRoomIdentities returns the identities connected to the channel's room as LiveKit reports
-// them, screen-share suffix included, and the room it listed (zero when the channel has none).
-// MUST NOT be called under s.mu (DB lookups + network I/O).
-func (s *voiceService) listRoomIdentities(ctx context.Context, serverID, channelID string) ([]string, roomRef, error) {
+// roomListing is a channel's room as LiveKit reports it.
+type roomListing struct {
+	room       roomRef         // zero when the channel has no room
+	identities []string        // screen-share suffix included
+	movedIn    map[string]bool // base user ids whose participant carries movedInAttribute
+}
+
+// listRoom lists the channel's room. MUST NOT be called under s.mu (DB lookups + network I/O).
+func (s *voiceService) listRoom(ctx context.Context, serverID, channelID string) (roomListing, error) {
 	roomClient, room, err := s.newLiveKitRoomClient(ctx, serverID, channelID, "")
 	if errors.Is(err, errChannelNotBound) {
 		// No binding means no room, so nobody is in it. Say that rather than erroring: the caller
@@ -493,10 +498,10 @@ func (s *voiceService) listRoomIdentities(ctx context.Context, serverID, channel
 		// and the channel timer runs forever. Before per-channel binding this path always resolved
 		// and LiveKit answered for an absent room, which is the behaviour being restored here.
 		// A genuinely mid-move user is covered by livekitAbsentGrace, not by pretending to see them.
-		return nil, roomRef{}, nil
+		return roomListing{}, nil
 	}
 	if err != nil {
-		return nil, roomRef{}, err
+		return roomListing{}, err
 	}
 
 	resp, err := roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: room.name})
@@ -505,16 +510,20 @@ func (s *voiceService) listRoomIdentities(ctx context.Context, serverID, channel
 		// CONFIRMED-empty signal (the exact phantom case), not a transient
 		// failure — return an empty set so its stale states get reaped.
 		if strings.Contains(err.Error(), "not_found") || strings.Contains(err.Error(), "not found") {
-			return nil, room, nil
+			return roomListing{room: room}, nil
 		}
-		return nil, roomRef{}, fmt.Errorf("list participants room=%s: %w", room.name, err)
+		return roomListing{}, fmt.Errorf("list participants room=%s: %w", room.name, err)
 	}
 
-	identities := make([]string, 0, len(resp.Participants))
+	listing := roomListing{room: room, identities: make([]string, 0, len(resp.Participants)), movedIn: map[string]bool{}}
 	for _, p := range resp.Participants {
-		identities = append(identities, p.Identity)
+		listing.identities = append(listing.identities, p.Identity)
+		if p.Attributes[movedInAttribute] == "1" {
+			userID, _ := SplitParticipantIdentity(p.Identity)
+			listing.movedIn[userID] = true
+		}
 	}
-	return identities, room, nil
+	return listing, nil
 }
 
 // StartLiveKitReconciliation periodically reconciles in-memory voice state against
@@ -583,7 +592,7 @@ func (s *voiceService) sweepLiveKitReconciliation() {
 	var unknown []roomParticipant    // in the room with no voice state in this channel at snapshot time
 
 	for channelID, ci := range channels {
-		identities, room, err := s.listRoomIdentities(ctx, ci.serverID, channelID)
+		listing, err := s.listRoom(ctx, ci.serverID, channelID)
 		if err != nil {
 			log.Printf("[voice] livekit reconcile: list participants failed channel=%s: %v", channelID, err)
 			continue // skip channel entirely — no tracker changes on transient failure
@@ -592,12 +601,15 @@ func (s *voiceService) sweepLiveKitReconciliation() {
 		for _, userID := range ci.userIDs {
 			inChannel[userID] = true
 		}
-		inRoom := make(map[string]bool, len(identities))
-		for _, identity := range identities {
+		inRoom := make(map[string]bool, len(listing.identities))
+		for _, identity := range listing.identities {
 			userID, _ := SplitParticipantIdentity(identity)
 			inRoom[userID] = true
 			if !inChannel[userID] {
-				unknown = append(unknown, roomParticipant{channelID: channelID, serverID: ci.serverID, room: room, identity: identity, userID: userID})
+				unknown = append(unknown, roomParticipant{
+					channelID: channelID, serverID: ci.serverID, room: listing.room,
+					identity: identity, userID: userID, movedIn: listing.movedIn[userID],
+				})
 			}
 		}
 		for _, userID := range ci.userIDs {
@@ -667,17 +679,22 @@ type roomParticipant struct {
 	room      roomRef // the room it was listed in
 	identity  string  // as LiveKit has it: the user's id, or "{id}_ss" for their screen share
 	userID    string
+	movedIn   bool // the user's participant carries movedInAttribute (a force-move token)
 }
 
-// mayBeInRoom is the join rule (joinAuthorized) re-asked now: in voice here, mid-join on a force-move
-// token while still a member, or allowed to connect. An ordinary token does not keep anyone — whoever
+// mayBeInRoom is the join rule (joinAuthorized) re-asked now: in voice here, on a force-move token
+// while still a member, or allowed to connect. An ordinary token does not keep anyone — whoever
 // is mid-join on one may connect, or their token is all they have left. A permission or membership
 // that cannot be read keeps them — in doubt, never remove.
-func (s *voiceService) mayBeInRoom(serverID, userID, channelID string) bool {
+//
+// movedIn is the mark LiveKit reports on a participant who connected with a force-move token. The
+// pending marker says the same, but it lives in memory: after a restart only the mark is left, and
+// without it a moved user who lacks ConnectVoice would be taken for an intruder.
+func (s *voiceService) mayBeInRoom(serverID, userID, channelID string, movedIn bool) bool {
 	s.mu.RLock()
 	st, inVoice := s.states[userID]
 	held := inVoice && st.ChannelID == channelID
-	moved := !held && s.movedJoinPendingLocked(channelID, userID)
+	moved := !held && (movedIn || s.movedJoinPendingLocked(channelID, userID))
 	s.mu.RUnlock()
 	if held {
 		return true

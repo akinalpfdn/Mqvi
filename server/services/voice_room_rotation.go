@@ -15,6 +15,12 @@ import (
 	"github.com/akinalp/mqvi/pkg"
 )
 
+// movedInAttribute marks a LiveKit participant whose token was minted on a force-move grant. It is
+// signed into the token — clients cannot change their attributes, since no grant here gives them
+// canUpdateOwnMetadata — and LiveKit copies it into every token it renews, so it outlives a restart
+// that forgets VoiceState.MovedIn and the pending marker (see mayBeInRoom).
+const movedInAttribute = "mqvi.moved_in"
+
 // retiredRoomWatch is how long a room a channel left keeps being deleted. A token minted just
 // before the rotation names the old room, its holder may connect up to pendingJoinTTL later, and
 // the sweep that deletes the room again runs once per livekitReconcileInterval.
@@ -49,7 +55,7 @@ func (s *voiceService) removeUnentitledParticipants(participants []roomParticipa
 	byChannel := make(map[string]*intrusion)
 	var order []string
 	for _, p := range participants {
-		if s.mayBeInRoom(p.serverID, p.userID, p.channelID) {
+		if s.mayBeInRoom(p.serverID, p.userID, p.channelID, p.movedIn) {
 			continue
 		}
 		log.Printf("[voice] livekit reconcile: %s is in channel %s's room with no voice state and no connect permission", p.identity, p.channelID)

@@ -116,7 +116,7 @@ func TestRoomName_UnrotatedChannelKeepsTodaysNameEverywhere(t *testing.T) {
 		}
 	}
 
-	if _, _, err := s.listRoomIdentities(ctx, "srv1", "ch1"); err != nil {
+	if _, err := s.listRoom(ctx, "srv1", "ch1"); err != nil {
 		t.Fatalf("list: %v", err)
 	}
 	s.removeParticipantFromLiveKit("srv1", "ch1", "someone", "")

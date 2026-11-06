@@ -24,6 +24,7 @@ type rosterSFU struct {
 	srv        *httptest.Server
 	mu         sync.Mutex
 	roster     []string
+	attrs      map[string]map[string]string // identity -> participant attributes
 	removed    []string
 	deleted    []string
 	calls      []string // "Method room", in order
@@ -42,7 +43,7 @@ func newRosterSFU(t *testing.T, roster ...string) *rosterSFU {
 		case strings.HasSuffix(r.URL.Path, "/ListParticipants"):
 			sfu.record(t, r, "ListParticipants", &livekit.ListParticipantsRequest{})
 			sfu.mu.Lock()
-			fail, roster, hook := sfu.failLst, append([]string(nil), sfu.roster...), sfu.onList
+			fail, roster, hook, attrs := sfu.failLst, append([]string(nil), sfu.roster...), sfu.onList, sfu.attrs
 			sfu.mu.Unlock()
 			if hook != nil {
 				hook()
@@ -53,7 +54,7 @@ func newRosterSFU(t *testing.T, roster ...string) *rosterSFU {
 			}
 			resp := &livekit.ListParticipantsResponse{}
 			for _, id := range roster {
-				resp.Participants = append(resp.Participants, &livekit.ParticipantInfo{Identity: id})
+				resp.Participants = append(resp.Participants, &livekit.ParticipantInfo{Identity: id, Attributes: attrs[id]})
 			}
 			msg = resp
 		case strings.HasSuffix(r.URL.Path, "/RemoveParticipant"):
