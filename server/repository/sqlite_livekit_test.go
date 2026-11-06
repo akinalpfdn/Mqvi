@@ -411,3 +411,30 @@ func TestLiveKitRepo_CountChannelBindingsSeesCallsWithNoServers(t *testing.T) {
 		t.Errorf("after one call ended: %d, %v", n, err)
 	}
 }
+
+// A rotated channel's room name: absent until the first rotation, overwritten by the next, and gone
+// with the channel.
+func TestLiveKitRepo_ChannelRoomName(t *testing.T) {
+	conn, repo := newLiveKitDB(t)
+	ctx := context.Background()
+	seedChannelForBinding(t, conn, "chan1")
+
+	if _, err := repo.GetChannelRoomName(ctx, "chan1"); !errors.Is(err, pkg.ErrNotFound) {
+		t.Fatalf("never rotated: got %v, want ErrNotFound", err)
+	}
+	for _, name := range []string{"s:chan1:first", "s:chan1:second"} {
+		if err := repo.SetChannelRoomName(ctx, "chan1", name); err != nil {
+			t.Fatalf("set %s: %v", name, err)
+		}
+		if got, err := repo.GetChannelRoomName(ctx, "chan1"); err != nil || got != name {
+			t.Fatalf("after setting %s got %q, %v", name, got, err)
+		}
+	}
+
+	if _, err := conn.Exec(`DELETE FROM channels WHERE id = 'chan1'`); err != nil {
+		t.Fatalf("delete channel: %v", err)
+	}
+	if _, err := repo.GetChannelRoomName(ctx, "chan1"); !errors.Is(err, pkg.ErrNotFound) {
+		t.Fatalf("deleted channel's room name: got %v, want ErrNotFound", err)
+	}
+}

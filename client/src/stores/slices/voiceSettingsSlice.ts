@@ -9,6 +9,7 @@
 import type { StateCreator } from "zustand";
 import { usePreferencesStore } from "../preferencesStore";
 import type { VoiceStore } from "../voiceStore";
+import { rememberAudioDevices } from "../../utils/savedAudioDevice";
 
 export type InputMode = "voice_activity" | "push_to_talk";
 export type ScreenShareQuality = "720p" | "1080p";
@@ -168,13 +169,46 @@ export function loadSettings(): VoiceSettings {
   }
 }
 
+/**
+ * Settings that stay on this machine. Device ids are hashed per machine, so another machine's id
+ * matches nothing here: synced, it landed as a saved device that is never plugged in.
+ */
+const MACHINE_LOCAL_KEYS: ReadonlySet<string> = new Set<keyof VoiceSettings>(["inputDevice", "outputDevice"]);
+
+/** The part of the settings that is synced to the user's other devices. */
+export function settingsForServer(settings: VoiceSettings): Partial<VoiceSettings> {
+  return Object.fromEntries(Object.entries(settings).filter(([key]) => !MACHINE_LOCAL_KEYS.has(key))) as Partial<VoiceSettings>;
+}
+
+/**
+ * This machine's settings with the server's applied over them. Machine-local keys are not taken:
+ * older clients still upload their own device ids.
+ */
+export function mergeServerSettings(local: VoiceSettings, server: Record<string, unknown>): VoiceSettings {
+  const merged: VoiceSettings = { ...local };
+  for (const key of Object.keys(server)) {
+    if (key in merged && !MACHINE_LOCAL_KEYS.has(key)) {
+      (merged as Record<string, unknown>)[key] = server[key];
+    }
+  }
+  // The copy above drops `noiseReduction` because it is no longer a key of VoiceSettings, and
+  // the server still holds it for anyone who has not saved since the upgrade. On a device with
+  // no localStorage to migrate from, that silently turns a deliberate "off" back into
+  // "standard" — so the legacy boolean is read here too, and only when the server has no mode.
+  const legacy = (server as { noiseReduction?: boolean }).noiseReduction;
+  if (server.noiseReductionMode === undefined && typeof legacy === "boolean") {
+    merged.noiseReductionMode = legacy ? "standard" : "off";
+  }
+  return merged;
+}
+
 function saveSettings(settings: VoiceSettings): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
   } catch {
     /* localStorage full or inaccessible */
   }
-  usePreferencesStore.getState().set({ voice_settings: settings });
+  usePreferencesStore.getState().set({ voice_settings: settingsForServer(settings) });
 }
 
 /** Extract settings-shaped subset from the current store state. */
@@ -289,12 +323,15 @@ export const createVoiceSettingsSlice: StateCreator<
       saveSettings(currentSettings(get()));
     },
 
+    // A device picked from this machine's list is plugged in here, whether or not a call listed it.
     setInputDevice: (deviceId) => {
+      rememberAudioDevices([{ kind: "audioinput", deviceId }]);
       set({ inputDevice: deviceId });
       saveSettings(currentSettings(get()));
     },
 
     setOutputDevice: (deviceId) => {
+      rememberAudioDevices([{ kind: "audiooutput", deviceId }]);
       set({ outputDevice: deviceId });
       saveSettings(currentSettings(get()));
     },
@@ -398,21 +435,7 @@ export const createVoiceSettingsSlice: StateCreator<
     },
 
     applyFromServer: (settings) => {
-      const merged: VoiceSettings = { ...DEFAULT_SETTINGS, ...loadSettings() };
-      const keys = Object.keys(settings) as (keyof VoiceSettings)[];
-      for (const key of keys) {
-        if (key in merged) {
-          (merged as Record<string, unknown>)[key] = settings[key];
-        }
-      }
-      // The copy above drops `noiseReduction` because it is no longer a key of VoiceSettings, and
-      // the server still holds it for anyone who has not saved since the upgrade. On a device with
-      // no localStorage to migrate from, that silently turns a deliberate "off" back into
-      // "standard" — so the legacy boolean is read here too, and only when the server has no mode.
-      const legacy = (settings as { noiseReduction?: boolean }).noiseReduction;
-      if (settings.noiseReductionMode === undefined && typeof legacy === "boolean") {
-        merged.noiseReductionMode = legacy ? "standard" : "off";
-      }
+      const merged = mergeServerSettings({ ...DEFAULT_SETTINGS, ...loadSettings() }, settings);
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
       } catch {

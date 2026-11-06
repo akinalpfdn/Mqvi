@@ -14,6 +14,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -41,10 +42,18 @@ type ChannelPermResolver interface {
 	ResolveChannelPermissionsFresh(ctx context.Context, userID, channelID string) (models.Permission, error)
 }
 
+// UserChannelsPermResolver resolves one user's effective permissions in many channels of one server
+// at once — what a per-channel loop over ResolveChannelPermissions would answer, in two queries.
+type UserChannelsPermResolver interface {
+	ResolveUserChannelsPermissions(ctx context.Context, userID, serverID string, channelIDs []string) (map[string]models.Permission, error)
+}
+
 // VoiceChannelPermissionEnforcer re-applies effective voice permissions at the SFU for
-// users already in a voice channel after its overrides change. Implemented by voiceService.
+// users already in a voice channel after its overrides change, and resends the server's members
+// the voice state they may now see. Implemented by voiceService.
 type VoiceChannelPermissionEnforcer interface {
 	EnforceChannelVoicePermissions(channelID string)
+	ResyncChannelVisibility(serverID, channelID string)
 }
 
 // PermissionCacheInvalidator drops cached permission entries when a role or membership
@@ -72,6 +81,10 @@ type ChannelPermissionService interface {
 	ResolveChannelPermissionsFresh(ctx context.Context, userID, channelID string) (models.Permission, error)
 	// BuildVisibilityFilter builds a per-user channel visibility filter for ViewChannel checks.
 	BuildVisibilityFilter(ctx context.Context, userID, serverID string) (*ChannelVisibilityFilter, error)
+	// FilterUsersWithPermission keeps the users holding required in a channel (batched, uncached).
+	FilterUsersWithPermission(ctx context.Context, channelID string, userIDs []string, required models.Permission) ([]string, error)
+	// ResolveUserChannelsPermissions resolves one user in many channels of a server (batched).
+	ResolveUserChannelsPermissions(ctx context.Context, userID, serverID string, channelIDs []string) (map[string]models.Permission, error)
 	// SetVoiceEnforcer wires the voice enforcer (post-construction — voiceService is built
 	// after this service, which it depends on).
 	SetVoiceEnforcer(enforcer VoiceChannelPermissionEnforcer)
@@ -83,6 +96,7 @@ type channelPermService struct {
 	roleRepo      repository.RoleRepository
 	channelGetter ChannelGetter
 	hub           ws.Broadcaster
+	online        ServerOnlineLister
 	voiceEnforcer VoiceChannelPermissionEnforcer // set post-construction, may be nil
 
 	// Cache for ResolveChannelPermissions results. Key: "userID:channelID".
@@ -94,11 +108,13 @@ func (s *channelPermService) SetVoiceEnforcer(enforcer VoiceChannelPermissionEnf
 	s.voiceEnforcer = enforcer
 }
 
-// enforceChannelVoice re-checks the channel's voice participants after an override change.
-// Fire-and-forget so the admin's request isn't blocked on LiveKit I/O.
-func (s *channelPermService) enforceChannelVoice(channelID string) {
+// enforceChannelVoice re-checks the channel's voice participants after an override change and
+// resyncs who sees them. The SFU part is fire-and-forget so the admin's request isn't blocked on
+// LiveKit I/O; the resync only queues.
+func (s *channelPermService) enforceChannelVoice(serverID, channelID string) {
 	if s.voiceEnforcer != nil {
 		go s.voiceEnforcer.EnforceChannelVoicePermissions(channelID)
+		s.voiceEnforcer.ResyncChannelVisibility(serverID, channelID)
 	}
 }
 
@@ -107,12 +123,14 @@ func NewChannelPermissionService(
 	roleRepo repository.RoleRepository,
 	channelGetter ChannelGetter,
 	hub ws.Broadcaster,
+	online ServerOnlineLister,
 ) ChannelPermissionService {
 	return &channelPermService{
 		permRepo:      permRepo,
 		roleRepo:      roleRepo,
 		channelGetter: channelGetter,
 		hub:           hub,
+		online:        online,
 		permCache:     cache.New[string, models.Permission](permCacheTTL, permCacheCleanup),
 	}
 }
@@ -153,6 +171,8 @@ func (s *channelPermService) SetOverride(ctx context.Context, serverID, channelI
 		return fmt.Errorf("%w: channel does not belong to this server", pkg.ErrForbidden)
 	}
 
+	before, beforeErr := s.viewersNow(ctx, serverID, channelID)
+
 	// allow=0, deny=0 -> no effect (same as inherit), delete
 	if req.Allow == 0 && req.Deny == 0 {
 		if err := s.permRepo.Delete(ctx, channelID, roleID); err != nil {
@@ -160,9 +180,9 @@ func (s *channelPermService) SetOverride(ctx context.Context, serverID, channelI
 		}
 
 		s.invalidateChannelCache(channelID)
-		s.enforceChannelVoice(channelID)
+		s.enforceChannelVoice(serverID, channelID)
 
-		s.hub.BroadcastToAll(ws.Event{
+		s.tellOverrideChange(ctx, serverID, channelID, before, beforeErr, ws.Event{
 			Op: ws.OpChannelPermissionDelete,
 			Data: map[string]string{
 				"channel_id": channelID,
@@ -185,9 +205,9 @@ func (s *channelPermService) SetOverride(ctx context.Context, serverID, channelI
 	}
 
 	s.invalidateChannelCache(channelID)
-	s.enforceChannelVoice(channelID)
+	s.enforceChannelVoice(serverID, channelID)
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.tellOverrideChange(ctx, serverID, channelID, before, beforeErr, ws.Event{
 		Op:   ws.OpChannelPermissionUpdate,
 		Data: override,
 	})
@@ -205,14 +225,16 @@ func (s *channelPermService) DeleteOverride(ctx context.Context, serverID, chann
 		return fmt.Errorf("%w: channel does not belong to this server", pkg.ErrForbidden)
 	}
 
+	before, beforeErr := s.viewersNow(ctx, serverID, channelID)
+
 	if err := s.permRepo.Delete(ctx, channelID, roleID); err != nil {
 		return fmt.Errorf("failed to delete channel override: %w", err)
 	}
 
 	s.invalidateChannelCache(channelID)
-	s.enforceChannelVoice(channelID)
+	s.enforceChannelVoice(serverID, channelID)
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.tellOverrideChange(ctx, serverID, channelID, before, beforeErr, ws.Event{
 		Op: ws.OpChannelPermissionDelete,
 		Data: map[string]string{
 			"channel_id": channelID,
@@ -221,6 +243,28 @@ func (s *channelPermService) DeleteOverride(ctx context.Context, serverID, chann
 	})
 
 	return nil
+}
+
+// viewersNow is who of the server's online members can see channelID at this moment.
+func (s *channelPermService) viewersNow(ctx context.Context, serverID, channelID string) ([]string, error) {
+	if s.online == nil {
+		return nil, errors.New("no online member source")
+	}
+	return channelAudienceOrErr(ctx, s.online, s, serverID, channelID, models.PermViewChannel)
+}
+
+// tellOverrideChange sends event to whoever saw the channel before the change or sees it after:
+// the ones who lose it must drop it from their sidebar, the ones who gain it must fetch it, and
+// nobody else may learn a hidden channel's id or its permissions. A failed read on either side tells
+// the whole server, as a sidebar left wrong is worse than the id.
+func (s *channelPermService) tellOverrideChange(ctx context.Context, serverID, channelID string, before []string, beforeErr error, event ws.Event) {
+	after, afterErr := s.viewersNow(ctx, serverID, channelID)
+	if err := errors.Join(beforeErr, afterErr); err != nil {
+		log.Printf("[channel-perm] override change on %s: %v (told the whole server)", channelID, err)
+		s.hub.BroadcastToServer(serverID, event)
+		return
+	}
+	s.hub.BroadcastToUsers(unionUserIDs(before, after), event)
 }
 
 // BuildVisibilityFilter builds a per-user channel visibility filter.
@@ -319,42 +363,139 @@ func (s *channelPermService) ResolveChannelPermissions(ctx context.Context, user
 		return 0, fmt.Errorf("failed to get user roles: %w", err)
 	}
 
-	var base models.Permission
-	roleIDs := make([]string, len(roles))
-	for i, role := range roles {
-		base |= role.Permissions
-		roleIDs[i] = role.ID
+	var overrides []models.ChannelPermissionOverride
+	if !foldBasePermissions(roles).Has(models.PermAdmin) {
+		roleIDs := make([]string, len(roles))
+		for i, role := range roles {
+			roleIDs[i] = role.ID
+		}
+		overrides, err = s.permRepo.GetByChannelAndRoles(ctx, channelID, roleIDs)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get channel overrides for roles: %w", err)
+		}
 	}
 
-	// Admin bypasses all overrides
-	if base.Has(models.PermAdmin) {
-		s.permCache.Set(cacheKey, models.PermAll)
-		return models.PermAll, nil
-	}
-
-	overrides, err := s.permRepo.GetByChannelAndRoles(ctx, channelID, roleIDs)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get channel overrides for roles: %w", err)
-	}
-
-	if len(overrides) == 0 {
-		s.permCache.Set(cacheKey, base)
-		return base, nil
-	}
-
-	// OR all override allow/deny bits across user's roles.
-	// In the formula (base & ~deny) | allow, allow overrides deny for the same bit.
-	var channelAllow, channelDeny models.Permission
-	for _, o := range overrides {
-		channelAllow |= o.Allow
-		channelDeny |= o.Deny
-	}
-
-	effective := (base & ^channelDeny) | channelAllow
-
+	effective := foldChannelPermissions(roles, overrides)
 	s.permCache.Set(cacheKey, effective)
-
 	return effective, nil
+}
+
+// ResolveUserChannelsPermissions is ResolveChannelPermissions for many channels of serverID at once:
+// the user's roles there and their overrides are read once — two queries for any number of
+// channels — and folded per channel with the same formula (foldChannelPermissions). Every channel
+// in channelIDs must belong to serverID. Results are cached like single resolves.
+func (s *channelPermService) ResolveUserChannelsPermissions(ctx context.Context, userID, serverID string, channelIDs []string) (map[string]models.Permission, error) {
+	out := make(map[string]models.Permission, len(channelIDs))
+	if len(channelIDs) == 0 {
+		return out, nil
+	}
+	roles, err := s.roleRepo.GetByUserIDAndServer(ctx, userID, serverID)
+	if err != nil {
+		return nil, fmt.Errorf("get roles of %s in %s: %w", userID, serverID, err)
+	}
+
+	byChannel := make(map[string][]models.ChannelPermissionOverride)
+	if !foldBasePermissions(roles).Has(models.PermAdmin) {
+		roleIDs := make([]string, len(roles))
+		for i, role := range roles {
+			roleIDs[i] = role.ID
+		}
+		overrides, err := s.permRepo.GetByRoles(ctx, roleIDs)
+		if err != nil {
+			return nil, fmt.Errorf("get overrides of %s in %s: %w", userID, serverID, err)
+		}
+		for _, o := range overrides {
+			byChannel[o.ChannelID] = append(byChannel[o.ChannelID], o)
+		}
+	}
+
+	for _, channelID := range channelIDs {
+		effective := foldChannelPermissions(roles, byChannel[channelID])
+		out[channelID] = effective
+		s.permCache.Set(userID+":"+channelID, effective)
+	}
+	return out, nil
+}
+
+// FilterUsersWithPermission returns the users whose effective permissions in channelID include
+// required, in input order. Three queries for any number of users, and never the cache: it decides
+// who receives an event, so a stale grant would be a leak rather than a 30-second delay.
+func (s *channelPermService) FilterUsersWithPermission(ctx context.Context, channelID string, userIDs []string, required models.Permission) ([]string, error) {
+	if len(userIDs) == 0 {
+		return nil, nil
+	}
+	channel, err := s.channelGetter.GetByID(ctx, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("get channel %s: %w", channelID, err)
+	}
+	if channel == nil {
+		return nil, fmt.Errorf("get channel %s: %w", channelID, pkg.ErrNotFound)
+	}
+	rolesByUser, err := s.roleRepo.GetByUsersAndServer(ctx, channel.ServerID, userIDs)
+	if err != nil {
+		return nil, fmt.Errorf("get roles for channel %s audience: %w", channelID, err)
+	}
+	overrides, err := s.permRepo.GetByChannel(ctx, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("get overrides for channel %s: %w", channelID, err)
+	}
+
+	out := make([]string, 0, len(userIDs))
+	for _, uid := range userIDs {
+		roles := rolesByUser[uid]
+		if hasAllPermissions(foldChannelPermissions(roles, overridesForRoles(overrides, roles)), required) {
+			out = append(out, uid)
+		}
+	}
+	return out, nil
+}
+
+// foldBasePermissions is the OR of a user's role permissions.
+func foldBasePermissions(roles []models.Role) models.Permission {
+	var base models.Permission
+	for _, r := range roles {
+		base |= r.Permissions
+	}
+	return base
+}
+
+// foldChannelPermissions is the one implementation of the effective-permission formula
+// (base &^ deny) | allow, over overrides already narrowed to the user's roles.
+func foldChannelPermissions(roles []models.Role, overrides []models.ChannelPermissionOverride) models.Permission {
+	base := foldBasePermissions(roles)
+	if base.Has(models.PermAdmin) {
+		return models.PermAll
+	}
+	var allow, deny models.Permission
+	for _, o := range overrides {
+		allow |= o.Allow
+		deny |= o.Deny
+	}
+	return (base &^ deny) | allow
+}
+
+// overridesForRoles narrows a channel's full override list to the roles a user holds — what
+// GetByChannelAndRoles returns for that user.
+func overridesForRoles(overrides []models.ChannelPermissionOverride, roles []models.Role) []models.ChannelPermissionOverride {
+	if len(overrides) == 0 || len(roles) == 0 {
+		return nil
+	}
+	held := make(map[string]bool, len(roles))
+	for _, r := range roles {
+		held[r.ID] = true
+	}
+	var out []models.ChannelPermissionOverride
+	for _, o := range overrides {
+		if held[o.RoleID] {
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
+// hasAllPermissions is Permission.Has for a multi-bit requirement: every bit, or Admin.
+func hasAllPermissions(perms, required models.Permission) bool {
+	return perms&required == required || perms.Has(models.PermAdmin)
 }
 
 // invalidateChannelCache clears all cached permissions for a given channel.

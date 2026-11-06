@@ -144,6 +144,8 @@ export async function handleSystemEvent(
           // LiveKit also dropped — hot-swap token to avoid connect=false→true thrash
           console.warn("[ws ready] Voice resume — LiveKit dropped, refreshing token", { channel: previousChannel });
           voiceState.refreshVoiceToken(previousChannel).then((tokenResp) => {
+            // Left or moved meanwhile — nothing of ours to resume, and leaving would end the new call.
+            if (useVoiceStore.getState().currentVoiceChannelId !== previousChannel) return;
             if (tokenResp) {
               ctx.sendVoiceJoin(previousChannel);
             } else {
@@ -271,8 +273,11 @@ export async function handleSystemEvent(
       return true;
     case "server_delete": {
       const deletedId = (msg.d as { id: string }).id;
-      if (useVoiceStore.getState().currentVoiceChannelId) {
-        useVoiceStore.getState().handleForceDisconnect();
+      // Only a call in the removed server ends — leaving or being kicked from one server must not
+      // hang up a call on another.
+      const vs = useVoiceStore.getState();
+      if (vs.currentVoiceChannelId && vs.currentVoiceServerId === deletedId) {
+        vs.handleForceDisconnect();
       }
       useServerStore.getState().handleServerDelete(deletedId);
       return true;

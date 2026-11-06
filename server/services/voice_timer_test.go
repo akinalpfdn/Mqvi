@@ -20,7 +20,7 @@ func (m *mockOnlineChecker) GetOnlineUserIDs() []string { return m.online }
 func newTimerTestVoiceService(online []string, perms models.Permission) (*voiceService, *[]ws.Event) {
 	hub := &testutil.MockBroadcaster{}
 	broadcasts := &[]ws.Event{}
-	hub.BroadcastToServerFn = func(_ string, event ws.Event) {
+	hub.BroadcastToUsersFn = func(_ []string, event ws.Event) {
 		*broadcasts = append(*broadcasts, event)
 	}
 	svc := NewVoiceService(
@@ -37,12 +37,15 @@ func newTimerTestVoiceService(online []string, perms models.Permission) (*voiceS
 			},
 		},
 		hub,
+		openAudience{}, openAudience{}, // audience: everyone sees everything, as before filtering
 		&mockOnlineChecker{online: online},
 		nil, // afkTimeoutGetter
 		nil, // encryptionKey
 		&testutil.MockFileURLSigner{},
+		nil,
+		nil, // roomNameStore
 	)
-	return svc.(*voiceService), broadcasts
+	return inlineEgress(svc), broadcasts
 }
 
 // countChannelTimerEvents counts timer start/stop events for a specific channel.
@@ -105,7 +108,7 @@ func firstStateUpdateIndex(events []ws.Event, channelID, action string) int {
 // Regression test for the stale-timer bug (channel showed a duration with no
 // participants because the orphan sweep removed the state but not the timer).
 func TestOrphanSweep_StopsTimerWhenChannelEmpties(t *testing.T) {
-	svc, broadcasts := newTimerTestVoiceService(nil, 0) // u1 offline (empty online set)
+	svc, broadcasts := newTimerTestVoiceService(nil, models.PermViewChannel|models.PermConnectVoice) // u1 offline (empty online set)
 
 	if err := svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false); err != nil {
 		t.Fatalf("join: %v", err)
@@ -128,7 +131,7 @@ func TestOrphanSweep_StopsTimerWhenChannelEmpties(t *testing.T) {
 
 // AdminDisconnectUser must stop the channel timer when it removes the last user.
 func TestAdminDisconnectUser_StopsTimerWhenChannelEmpties(t *testing.T) {
-	svc, broadcasts := newTimerTestVoiceService(nil, models.PermMoveMembers)
+	svc, broadcasts := newTimerTestVoiceService(nil, models.PermMoveMembers|models.PermViewChannel|models.PermConnectVoice)
 
 	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false)
 
@@ -146,7 +149,7 @@ func TestAdminDisconnectUser_StopsTimerWhenChannelEmpties(t *testing.T) {
 // MoveUser must stop the source timer when the move empties it and start the
 // target timer when the move fills a previously empty channel.
 func TestMoveUser_TimerTransitions(t *testing.T) {
-	svc, broadcasts := newTimerTestVoiceService(nil, models.PermConnectVoice)
+	svc, broadcasts := newTimerTestVoiceService(nil, models.PermViewChannel|models.PermConnectVoice)
 
 	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false)
 
@@ -174,7 +177,7 @@ func TestMoveUser_TimerTransitions(t *testing.T) {
 // absence tracker — otherwise a stale timestamp shortens the reconcile grace and
 // can reap a user who is actively re-establishing their SFU connection.
 func TestSameChannelRejoin_ResetsLiveKitAbsenceTracker(t *testing.T) {
-	svc, _ := newTimerTestVoiceService(nil, 0)
+	svc, _ := newTimerTestVoiceService(nil, models.PermViewChannel|models.PermConnectVoice)
 
 	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false)
 	svc.livekitAbsentSince["u1"] = time.Now().Add(-time.Hour) // reconcile marked absent
@@ -190,7 +193,7 @@ func TestSameChannelRejoin_ResetsLiveKitAbsenceTracker(t *testing.T) {
 // A fresh join must reset the LiveKit absence tracker so a stale absence
 // timestamp from a previous session can't shorten the reconcile grace.
 func TestJoinChannel_ResetsLiveKitAbsenceTracker(t *testing.T) {
-	svc, _ := newTimerTestVoiceService(nil, 0)
+	svc, _ := newTimerTestVoiceService(nil, models.PermViewChannel|models.PermConnectVoice)
 
 	svc.livekitAbsentSince["u1"] = time.Now().Add(-time.Hour) // stale from a prior session
 	_ = svc.JoinChannel("u1", "alice", "Alice", "", "ch1", false, false)

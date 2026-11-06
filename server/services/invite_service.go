@@ -113,7 +113,11 @@ func (s *inviteService) Delete(ctx context.Context, serverID, code string) error
 func (s *inviteService) Validate(ctx context.Context, code string) (*models.Invite, error) {
 	invite, err := s.inviteRepo.GetByCode(ctx, code)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid invite code", pkg.ErrBadRequest)
+		// A lookup that failed says nothing about the code: never tell the user it is invalid.
+		if errors.Is(err, pkg.ErrNotFound) {
+			return nil, fmt.Errorf("%w: invalid invite code", pkg.ErrBadRequest)
+		}
+		return nil, fmt.Errorf("failed to look up invite: %w", err)
 	}
 
 	if invite.ExpiresAt != nil && time.Now().After(*invite.ExpiresAt) {
@@ -127,7 +131,10 @@ func (s *inviteService) Validate(ctx context.Context, code string) (*models.Invi
 	// Reject invites pointing to soft-deleted servers — must not consume invite use
 	// or dirty membership data for a server pending hard-delete.
 	if _, err := s.serverRepo.GetActiveByID(ctx, invite.ServerID); err != nil {
-		return nil, fmt.Errorf("%w: server is no longer available", pkg.ErrNotFound)
+		if errors.Is(err, pkg.ErrNotFound) {
+			return nil, fmt.Errorf("%w: server is no longer available", pkg.ErrNotFound)
+		}
+		return nil, fmt.Errorf("failed to look up the invite's server: %w", err)
 	}
 
 	return invite, nil
@@ -166,12 +173,18 @@ func (s *inviteService) ValidateAndUse(ctx context.Context, code string) (*model
 func (s *inviteService) GetPreview(ctx context.Context, code string) (*models.InvitePreview, error) {
 	invite, err := s.inviteRepo.GetByCode(ctx, code)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid invite code", pkg.ErrNotFound)
+		if errors.Is(err, pkg.ErrNotFound) {
+			return nil, fmt.Errorf("%w: invalid invite code", pkg.ErrNotFound)
+		}
+		return nil, fmt.Errorf("failed to look up invite: %w", err)
 	}
 
 	server, err := s.serverRepo.GetActiveByID(ctx, invite.ServerID)
 	if err != nil {
-		return nil, fmt.Errorf("%w: server is no longer available", pkg.ErrNotFound)
+		if errors.Is(err, pkg.ErrNotFound) {
+			return nil, fmt.Errorf("%w: server is no longer available", pkg.ErrNotFound)
+		}
+		return nil, fmt.Errorf("failed to look up the invite's server: %w", err)
 	}
 
 	memberCount, err := s.serverRepo.GetMemberCount(ctx, invite.ServerID)

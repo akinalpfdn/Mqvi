@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
-	"strings"
 )
 
 // getOrCreateRoomPassphrase returns or creates a per-room E2EE passphrase.
@@ -60,10 +59,9 @@ func (s *voiceService) cleanupRoomPassphraseIfEmpty(channelID string) string {
 
 	released := s.releaseChannelInstanceLocked(channelID)
 
-	// Room empty — clean up all matching room names (format: "{serverID}:{channelID}")
-	suffix := ":" + channelID
+	// Room empty — clean up every room of this channel, fixed or rotated.
 	for roomName := range s.roomPassphrases {
-		if strings.HasSuffix(roomName, suffix) {
+		if _, roomChannel, ok := ParseRoomName(roomName); ok && roomChannel == channelID {
 			delete(s.roomPassphrases, roomName)
 			log.Printf("[voice] cleaned up E2EE passphrase for room %s", roomName)
 		}

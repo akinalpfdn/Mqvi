@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/pkg/authcookie"
 	"github.com/akinalp/mqvi/pkg/fileacl"
 	"github.com/akinalp/mqvi/services"
@@ -160,8 +162,8 @@ func TestCheckFileTokenRejectsTokenVersionMismatch(t *testing.T) {
 	}
 	acl := fileacl.NewChecker(nil, nil, nil, nil, nil, nil, nil)
 
-	if _, ok := checkFileToken(r, "file-token", "/api/files/avatars/u1/a.png", authSvc, userRepo, acl); ok {
-		t.Fatal("expected token_version mismatch to reject file token")
+	if _, err := checkFileToken(r, "file-token", "/api/files/avatars/u1/a.png", authSvc, userRepo, acl); !errors.Is(err, errFileAuthRejected) {
+		t.Fatalf("expected token_version mismatch to reject file token, got %v", err)
 	}
 }
 
@@ -177,11 +179,72 @@ func TestCheckFileToken_ShouldRejectATokenWhoseSessionWasSignedOut(t *testing.T)
 	acl := fileacl.NewChecker(nil, nil, nil, nil, nil, nil, nil)
 	claims := &models.TokenClaims{UserID: "u1", TokenVersion: 1, SessionID: "s1"}
 
-	if _, ok := checkFileToken(r, "file-token", "/api/files/avatars/u1/a.png", fileTokenAuthStub{claims: claims}, userRepo, acl); !ok {
-		t.Fatal("control: a live session's file token was rejected")
+	if _, err := checkFileToken(r, "file-token", "/api/files/avatars/u1/a.png", fileTokenAuthStub{claims: claims}, userRepo, acl); err != nil {
+		t.Fatalf("control: a live session's file token was rejected: %v", err)
 	}
-	revoked := fileTokenAuthStub{claims: claims, sessionErr: errors.New("session revoked")}
-	if _, ok := checkFileToken(r, "file-token", "/api/files/avatars/u1/a.png", revoked, userRepo, acl); ok {
-		t.Fatal("a signed-out session's file token was accepted")
+	// As the real ValidateSession answers a signed-out session: a wrapped ErrUnauthorized.
+	revoked := fileTokenAuthStub{claims: claims, sessionErr: fmt.Errorf("%w: session revoked", pkg.ErrUnauthorized)}
+	if _, err := checkFileToken(r, "file-token", "/api/files/avatars/u1/a.png", revoked, userRepo, acl); !errors.Is(err, errFileAuthRejected) {
+		t.Fatalf("a signed-out session's file token was not rejected: %v", err)
 	}
+}
+
+// A lookup that failed is not a rejection: answered 401, a database hiccup turns every image and
+// attachment into an auth failure, and the cause reaches no log.
+func TestCheckFileToken_ShouldReportAFailedLookupAsAnErrorNotARejection(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/api/files/avatars/u1/a.png", nil)
+	acl := fileacl.NewChecker(nil, nil, nil, nil, nil, nil, nil)
+	claims := &models.TokenClaims{UserID: "u1", TokenVersion: 1, SessionID: "s1"}
+	dbDown := errors.New("database is locked")
+	liveUser := &testutil.MockUserRepo{
+		GetActiveByIDFn: func(context.Context, string) (*models.User, error) {
+			return &models.User{ID: "u1", TokenVersion: 1}, nil
+		},
+	}
+
+	sessionDown := fileTokenAuthStub{claims: claims, sessionErr: fmt.Errorf("failed to check session: %w", dbDown)}
+	if _, err := checkFileToken(r, "file-token", "/api/files/avatars/u1/a.png", sessionDown, liveUser, acl); err == nil || errors.Is(err, errFileAuthRejected) {
+		t.Fatalf("failed session check answered as %v, want an internal error", err)
+	}
+
+	userDown := &testutil.MockUserRepo{
+		GetActiveByIDFn: func(context.Context, string) (*models.User, error) { return nil, dbDown },
+	}
+	if _, err := checkFileToken(r, "file-token", "/api/files/avatars/u1/a.png", fileTokenAuthStub{claims: claims}, userDown, acl); err == nil || errors.Is(err, errFileAuthRejected) {
+		t.Fatalf("failed user lookup answered as %v, want an internal error", err)
+	}
+
+	gone := &testutil.MockUserRepo{
+		GetActiveByIDFn: func(context.Context, string) (*models.User, error) { return nil, pkg.ErrNotFound },
+	}
+	if _, err := checkFileToken(r, "file-token", "/api/files/avatars/u1/a.png", fileTokenAuthStub{claims: claims}, gone, acl); !errors.Is(err, errFileAuthRejected) {
+		t.Fatalf("a deleted account answered as %v, want a rejection", err)
+	}
+}
+
+// The file ACL failing its own lookup is not a denial either.
+func TestCheckFileToken_ShouldReportAFailedAccessCheckAsAnErrorNotARejection(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/api/files/soundboards/s1/boom.mp3", nil)
+	claims := &models.TokenClaims{UserID: "u1", TokenVersion: 1}
+	userRepo := &testutil.MockUserRepo{
+		GetActiveByIDFn: func(context.Context, string) (*models.User, error) {
+			return &models.User{ID: "u1", TokenVersion: 1}, nil
+		},
+	}
+	acl := fileacl.NewChecker(nil, membershipLookup{err: errors.New("database is locked")}, nil, nil, nil, nil, nil)
+
+	if _, err := checkFileToken(r, "file-token", "/api/files/soundboards/s1/boom.mp3", fileTokenAuthStub{claims: claims}, userRepo, acl); err == nil || errors.Is(err, errFileAuthRejected) {
+		t.Fatalf("failed access check answered as %v, want an internal error", err)
+	}
+
+	notMember := fileacl.NewChecker(nil, membershipLookup{}, nil, nil, nil, nil, nil)
+	if _, err := checkFileToken(r, "file-token", "/api/files/soundboards/s1/boom.mp3", fileTokenAuthStub{claims: claims}, userRepo, notMember); !errors.Is(err, errFileAuthRejected) {
+		t.Fatalf("a non-member answered as %v, want a rejection", err)
+	}
+}
+
+type membershipLookup struct{ err error }
+
+func (m membershipLookup) IsMember(context.Context, string, string) (bool, error) {
+	return false, m.err
 }

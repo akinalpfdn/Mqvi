@@ -100,6 +100,7 @@ type RateLimiters struct {
 	// Its own bucket: this report follows no minted credential and a processor swap is cheap to
 	// trigger, so it must not be able to spend the screen-share budget.
 	NoiseReduction *ratelimit.MessageRateLimiter
+	MicHealth      *ratelimit.MessageRateLimiter
 	// Mark-read gets its own buckets, and DM and channel get one EACH. Not the message limiter:
 	// marking a conversation read must not spend the budget needed to send a message. And not one
 	// shared read bucket either — MessageRateLimiter keys on the user, so a busy channel would
@@ -142,10 +143,11 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 
 	// Order-sensitive services
 	channelPermService := services.NewChannelPermissionService(
-		repos.ChannelPermission, repos.Role, repos.Channel, hub,
+		repos.ChannelPermission, repos.Role, repos.Channel, hub, hub,
 	)
 	voiceService := services.NewVoiceService(
-		repos.Channel, repos.LiveKit, repos.LiveKit, channelPermService, hub, hub, repos.Server, encryptionKey, urlSigner,
+		repos.Channel, repos.LiveKit, repos.LiveKit, channelPermService, hub, hub, channelPermService, hub, repos.Server, encryptionKey, urlSigner,
+		repos.Server, repos.LiveKit,
 	)
 	p2pCallService := services.NewP2PCallService(repos.Friendship, repos.User, hub, urlSigner, cfg.CallGraceWindow)
 
@@ -187,7 +189,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		repos.User, repos.Session, repos.ResetToken, hub, emailSender, breachChecker, locator,
 		cfg.JWT.Secret, encryptionKey, cfg.JWT.AccessTokenExpiry, cfg.JWT.RefreshTokenExpiry, cfg.JWT.FileTokenExpiry,
 	)
-	channelService := services.NewChannelService(repos.Channel, repos.Category, hub, channelPermService, voiceService, voiceService, fileCleanupService)
+	channelService := services.NewChannelService(repos.Channel, repos.Category, hub, channelPermService, voiceService, voiceService, fileCleanupService, hub, channelPermService)
 	categoryService := services.NewCategoryService(repos.Category, hub)
 	messageService := services.NewMessageService(
 		repos.Message, repos.Attachment, repos.Channel, repos.User,
@@ -212,13 +214,14 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		db, repos.Server, repos.LiveKit, repos.Role, repos.Channel,
 		repos.Category, repos.User, repos.Ban, repos.JoinRequest, inviteService, hub, voiceService, voiceService, encryptionKey, urlSigner, fileCleanupService,
 	)
+	serverService.SetPermCacheInvalidator(channelPermService)
 	livekitAdminService := services.NewLiveKitAdminService(
 		repos.LiveKit, repos.Server, repos.User, repos.Channel,
 		voiceService, encryptionKey, cfg.HetznerAPIToken, urlSigner,
 		cfg.Upload.DefaultQuotaBytes,
 	)
 	pinService := services.NewPinService(repos.Pin, repos.Message, repos.Channel, hub, channelPermService, urlSigner)
-	searchService := services.NewSearchService(repos.Search, urlSigner)
+	searchService := services.NewSearchService(repos.Search, repos.Channel, channelPermService, urlSigner)
 	readStateService := services.NewReadStateService(repos.ReadState, channelPermService)
 
 	// BlockService before DMService (DMService uses it as BlockChecker)
@@ -266,7 +269,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	serverReportUploadService := services.NewServerReportUploadService(repos.ServerReport, uploadPipeline, cfg.Upload.MaxSize)
 
 	deviceService := services.NewDeviceService(repos.Device, hub)
-	e2eeService := services.NewE2EEService(repos.E2EEBackup, repos.GroupSession, channelPermService, hub)
+	e2eeService := services.NewE2EEService(repos.E2EEBackup, repos.GroupSession, channelPermService, hub, repos.Channel, hub, channelPermService)
 	pushTokenService := services.NewPushTokenService(repos.PushToken)
 	sessionService := services.NewSessionService(repos.Session, hub)
 
@@ -334,6 +337,9 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 	// and an attach only happens on a mode change or a track publish. Ten a minute is already far
 	// more than any honest client produces.
 	noiseReductionLimiter := ratelimit.NewMessageRateLimiter(10, 1*time.Minute, 30*time.Second)
+	// Two rows per mic episode at most, and an episode needs eight seconds of a dead mic to open.
+	// Six a minute is far above that; it only stops a loop.
+	micHealthLimiter := ratelimit.NewMessageRateLimiter(6, 1*time.Minute, 30*time.Second)
 	// One report per share that ends without the stop button. A user retrying a broken share every
 	// few seconds stays well inside this; a loop does not.
 	screenShareStopLimiter := ratelimit.NewMessageRateLimiter(20, 1*time.Minute, 30*time.Second)
@@ -415,6 +421,7 @@ func initServices(db *sql.DB, repos *Repositories, hub ws.EventPublisher, cfg *c
 		ScreenShare:     screenShareLimiter,
 		ScreenShareStop: screenShareStopLimiter,
 		NoiseReduction:  noiseReductionLimiter,
+		MicHealth:       micHealthLimiter,
 		DMRead:          dmReadLimiter,
 		ChannelRead:     channelReadLimiter,
 		DMDelivery:      dmDeliveryLimiter,

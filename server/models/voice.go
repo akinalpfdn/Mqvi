@@ -21,6 +21,9 @@ type VoiceState struct {
 	IsServerMuted    bool      `json:"is_server_muted"`
 	IsServerDeafened bool      `json:"is_server_deafened"`
 	LastActivity     time.Time `json:"-"` // not serialized — server-side AFK tracking only
+	// MovedIn: put in this channel by someone else's move, which stands in for the access they may
+	// lack here. Server-side only.
+	MovedIn bool `json:"-"`
 }
 
 type VoiceTokenRequest struct {
@@ -149,3 +152,94 @@ var NoiseReductionFailureReasons = map[string]bool{
 	// Anything else thrown while attaching. The user has no denoising at all and was not told.
 	"attach_failed": true,
 }
+
+// MicHealthReport is the client saying its microphone should be sending and is not ("dead"), and
+// later how that ended ("recovered", or "left_voice" when the user left still dead).
+//
+// Every way a mic dies happens on the user's machine — the capture track ends, the OS suspends it,
+// the SDK mutes it after a failed restart, an audio context is suspended — and none of it reaches
+// the server: the user simply cannot be heard. Each field is a code from a closed set so the rows
+// can be scanned and grouped by cause.
+type MicHealthReport struct {
+	ChannelID string `json:"channel_id"`
+	// Event is "dead", "recovered" or "left_voice" (MicHealthEvents).
+	Event string `json:"event"`
+	// Fault is the cause the client saw when it declared the mic dead (MicFaults); the same code is
+	// repeated on the closing report so the pair reads together.
+	Fault string `json:"fault"`
+	// Faults is every cause seen during the episode, in order — a mic can go os_muted and then
+	// upstream_paused as the SDK reacts.
+	Faults []string `json:"faults,omitempty"`
+	// Intent is what the mic should be doing: "live" (voice activity, unmuted) or "ptt" (push to
+	// talk, between presses) — PTT is judged on capture faults only.
+	Intent    string `json:"intent"`
+	Platform  string `json:"platform"`
+	Processor string `json:"processor"`
+	// AppVersion is the client build; shape-checked, not trusted.
+	AppVersion string `json:"app_version,omitempty"`
+	// DurationMs is how long the mic had been faulty when the report was sent: the open threshold on
+	// "dead", the whole episode on the closing reports.
+	DurationMs int64 `json:"duration_ms"`
+	// SinceReconnectMs is how long before the fault began the last LiveKit reconnect completed, or -1
+	// if there was none this session.
+	SinceReconnectMs int64 `json:"since_reconnect_ms"`
+	// Trail is the recent mic and connection events, oldest first.
+	Trail []MicTrailEntry `json:"trail,omitempty"`
+	// Detail is the last media-device error message the SDK raised, if any. Truncated by the handler.
+	Detail string `json:"detail,omitempty"`
+}
+
+// MicTrailEntry is one event and how long before the report it happened.
+type MicTrailEntry struct {
+	Event string `json:"e"`
+	AgoMs int64  `json:"ago_ms"`
+}
+
+// MicHealthEvents is the closed set of report kinds.
+var MicHealthEvents = map[string]bool{"dead": true, "recovered": true, "left_voice": true}
+
+// MicFaults is the closed set of reasons a mic is judged dead.
+var MicFaults = map[string]bool{
+	"no_publication":          true, // should be live, nothing is published
+	"track_ended":             true, // the capture track ended (device lost, OS revoked it)
+	"sdk_muted":               true, // the SDK muted the track itself (failed restart), the user did not
+	"upstream_paused":         true, // the SDK stopped sending after the OS muted capture for 5 s
+	"os_muted":                true, // the OS muted the capture track (screen lock, sleep, device busy)
+	"track_disabled":          true, // the track is disabled while the user is unmuted
+	"audio_context_suspended": true, // the noise-reduction / gate processor's audio context is not running
+	"processed_track_ended":   true, // the processor's output track ended
+}
+
+// MicIntents is the closed set of what the mic should be doing.
+var MicIntents = map[string]bool{"live": true, "ptt": true}
+
+// MicPlatforms is the closed set of client platforms that report. The iOS app is absent: its voice
+// runs in the native SDK, not this code.
+var MicPlatforms = map[string]bool{
+	"electron_mac": true, "electron_windows": true, "electron_linux": true, "web": true, "android": true,
+}
+
+// MicProcessors is the closed set of processors on the mic.
+var MicProcessors = map[string]bool{"none": true, "rnnoise": true, "gtcrn": true, "vadgate": true}
+
+// MicTrailEvents is the closed set of events a trail may carry.
+var MicTrailEvents = map[string]bool{
+	// connection
+	"reconnecting": true, "signal_reconnecting": true, "reconnected": true, "disconnected": true,
+	// the mic track
+	"track_ended": true, "track_restarted": true, "sdk_muted": true, "sdk_unmuted": true,
+	"os_muted": true, "os_unmuted": true, "upstream_paused": true, "upstream_resumed": true,
+	"mic_published": true, "mic_unpublished": true, "device_error": true,
+	// the machine
+	"device_change": true, "ctx_suspended": true, "ctx_running": true, "ctx_interrupted": true, "ctx_closed": true,
+	"page_hidden": true, "page_visible": true, "screen_locked": true, "screen_unlocked": true,
+	"system_suspend": true, "system_resume": true,
+	// the user
+	"user_muted": true, "user_unmuted": true, "ptt_down": true, "ptt_up": true,
+}
+
+// MicTrailMax bounds the trail; MicAppVersionMax the version string.
+const (
+	MicTrailMax      = 24
+	MicAppVersionMax = 32
+)

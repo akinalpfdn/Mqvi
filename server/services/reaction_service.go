@@ -24,7 +24,7 @@ type reactionService struct {
 	messageRepo  repository.MessageRepository
 	channelRepo  repository.ChannelRepository
 	hub          ws.BroadcastAndOnline
-	permResolver ChannelPermResolver
+	permResolver ChannelPermAudienceResolver
 }
 
 func NewReactionService(
@@ -32,7 +32,7 @@ func NewReactionService(
 	messageRepo repository.MessageRepository,
 	channelRepo repository.ChannelRepository,
 	hub ws.BroadcastAndOnline,
-	permResolver ChannelPermResolver,
+	permResolver ChannelPermAudienceResolver,
 ) ReactionService {
 	return &reactionService{
 		reactionRepo: reactionRepo,
@@ -93,24 +93,7 @@ func (s *reactionService) ToggleReaction(ctx context.Context, messageID, userID,
 		},
 	}
 
-	// Scope permission checks to the channel's server members.
-	channel, chErr := s.channelRepo.GetByID(ctx, message.ChannelID)
-	if chErr != nil || channel == nil {
-		return nil
-	}
-
-	onlineUsers := s.hub.GetOnlineUserIDsForServer(channel.ServerID)
-	var allowed []string
-	for _, uid := range onlineUsers {
-		perms, permErr := s.permResolver.ResolveChannelPermissions(ctx, uid, message.ChannelID)
-		if permErr != nil {
-			continue
-		}
-		if perms.Has(models.PermViewChannel) && perms.Has(models.PermReadMessages) {
-			allowed = append(allowed, uid)
-		}
-	}
-	s.hub.BroadcastToUsers(allowed, event)
+	s.hub.BroadcastToUsers(readersOf(s.channelRepo, s.hub, s.permResolver, message.ChannelID), event)
 
 	return nil
 }

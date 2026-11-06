@@ -23,7 +23,8 @@ type voiceHandlerService interface {
 	RecordScreenShareFallback(userID, channelID, engine, reason, detail string)
 	RecordScreenShareStop(userID, channelID, engine, reason, detail string, aliveMs int64)
 	RecordNoiseReductionFailure(userID, channelID, engine, reason, detail string)
-	GetAllVoiceStates() []models.VoiceState
+	RecordMicHealth(userID string, report models.MicHealthReport)
+	VisibleVoiceStates(ctx context.Context, userID string, serverIDs []string) ([]models.VoiceState, map[string]int64)
 }
 
 type VoiceHandler struct {
@@ -32,6 +33,7 @@ type VoiceHandler struct {
 	screenShareRL     *ratelimit.MessageRateLimiter
 	screenShareStopRL *ratelimit.MessageRateLimiter
 	noiseReductionRL  *ratelimit.MessageRateLimiter
+	micHealthRL       *ratelimit.MessageRateLimiter
 }
 
 func NewVoiceHandler(
@@ -40,6 +42,7 @@ func NewVoiceHandler(
 	screenShareRL *ratelimit.MessageRateLimiter,
 	screenShareStopRL *ratelimit.MessageRateLimiter,
 	noiseReductionRL *ratelimit.MessageRateLimiter,
+	micHealthRL *ratelimit.MessageRateLimiter,
 ) *VoiceHandler {
 	return &VoiceHandler{
 		voiceService:      voiceService,
@@ -47,6 +50,7 @@ func NewVoiceHandler(
 		screenShareRL:     screenShareRL,
 		screenShareStopRL: screenShareStopRL,
 		noiseReductionRL:  noiseReductionRL,
+		micHealthRL:       micHealthRL,
 	}
 }
 
@@ -316,23 +320,140 @@ func (h *VoiceHandler) NoiseReductionFailure(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// MicHealth handles POST /api/servers/{serverId}/voice/mic-health
+//
+// The client reporting that its microphone should be sending and is not, and later how that ended.
+// A dead mic is invisible to the server: the SFU sees a published track, the voice state says
+// unmuted, and the person simply cannot be heard. Only the client can see why.
+func (h *VoiceHandler) MicHealth(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	// Its own bucket. An honest client sends at most two rows per episode and episodes are rare;
+	// this only stops a loop from flooding the log.
+	if h.micHealthRL != nil && !h.micHealthRL.Allow(user.ID) {
+		retryAfter := h.micHealthRL.CooldownSeconds(user.ID)
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+		pkg.ErrorWithMessage(w, http.StatusTooManyRequests, "too many mic health reports")
+		return
+	}
+
+	var req models.MicHealthReport
+	r.Body = http.MaxBytesReader(w, r.Body, models.VoiceReportBodyMax)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if msg := validateMicHealth(&req); msg != "" {
+		pkg.ErrorWithMessage(w, http.StatusBadRequest, msg)
+		return
+	}
+
+	h.voiceService.RecordMicHealth(user.ID, req)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// validateMicHealth checks every member-controlled field against a closed set or a bound, and
+// normalises the numbers. Everything here lands in the operator's log; a free string would let a
+// member write arbitrary content into it and would make the category unscannable by cause.
+// Returns the refusal message, or "" when the report is acceptable.
+func validateMicHealth(r *models.MicHealthReport) string {
+	if !models.MicHealthEvents[r.Event] {
+		return "unknown event"
+	}
+	if !models.MicFaults[r.Fault] {
+		return "unknown fault"
+	}
+	if !models.MicIntents[r.Intent] {
+		return "unknown intent"
+	}
+	if !models.MicPlatforms[r.Platform] {
+		return "unknown platform"
+	}
+	if !models.MicProcessors[r.Processor] {
+		return "unknown processor"
+	}
+	if len(r.ChannelID) > models.ScreenShareChannelIDMax {
+		return "channel_id too long"
+	}
+	if len(r.Faults) > len(models.MicFaults) {
+		return "too many faults"
+	}
+	for _, f := range r.Faults {
+		if !models.MicFaults[f] {
+			return "unknown fault"
+		}
+	}
+	if len(r.Trail) > models.MicTrailMax {
+		return "trail too long"
+	}
+	for i := range r.Trail {
+		if !models.MicTrailEvents[r.Trail[i].Event] {
+			return "unknown trail event"
+		}
+		r.Trail[i].AgoMs = clampMs(r.Trail[i].AgoMs)
+	}
+	if !validAppVersion(r.AppVersion) {
+		return "invalid app_version"
+	}
+	r.DurationMs = clampMs(r.DurationMs)
+	if r.SinceReconnectMs < 0 {
+		r.SinceReconnectMs = -1
+	} else {
+		r.SinceReconnectMs = clampMs(r.SinceReconnectMs)
+	}
+	// The SDK's own error text: no known shape, so bounded by length on a rune boundary.
+	r.Detail = truncateRunes(r.Detail, models.ScreenShareFallbackDetailMax)
+	return ""
+}
+
+// clampMs keeps a client-reported duration within [0, 1 day].
+func clampMs(ms int64) int64 {
+	const day = 24 * 60 * 60 * 1000
+	if ms < 0 {
+		return 0
+	}
+	if ms > day {
+		return day
+	}
+	return ms
+}
+
+// validAppVersion accepts what a build version looks like ("2.28.2", "2.28.2-beta.1") and nothing else.
+func validAppVersion(v string) bool {
+	if len(v) > models.MicAppVersionMax {
+		return false
+	}
+	for _, c := range v {
+		ok := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '.' || c == '-' || c == '+'
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+
 // VoiceStates handles GET /api/servers/{serverId}/voice/states
-// Returns active voice states scoped to the requested server only — leaking
-// other servers' voice membership across server boundaries was the pre-existing
-// behavior. Avatar URLs are stored unsigned in voice state (long-lived) and
+// Returns the voice states of the requested server that the caller may see: the channels they can
+// view and the one they are in. Avatar URLs are stored unsigned in voice state (long-lived) and
 // signed at egress so each consumer gets a fresh signature.
 func (h *VoiceHandler) VoiceStates(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(ctxkeys.User).(*models.User)
+	if !ok {
+		pkg.ErrorWithMessage(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
 	serverID := r.PathValue("serverId")
 	if serverID == "" {
 		pkg.ErrorWithMessage(w, http.StatusBadRequest, "serverId is required")
 		return
 	}
-	all := h.voiceService.GetAllVoiceStates()
-	out := make([]models.VoiceState, 0, len(all))
-	for _, st := range all {
-		if st.ServerID != serverID {
-			continue
-		}
+	visible, _ := h.voiceService.VisibleVoiceStates(r.Context(), user.ID, []string{serverID})
+	out := make([]models.VoiceState, 0, len(visible))
+	for _, st := range visible {
 		st.AvatarURL = h.urlSigner.SignURL(st.AvatarURL)
 		out = append(out, st)
 	}

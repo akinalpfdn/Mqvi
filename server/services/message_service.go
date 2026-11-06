@@ -23,7 +23,7 @@ type MessageService interface {
 	// returns the stored message and repeat=true instead: nothing is created, counted or broadcast.
 	Create(ctx context.Context, channelID string, userID string, req *models.CreateMessageRequest) (msg *models.Message, repeat bool, err error)
 	BroadcastCreate(message *models.Message)
-	Update(ctx context.Context, id string, userID string, req *models.UpdateMessageRequest) (*models.Message, error)
+	Update(ctx context.Context, serverID string, id string, userID string, req *models.UpdateMessageRequest) (*models.Message, error)
 	Delete(ctx context.Context, serverID string, id string, userID string, userPermissions models.Permission) error
 	// DeleteAsModerator removes a message for platform moderation; no membership or permission check.
 	DeleteAsModerator(ctx context.Context, id string) error
@@ -40,7 +40,7 @@ type messageService struct {
 	reactionRepo    repository.ReactionRepository
 	readStateRepo   repository.ReadStateRepository
 	hub             ws.BroadcastAndOnline
-	permResolver    ChannelPermResolver
+	permResolver    ChannelPermAudienceResolver
 	urlSigner       FileURLSigner
 	fileDeleter     FileDeleter
 	storageService  StorageService
@@ -64,7 +64,7 @@ func NewMessageService(
 	reactionRepo repository.ReactionRepository,
 	readStateRepo repository.ReadStateRepository,
 	hub ws.BroadcastAndOnline,
-	permResolver ChannelPermResolver,
+	permResolver ChannelPermAudienceResolver,
 	urlSigner FileURLSigner,
 	fileDeleter FileDeleter,
 	storageService StorageService,
@@ -353,27 +353,7 @@ func (s *messageService) create(ctx context.Context, channelID string, userID st
 // Scoped to the channel's server members so permission checks don't iterate every
 // user on the platform.
 func (s *messageService) allowedViewers(channelID string) []string {
-	ctx := context.Background()
-
-	channel, err := s.channelRepo.GetByID(ctx, channelID)
-	if err != nil || channel == nil {
-		return nil
-	}
-
-	onlineUsers := s.hub.GetOnlineUserIDsForServer(channel.ServerID)
-	var allowed []string
-
-	for _, userID := range onlineUsers {
-		perms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, channelID)
-		if err != nil {
-			continue
-		}
-		if perms.Has(models.PermViewChannel) && perms.Has(models.PermReadMessages) {
-			allowed = append(allowed, userID)
-		}
-	}
-
-	return allowed
+	return readersOf(s.channelRepo, s.hub, s.permResolver, channelID)
 }
 
 // BroadcastCreate sends the message via WS after file uploads complete.
@@ -386,7 +366,7 @@ func (s *messageService) BroadcastCreate(message *models.Message) {
 }
 
 // Update edits a message. Only the message owner can edit.
-func (s *messageService) Update(ctx context.Context, id string, userID string, req *models.UpdateMessageRequest) (*models.Message, error) {
+func (s *messageService) Update(ctx context.Context, serverID string, id string, userID string, req *models.UpdateMessageRequest) (*models.Message, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %s", pkg.ErrBadRequest, err.Error())
 	}
@@ -406,6 +386,19 @@ func (s *messageService) Update(ctx context.Context, id string, userID string, r
 	}
 	if channel == nil {
 		return nil, fmt.Errorf("%w: channel not found", pkg.ErrNotFound)
+	}
+	// IDOR guard, as in Delete: the route's membership check covers serverID, not the message's server.
+	if channel.ServerID != serverID {
+		return nil, fmt.Errorf("%w: message does not belong to this server", pkg.ErrForbidden)
+	}
+	// Authorship alone is not enough: a kicked, banned or send-revoked author must not rewrite what
+	// the channel still shows. Same gate as sending.
+	channelPerms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, message.ChannelID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve channel permissions: %w", err)
+	}
+	if !channelPerms.Has(models.PermSendMessages) {
+		return nil, fmt.Errorf("%w: missing send messages permission for this channel", pkg.ErrForbidden)
 	}
 	// An edit writes `content` without touching encryption_version or ciphertext, so a plaintext
 	// edit of an encrypted message leaves readable text beside the ciphertext the UI still shows.

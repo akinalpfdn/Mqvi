@@ -644,6 +644,7 @@
   "platformLogsCategoryVideo": "Video",
   "platformLogsCategoryScreenShare": "Ekran Paylaşımı",
   "platformLogsCategoryNoiseReduction": "Gürültü Azaltma",
+  "platformLogsCategoryMic": "Mikrofon",
   "platformLogsCategoryWs": "WebSocket",
   "platformLogsCategoryAuth": "Kimlik Doğrulama",
   "platformLogsCategoryGeneral": "Genel",

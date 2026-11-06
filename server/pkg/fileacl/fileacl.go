@@ -1,22 +1,34 @@
-// Package fileacl provides centralized file access control.
-// Used by the /api/files/refresh endpoint to verify that a user still has
-// permission to access a file before re-signing its URL.
+// Package fileacl provides centralized file access control: before /api/files/refresh re-signs a
+// URL, and when a file is served on a JWT instead of a signed URL. A request carrying a valid
+// signature is not checked here; the signature is its credential.
 //
-// This is NOT used at serve-time — the signed URL is the serve-time credential.
-// ACL is checked at URL generation (service layer) and URL refresh (this package).
+// Check answers ErrAccessDenied when the user may not see the file, including when what the file
+// belongs to no longer exists. Any other error means the check could not be made (a lookup failed)
+// and must not be reported to the user as a denial.
 package fileacl
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/pkg/files"
 )
 
 var ErrAccessDenied = errors.New("access denied")
+
+// denyOrFail answers a failed lookup: a denial when it found nothing, the error itself otherwise.
+// Repositories say "nothing" with pkg.ErrNotFound; the feedback one still wraps sql.ErrNoRows.
+func denyOrFail(err error, what string) error {
+	if errors.Is(err, pkg.ErrNotFound) || errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: %s not found", ErrAccessDenied, what)
+	}
+	return fmt.Errorf("looking up %s: %w", what, err)
+}
 
 // ChannelPermChecker resolves whether a user can read a channel's messages.
 type ChannelPermChecker interface {
@@ -141,11 +153,11 @@ func (c *Checker) Check(ctx context.Context, user *models.User, filePath string)
 func (c *Checker) checkMessageFile(ctx context.Context, userID, messageID string) error {
 	msg, err := c.messageRepo.GetByID(ctx, messageID)
 	if err != nil {
-		return fmt.Errorf("%w: message not found", ErrAccessDenied)
+		return denyOrFail(err, "message")
 	}
 	perms, err := c.channelPerms.ResolveChannelPermissions(ctx, userID, msg.ChannelID)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrAccessDenied, err)
+		return denyOrFail(err, "channel")
 	}
 	if perms&models.PermReadMessages == 0 {
 		return fmt.Errorf("%w: no read permission for channel", ErrAccessDenied)
@@ -156,11 +168,11 @@ func (c *Checker) checkMessageFile(ctx context.Context, userID, messageID string
 func (c *Checker) checkDMFile(ctx context.Context, userID, dmMessageID string) error {
 	msg, err := c.dmRepo.GetMessageByID(ctx, dmMessageID)
 	if err != nil {
-		return fmt.Errorf("%w: dm message not found", ErrAccessDenied)
+		return denyOrFail(err, "dm message")
 	}
 	ch, err := c.dmChannelFn.GetChannelByID(ctx, msg.DMChannelID)
 	if err != nil {
-		return fmt.Errorf("%w: dm channel not found", ErrAccessDenied)
+		return denyOrFail(err, "dm channel")
 	}
 	if ch.User1ID != userID && ch.User2ID != userID {
 		return fmt.Errorf("%w: not a participant of this DM", ErrAccessDenied)
@@ -171,7 +183,7 @@ func (c *Checker) checkDMFile(ctx context.Context, userID, dmMessageID string) e
 func (c *Checker) checkServerMembership(ctx context.Context, userID, serverID string) error {
 	isMember, err := c.serverRepo.IsMember(ctx, serverID, userID)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrAccessDenied, err)
+		return fmt.Errorf("checking server membership: %w", err)
 	}
 	if !isMember {
 		return fmt.Errorf("%w: not a server member", ErrAccessDenied)
@@ -185,7 +197,7 @@ func (c *Checker) checkFeedbackAccess(ctx context.Context, user *models.User, ti
 	}
 	ticket, err := c.feedbackRepo.GetTicketByID(ctx, ticketID)
 	if err != nil {
-		return fmt.Errorf("%w: feedback ticket not found", ErrAccessDenied)
+		return denyOrFail(err, "feedback ticket")
 	}
 	if ticket.UserID != user.ID {
 		return fmt.Errorf("%w: not the ticket owner", ErrAccessDenied)
@@ -199,7 +211,7 @@ func (c *Checker) checkReportAccess(ctx context.Context, user *models.User, repo
 	}
 	report, err := c.reportRepo.GetByID(ctx, reportID)
 	if err != nil {
-		return fmt.Errorf("%w: report not found", ErrAccessDenied)
+		return denyOrFail(err, "report")
 	}
 	if report.ReporterID != user.ID {
 		return fmt.Errorf("%w: not the reporter", ErrAccessDenied)

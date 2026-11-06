@@ -21,12 +21,12 @@ type ReadStateService interface {
 
 type readStateService struct {
 	readStateRepo repository.ReadStateRepository
-	permResolver  ChannelPermResolver
+	permResolver  UserChannelsPermResolver
 }
 
 func NewReadStateService(
 	readStateRepo repository.ReadStateRepository,
-	permResolver ChannelPermResolver,
+	permResolver UserChannelsPermResolver,
 ) ReadStateService {
 	return &readStateService{
 		readStateRepo: readStateRepo,
@@ -57,18 +57,25 @@ func (s *readStateService) GetUnreadCounts(ctx context.Context, userID, serverID
 	if err != nil {
 		return nil, err
 	}
+	if len(all) == 0 {
+		return all, nil
+	}
 
-	// Filter to channels where user has ViewChannel AND ReadMessages
+	// Only channels the user may read: ViewChannel and ReadMessages. A read that fails is an error,
+	// not "no permission" — dropping the counts would show a server with nothing unread.
+	channelIDs := make([]string, len(all))
+	for i, info := range all {
+		channelIDs[i] = info.ChannelID
+	}
+	perms, err := s.permResolver.ResolveUserChannelsPermissions(ctx, userID, serverID, channelIDs)
+	if err != nil {
+		return nil, fmt.Errorf("resolve unread permissions: %w", err)
+	}
 	filtered := make([]models.UnreadInfo, 0, len(all))
 	for _, info := range all {
-		perms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, info.ChannelID)
-		if err != nil {
-			continue
-		}
-		if perms.Has(models.PermViewChannel) && perms.Has(models.PermReadMessages) {
+		if p := perms[info.ChannelID]; p.Has(models.PermViewChannel) && p.Has(models.PermReadMessages) {
 			filtered = append(filtered, info)
 		}
 	}
-
 	return filtered, nil
 }

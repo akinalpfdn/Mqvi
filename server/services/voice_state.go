@@ -5,6 +5,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -14,29 +15,104 @@ import (
 	"github.com/akinalp/mqvi/ws"
 )
 
-// broadcastToServer publishes a voice-related event to all members of serverID.
-// No-op on empty serverID (e.g. channel lookup failed) so malformed state can't
-// leak broadcasts to the wrong audience.
-func (s *voiceService) broadcastToServer(serverID string, event ws.Event) {
+// emitChannelLocked queues a voice event about channelID. Its participants are read now, under
+// s.mu, so the event reaches exactly who was in the channel when it happened, whether or not they
+// can see it; also adds users told regardless — the subject of a leave is no longer a participant.
+// Members who can see the channel are resolved by the egress worker. No-op on an empty serverID so
+// malformed state cannot reach the wrong audience.
+func (s *voiceService) emitChannelLocked(serverID, channelID string, event ws.Event, also ...string) {
 	if serverID == "" {
 		return
 	}
-	s.hub.BroadcastToServer(serverID, event)
+	s.egress.channelEvent(serverID, channelID, append(s.participantsLocked(channelID), also...), event)
+}
+
+// emitToUserLocked queues a signal for one user in order with the server's voice events.
+func (s *voiceService) emitToUserLocked(serverID, userID string, event ws.Event) {
+	if serverID == "" {
+		return
+	}
+	s.egress.toUser(serverID, userID, event)
+}
+
+// replaceIfHiddenLocked resyncs userID's view of serverID when they joined or left one of
+// channelIDs without being able to see it. Caller holds s.mu (read or write).
+func (s *voiceService) replaceIfHiddenLocked(serverID, userID string, channelIDs ...string) {
+	if serverID == "" {
+		return
+	}
+	s.egress.replaceIfHidden(serverID, userID, channelIDs, s.serverSnapshotLocked(serverID))
+}
+
+func (s *voiceService) participantsLocked(channelID string) []string {
+	var ids []string
+	for uid, st := range s.states {
+		if st.ChannelID == channelID {
+			ids = append(ids, uid)
+		}
+	}
+	return ids
+}
+
+// serverSnapshotLocked copies serverID's voice states and the timers of their channels.
+func (s *voiceService) serverSnapshotLocked(serverID string) voiceSnapshot {
+	snap := voiceSnapshot{timers: make(map[string]int64)}
+	for _, st := range s.states {
+		if st.ServerID != serverID {
+			continue
+		}
+		snap.states = append(snap.states, *st)
+		if t, ok := s.channelStartedAt[st.ChannelID]; ok {
+			snap.timers[st.ChannelID] = t.UnixMilli()
+		}
+	}
+	return snap
 }
 
 func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, channelID string, isMuted, isDeafened bool) error {
+	// The websocket's own join replaces any background try still waiting.
+	s.mu.Lock()
+	s.cancelDeferredJoinLocked(userID)
+	s.mu.Unlock()
+	_, err := s.join(voiceJoinRequest{
+		userID: userID, username: username, displayName: displayName, avatarURL: avatarURL,
+		channelID: channelID, isMuted: isMuted, isDeafened: isDeafened,
+	}, 0)
+	return err
+}
+
+// join decides and applies a voice join. attempt counts the background tries of a deferred join, 0
+// for the websocket's own. Returns the channel's server once the channel could be read.
+func (s *voiceService) join(req voiceJoinRequest, attempt int) (string, error) {
+	userID, username, displayName, avatarURL := req.userID, req.username, req.displayName, req.avatarURL
+	channelID, isMuted, isDeafened := req.channelID, req.isMuted, req.isDeafened
+
 	// avatarURL is the raw, unsigned URL from the DB. We store it unsigned in
 	// VoiceState (which lives as long as the user is in voice — could be hours)
 	// and re-sign at every broadcast egress. Storing an already-signed URL would
 	// expire mid-session and serve 401s to anyone who joined later via voice_states_sync.
 	signedAvatar := s.urlSigner.SignURL(avatarURL)
 
-	// Resolve channel's parent server before locking — all voice broadcasts are server-scoped.
+	// Already in this channel: the websocket re-asserting it after a reconnect, which needs no
+	// authorization, so none is read. Checked again under the lock below.
+	reassert := s.isInChannel(userID, channelID)
+
+	// Resolve channel's parent server before locking — all voice broadcasts are server-scoped. A
+	// read that fails is not a missing channel: the join is tried again (deferJoin).
 	channel, err := s.channelGetter.GetByID(context.Background(), channelID)
+	if errors.Is(err, pkg.ErrNotFound) {
+		return "", fmt.Errorf("%w: channel not found", pkg.ErrNotFound)
+	}
 	if err != nil {
-		return fmt.Errorf("%w: channel not found", pkg.ErrNotFound)
+		return "", s.deferJoin(req, attempt, fmt.Errorf("read channel: %w", err))
 	}
 	serverID := channel.ServerID
+
+	// Resolved before the lock: the permission lookup may hit the database.
+	decision, authErr := joinAllowed, error(nil)
+	if !reassert {
+		decision, authErr = s.joinAuthorized(userID, channel)
+	}
 
 	var oldChannelID string
 	var oldServerID string
@@ -44,6 +120,31 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 	var releasedInstance string
 
 	s.mu.Lock()
+
+	// Decided on the state as it is now, under the lock. Being in this channel already is the WS
+	// reconnect re-assert and passes; anything else is a new join and needs authorization.
+	existing, inVoice := s.states[userID]
+	sameChannel := inVoice && existing.ChannelID == channelID
+	if reassert && !sameChannel {
+		// Left, moved or removed since the check above: a new join after all, so it is authorized
+		// now, and decided on the state as it is then.
+		s.mu.Unlock()
+		decision, authErr = s.joinAuthorized(userID, channel)
+		s.mu.Lock()
+		existing, inVoice = s.states[userID]
+		sameChannel = inVoice && existing.ChannelID == channelID
+	}
+	if !sameChannel {
+		switch decision {
+		case joinRefused:
+			s.mu.Unlock()
+			log.Printf("[voice] join refused user=%s channel=%s (no token issued, no connect permission)", userID, channelID)
+			return serverID, ErrVoiceJoinRefused
+		case joinUnknown:
+			s.mu.Unlock()
+			return serverID, s.deferJoin(req, attempt, authErr)
+		}
+	}
 
 	// Leave current channel if in one
 	if existing, ok := s.states[userID]; ok {
@@ -63,33 +164,14 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 			delete(s.livekitAbsentSince, userID)
 			s.mu.Unlock()
 			log.Printf("[voice] same-channel rejoin user=%s channel=%s (no broadcast)", userID, channelID)
-			return nil
+			s.joined(userID, serverID)
+			return serverID, nil
 		}
 
-		delete(s.states, userID)
-
-		s.broadcastToServer(oldServerID, ws.Event{
-			Op: ws.OpVoiceStateUpdate,
-			Data: ws.VoiceStateUpdateBroadcast{
-				UserID:           userID,
-				ChannelID:        oldChannelID,
-				Username:         username,
-				DisplayName:      displayName,
-				AvatarURL:        signedAvatar,
-				IsServerMuted:    existing.IsServerMuted,
-				IsServerDeafened: existing.IsServerDeafened,
-				Action:           "leave",
-			},
-		})
-
-		if s.countInChannelLocked(oldChannelID) == 0 {
-			s.stopChannelTimerLocked(oldChannelID, oldServerID)
-		}
-
-		releasedInstance = s.cleanupRoomPassphraseIfEmpty(oldChannelID)
+		releasedInstance = s.removeVoiceStateLocked(existing)
 	}
 
-	// The websocket join landed, so the token-time marker has done its job.
+	// The websocket join landed, so the token-time marker (or a deferred join's) has done its job.
 	s.clearPendingJoinLocked(channelID, userID)
 
 	// Capture before insertion so we can detect the 0 → 1 transition.
@@ -109,7 +191,7 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 	}
 	delete(s.livekitAbsentSince, userID) // fresh session — reset LiveKit absence grace
 
-	s.broadcastToServer(serverID, ws.Event{
+	s.emitChannelLocked(serverID, channelID, ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
 			UserID:      userID,
@@ -129,6 +211,9 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 		s.startChannelTimerLocked(channelID, serverID, time.Now())
 	}
 
+	// A force-moved user may be in a channel they cannot see: they hold none of its participants.
+	s.replaceIfHiddenLocked(serverID, userID, channelID)
+
 	s.mu.Unlock()
 
 	// Remove phantom participant from old LiveKit room (best-effort, outside lock).
@@ -139,44 +224,106 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 	}
 
 	log.Printf("[voice] user %s joined channel %s", userID, channelID)
-	return nil
+	s.joined(userID, serverID)
+	return serverID, nil
+}
+
+// joined runs the join callback, outside s.mu.
+func (s *voiceService) joined(userID, serverID string) {
+	if s.onJoined != nil {
+		s.onJoined(userID, serverID)
+	}
 }
 
 func (s *voiceService) LeaveChannel(userID string) error {
+	// A join still waiting to be decided is left too.
 	s.mu.Lock()
+	s.cancelDeferredJoinLocked(userID)
+	s.mu.Unlock()
+	s.leaveWhere(userID, nil, nil, nil)
+	return nil
+}
 
+// isInChannel reports whether userID is in voice in channelID right now.
+func (s *voiceService) isInChannel(userID, channelID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	st, ok := s.states[userID]
+	return ok && st.ChannelID == channelID
+}
+
+func (s *voiceService) DisconnectUserFromServer(userID, serverID string) bool {
+	return s.leaveWhere(userID, func(st *models.VoiceState) bool { return st.ServerID == serverID }, nil, nil)
+}
+
+func (s *voiceService) DisconnectUserFromChannel(userID, channelID string) bool {
+	return s.leaveWhere(userID, inVoiceChannel(channelID), nil, nil)
+}
+
+func inVoiceChannel(channelID string) func(*models.VoiceState) bool {
+	return func(st *models.VoiceState) bool { return st.ChannelID == channelID }
+}
+
+// leaveWhere takes userID out of voice if match accepts their current state (nil matches any).
+// Deciding and removing under one lock is what lets a caller act on an earlier snapshot: a user who
+// moved since is left alone. before/after are queued for the user around the leave.
+func (s *voiceService) leaveWhere(userID string, match func(*models.VoiceState) bool, before, after *ws.Event) bool {
+	s.mu.Lock()
 	state, ok := s.states[userID]
-	if !ok {
+	if !ok || (match != nil && !match(state)) {
 		s.mu.Unlock()
-		return nil
+		return false
 	}
-
 	channelID := state.ChannelID
 	serverID := state.ServerID
-	username := state.Username
-	displayName := state.DisplayName
-	avatarURL := s.urlSigner.SignURL(state.AvatarURL)
-	wasStreaming := state.IsStreaming
+	if before != nil {
+		s.emitToUserLocked(serverID, userID, *before)
+	}
+	releasedInstance := s.removeVoiceStateLocked(state)
+	if after != nil {
+		s.emitToUserLocked(serverID, userID, *after)
+	}
+	s.mu.Unlock()
+
+	// Remove from LiveKit (best-effort, outside lock — involves DB calls). The instance is what the
+	// teardown must talk to: after the release nothing else can say where the room was.
+	go s.removeParticipantFromLiveKit(serverID, channelID, userID, releasedInstance)
+
+	log.Printf("[voice] user %s left channel %s", userID, channelID)
+	return true
+}
+
+// removeVoiceStateLocked is the one way a user leaves voice: the state and its trackers go, and the
+// leave, the screen-share viewer bookkeeping, the timer stop and a hidden-channel resync are queued.
+// Returns the instance the channel was released from, for the SFU teardown. Caller holds s.mu.
+func (s *voiceService) removeVoiceStateLocked(state *models.VoiceState) string {
+	userID := state.UserID
+	channelID := state.ChannelID
+	serverID := state.ServerID
+
 	delete(s.states, userID)
 	delete(s.livekitAbsentSince, userID)
+	delete(s.offlineSince, userID)
+	delete(s.sfuPresentAt, userID)
 
-	s.broadcastToServer(serverID, ws.Event{
+	s.emitChannelLocked(serverID, channelID, ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
-			UserID:      userID,
-			ChannelID:   channelID,
-			Username:    username,
-			DisplayName: displayName,
-			AvatarURL:   avatarURL,
-			Action:      "leave",
+			UserID:           userID,
+			ChannelID:        channelID,
+			Username:         state.Username,
+			DisplayName:      state.DisplayName,
+			AvatarURL:        s.urlSigner.SignURL(state.AvatarURL),
+			IsServerMuted:    state.IsServerMuted,
+			IsServerDeafened: state.IsServerDeafened,
+			Action:           "leave",
 		},
-	})
+	}, userID)
 
-	// Clean up screen share viewer tracking for the leaving user
-	if wasStreaming {
-		// User was streaming — clear their viewer set and broadcast final update
+	// A streamer leaving ends the share: clear its viewer set and tell the channel.
+	if state.IsStreaming {
 		delete(s.screenShareViewers, userID)
-		s.broadcastToServer(serverID, ws.Event{
+		s.emitChannelLocked(serverID, channelID, ws.Event{
 			Op: ws.OpScreenShareViewerUpdate,
 			Data: ws.ScreenShareViewerUpdateData{
 				StreamerUserID: userID,
@@ -185,47 +332,42 @@ func (s *voiceService) LeaveChannel(userID string) error {
 				ViewerUserID:   "",
 				Action:         "leave",
 			},
-		})
+		}, userID)
 	}
-	// User was a viewer — remove from all streamer viewer sets
+	// A viewer leaving drops out of every share they were watching.
 	for streamerID, viewers := range s.screenShareViewers {
-		if viewers[userID] {
-			delete(viewers, userID)
-			viewerCount := len(viewers)
-			if viewerCount == 0 {
-				delete(s.screenShareViewers, streamerID)
-			}
-			// Find streamer's channel for broadcast
-			if streamerState, ok := s.states[streamerID]; ok {
-				s.broadcastToServer(streamerState.ServerID, ws.Event{
-					Op: ws.OpScreenShareViewerUpdate,
-					Data: ws.ScreenShareViewerUpdateData{
-						StreamerUserID: streamerID,
-						ChannelID:      streamerState.ChannelID,
-						ViewerCount:    viewerCount,
-						ViewerUserID:   userID,
-						Action:         "leave",
-					},
-				})
-			}
+		if !viewers[userID] {
+			continue
+		}
+		delete(viewers, userID)
+		viewerCount := len(viewers)
+		if viewerCount == 0 {
+			delete(s.screenShareViewers, streamerID)
+		}
+		if streamerState, ok := s.states[streamerID]; ok {
+			s.emitChannelLocked(streamerState.ServerID, streamerState.ChannelID, ws.Event{
+				Op: ws.OpScreenShareViewerUpdate,
+				Data: ws.ScreenShareViewerUpdateData{
+					StreamerUserID: streamerID,
+					ChannelID:      streamerState.ChannelID,
+					ViewerCount:    viewerCount,
+					ViewerUserID:   userID,
+					Action:         "leave",
+				},
+			}, userID)
 		}
 	}
 
 	if s.countInChannelLocked(channelID) == 0 {
-		s.stopChannelTimerLocked(channelID, serverID)
+		s.stopChannelTimerLocked(channelID, serverID, userID)
 	}
 
-	// Clean up E2EE passphrase if room is empty (forward secrecy). The returned instance is what
-	// the teardown below must talk to — after the release nothing else can say where the room was.
+	// Clean up E2EE passphrase if room is empty (forward secrecy).
 	releasedInstance := s.cleanupRoomPassphraseIfEmpty(channelID)
 
-	s.mu.Unlock()
-
-	// Remove from LiveKit (best-effort, outside lock — involves DB calls)
-	go s.removeParticipantFromLiveKit(serverID, channelID, userID, releasedInstance)
-
-	log.Printf("[voice] user %s left channel %s", userID, channelID)
-	return nil
+	// A participant who could not see the channel keeps its participants until told otherwise.
+	s.replaceIfHiddenLocked(serverID, userID, channelID)
+	return releasedInstance
 }
 
 func (s *voiceService) UpdateState(userID string, isMuted, isDeafened, isStreaming *bool, shareQuality *string) error {
@@ -269,7 +411,7 @@ func (s *voiceService) UpdateState(userID string, isMuted, isDeafened, isStreami
 		state.ShareQuality = *shareQuality
 	}
 
-	s.broadcastToServer(state.ServerID, ws.Event{
+	s.emitChannelLocked(state.ServerID, state.ChannelID, ws.Event{
 		Op: ws.OpVoiceStateUpdate,
 		Data: ws.VoiceStateUpdateBroadcast{
 			UserID:           state.UserID,
@@ -290,7 +432,7 @@ func (s *voiceService) UpdateState(userID string, isMuted, isDeafened, isStreami
 	// Streamer stopped streaming — clean up viewer tracking and broadcast final update
 	if wasStreaming && !state.IsStreaming {
 		delete(s.screenShareViewers, userID)
-		s.broadcastToServer(state.ServerID, ws.Event{
+		s.emitChannelLocked(state.ServerID, state.ChannelID, ws.Event{
 			Op: ws.OpScreenShareViewerUpdate,
 			Data: ws.ScreenShareViewerUpdateData{
 				StreamerUserID: userID,
@@ -341,7 +483,7 @@ func (s *voiceService) startChannelTimerLocked(channelID, serverID string, now t
 		return
 	}
 	s.channelStartedAt[channelID] = now
-	s.broadcastToServer(serverID, ws.Event{
+	s.emitChannelLocked(serverID, channelID, ws.Event{
 		Op: ws.OpVoiceChannelTimerStart,
 		Data: ws.VoiceChannelTimerStartData{
 			ChannelID: channelID,
@@ -350,85 +492,38 @@ func (s *voiceService) startChannelTimerLocked(channelID, serverID string, now t
 	})
 }
 
-// stopChannelTimerLocked clears an active timer and broadcasts the stop event.
-// No-op if no timer was running. Also fires the channel-empty callback (async)
-// so dependent state — e.g. ephemeral voice chat — can be cleaned up.
-func (s *voiceService) stopChannelTimerLocked(channelID, serverID string) {
+// stopChannelTimerLocked clears an active timer and broadcasts the stop event — to the channel's
+// audience and to leaver, the user whose departure emptied it. No-op if no timer was running. Also
+// fires the channel-empty callback (async) so dependent state — e.g. ephemeral voice chat — can be
+// cleaned up.
+func (s *voiceService) stopChannelTimerLocked(channelID, serverID, leaver string) {
 	if _, exists := s.channelStartedAt[channelID]; !exists {
 		return
 	}
 	delete(s.channelStartedAt, channelID)
-	s.broadcastToServer(serverID, ws.Event{
-		Op: ws.OpVoiceChannelTimerStop,
+	s.emitChannelLocked(serverID, channelID, ws.Event{
+		Op:   ws.OpVoiceChannelTimerStop,
 		Data: ws.VoiceChannelTimerStopData{ChannelID: channelID},
-	})
+	}, leaver)
 	if s.onChannelEmpty != nil {
 		go s.onChannelEmpty(channelID)
 	}
 }
 
-// GetActiveChannelTimers returns a snapshot of active channel start times (Unix ms).
-// Used by the WS sync handler to populate clients on reconnect.
-func (s *voiceService) GetActiveChannelTimers() map[string]int64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := make(map[string]int64, len(s.channelStartedAt))
-	for cid, t := range s.channelStartedAt {
-		out[cid] = t.UnixMilli()
-	}
-	return out
-}
-
-// SyncServerStatesToUser sends the current voice participants and channel timers
-// for serverID to a single user. Used on server join so a newcomer sees calls
-// already in progress immediately, instead of only after a reconnect's bulk sync.
+// SyncServerStatesToUser tells a new member of serverID about the calls already running there that
+// they may see, so they do not wait for a reconnect's bulk sync.
 //
-// Emits incremental join + timer-start events (additive on the client) rather
-// than a full voice_states_sync — the bulk sync REPLACES the client's whole
-// voiceStates map, which would wipe the user's other servers' voice state.
+// Incremental join + timer-start events (additive on the client) rather than a full
+// voice_states_sync, which REPLACES the client's whole voiceStates map and would wipe the user's
+// other servers' voice state. Queued under the lock so it lands in order with the server's events.
 func (s *voiceService) SyncServerStatesToUser(userID, serverID string) {
 	s.mu.RLock()
-	var events []ws.Event
-	serverChannels := make(map[string]struct{})
-	for _, st := range s.states {
-		if st.ServerID != serverID {
-			continue
-		}
-		serverChannels[st.ChannelID] = struct{}{}
-		events = append(events, ws.Event{
-			Op: ws.OpVoiceStateUpdate,
-			Data: ws.VoiceStateUpdateBroadcast{
-				UserID:           st.UserID,
-				ChannelID:        st.ChannelID,
-				ChannelName:      st.ChannelName,
-				ServerID:         st.ServerID,
-				Username:         st.Username,
-				DisplayName:      st.DisplayName,
-				AvatarURL:        s.urlSigner.SignURL(st.AvatarURL),
-				IsMuted:          st.IsMuted,
-				IsDeafened:       st.IsDeafened,
-				IsStreaming:      st.IsStreaming,
-				ShareQuality:     st.ShareQuality,
-				IsServerMuted:    st.IsServerMuted,
-				IsServerDeafened: st.IsServerDeafened,
-				Action:           "join",
-			},
-		})
+	defer s.mu.RUnlock()
+	snap := s.serverSnapshotLocked(serverID)
+	if len(snap.states) == 0 {
+		return
 	}
-	for cid := range serverChannels {
-		if t, ok := s.channelStartedAt[cid]; ok {
-			events = append(events, ws.Event{
-				Op:   ws.OpVoiceChannelTimerStart,
-				Data: ws.VoiceChannelTimerStartData{ChannelID: cid, StartedAt: t.UnixMilli()},
-			})
-		}
-	}
-	s.mu.RUnlock()
-
-	// Send outside the lock — BroadcastToUser takes the hub lock.
-	for _, e := range events {
-		s.hub.BroadcastToUser(userID, e)
-	}
+	s.egress.joinSync(serverID, userID, snap)
 }
 
 // ─── Query Methods ───
@@ -482,9 +577,7 @@ func (s *voiceService) GetAllVoiceStates() []models.VoiceState {
 }
 
 func (s *voiceService) DisconnectUser(userID string) {
-	if err := s.LeaveChannel(userID); err != nil {
-		log.Printf("[voice] disconnect cleanup failed for user=%s: %v", userID, err)
-	}
+	s.leaveWhere(userID, nil, nil, nil)
 }
 
 func (s *voiceService) GetStreamCount(channelID string) int {
@@ -508,4 +601,67 @@ func (s *voiceService) GetUserVoiceChannelID(userID string) string {
 		return state.ChannelID
 	}
 	return ""
+}
+
+// voiceAccessPerms is what entering a voice channel takes: seeing it and connecting to it. A channel
+// a member cannot see is hidden from them, and learning its id must not let them in.
+const voiceAccessPerms = models.PermViewChannel | models.PermConnectVoice
+
+func mayEnterVoice(perms models.Permission) bool { return hasAllPermissions(perms, voiceAccessPerms) }
+
+// ErrVoiceJoinRefused is a websocket join that no token was issued for and that the user's
+// permissions do not allow.
+var ErrVoiceJoinRefused = fmt.Errorf("%w: not allowed to join this voice channel", pkg.ErrForbidden)
+
+// joinAuthorized: the voice state is the credential for voice chat and the screen-share token, so a
+// join that creates it is held to the token rule as it stands now — ConnectVoice, read fresh. A token
+// alone proves nothing: it outlives a kick, a ban and a lost permission, and anyone can keep one fresh.
+// The one exception is a token minted on a force-move grant, which stands in for ConnectVoice and so
+// needs only the membership the move was made under.
+//
+// A read that fails decides nothing: joinUnknown with the error, never a refusal (see deferJoin).
+func (s *voiceService) joinAuthorized(userID string, channel *models.Channel) (joinDecision, error) {
+	if channel.Type != models.ChannelTypeVoice {
+		return joinRefused, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), voiceJoinAuthTimeout)
+	defer cancel()
+
+	s.mu.RLock()
+	moved := s.movedJoinPendingLocked(channel.ID, userID)
+	s.mu.RUnlock()
+	if moved {
+		member, err := s.isServerMember(ctx, channel.ServerID, userID)
+		if err != nil {
+			return joinUnknown, fmt.Errorf("membership user=%s server=%s: %w", userID, channel.ServerID, err)
+		}
+		return decide(member), nil
+	}
+
+	perms, err := s.permResolver.ResolveChannelPermissionsFresh(ctx, userID, channel.ID)
+	if err != nil {
+		return joinUnknown, fmt.Errorf("permissions user=%s channel=%s: %w", userID, channel.ID, err)
+	}
+	return decide(mayEnterVoice(perms)), nil
+}
+
+func decide(allowed bool) joinDecision {
+	if allowed {
+		return joinAllowed
+	}
+	return joinRefused
+}
+
+const voiceJoinAuthTimeout = 5 * time.Second
+
+// isServerMember fails without a membership source rather than guessing.
+func (s *voiceService) isServerMember(ctx context.Context, serverID, userID string) (bool, error) {
+	if s.membership == nil {
+		return false, errors.New("no membership source")
+	}
+	member, err := s.membership.IsMember(ctx, serverID, userID)
+	if err != nil {
+		return false, fmt.Errorf("is member: %w", err)
+	}
+	return member, nil
 }

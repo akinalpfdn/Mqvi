@@ -57,7 +57,7 @@ func (s *categoryService) Create(ctx context.Context, serverID string, req *mode
 		return nil, fmt.Errorf("failed to create category: %w", err)
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpCategoryCreate,
 		Data: category,
 	})
@@ -87,7 +87,7 @@ func (s *categoryService) Update(ctx context.Context, serverID string, id string
 		return nil, err
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpCategoryUpdate,
 		Data: category,
 	})
@@ -116,7 +116,7 @@ func (s *categoryService) Reorder(ctx context.Context, serverID string, items []
 		return nil, fmt.Errorf("failed to update category positions: %w", err)
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpCategoryReorder,
 		Data: nil,
 	})
@@ -143,7 +143,7 @@ func (s *categoryService) Delete(ctx context.Context, serverID string, id string
 		return err
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpCategoryDelete,
 		Data: map[string]string{"id": id},
 	})

@@ -198,6 +198,12 @@ interface ElectronAPI {
   /** Seconds since last OS-level input (mouse/keyboard anywhere). For idle detection across apps. */
   getSystemIdleTime: () => Promise<number>;
 
+  /**
+   * Screen lock / sleep notifications ("screen_locked", "screen_unlocked", "system_suspend",
+   * "system_resume"). Returns an unsubscribe. Optional: builds before it lack it.
+   */
+  onPowerEvent?: (cb: (event: string) => void) => () => void;
+
   onUpdateAvailable: (cb: (info: ElectronUpdateInfo) => void) => void;
   onUpdateProgress: (cb: (progress: ElectronDownloadProgress) => void) => void;
   onUpdateDownloaded: (cb: () => void) => void;

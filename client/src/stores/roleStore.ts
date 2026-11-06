@@ -208,10 +208,12 @@ export const useRoleStore = create<RoleState>((set, get) => ({
 
   // ─── WS Event Handlers ───
 
+  // A server whose roles were never fetched keeps no list: a one-role list would read as loaded, and
+  // nothing would fetch the rest. The fetch, when it comes, includes this role.
   handleRoleCreate: (serverId, role) => {
     set((state) => {
-      const current = state.rolesByServer[serverId] ?? [];
-      if (current.some((r) => r.id === role.id)) return state;
+      const current = state.rolesByServer[serverId];
+      if (!current || current.some((r) => r.id === role.id)) return state;
       return {
         rolesByServer: {
           ...state.rolesByServer,

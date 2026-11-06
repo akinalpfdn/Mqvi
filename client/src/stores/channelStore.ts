@@ -143,7 +143,7 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
       if (!found) {
         if (targetCatId === "") {
           categories.unshift({
-            category: { id: "", name: "", position: -1 },
+            category: { id: "", server_id: useServerStore.getState().activeServerId ?? "", name: "", position: -1 },
             channels: [channel],
           });
         } else if (categories.length > 0) {
@@ -197,6 +197,10 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
   },
 
   handleCategoryCreate: (category) => {
+    // `categories` is the active server's tree. A category of another server (a member event for a
+    // server not on screen, or a create answered after the user switched) must not land in it; that
+    // server's tree is refetched when it is opened.
+    if (category.server_id !== useServerStore.getState().activeServerId) return;
     set((state) => {
       // Same idempotency as handleChannelCreate. Replace rather than re-append, and keep the
       // channels already grouped under it — a blind `{ category, channels: [] }` would empty them.

@@ -14,6 +14,7 @@ import (
 	"github.com/akinalp/mqvi/pkg"
 
 	"github.com/livekit/protocol/auth"
+	"github.com/livekit/protocol/livekit"
 )
 
 func (s *voiceService) GenerateToken(ctx context.Context, userID, username, displayName, channelID string) (*models.VoiceTokenResponse, error) {
@@ -31,7 +32,7 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 		return nil, fmt.Errorf("failed to resolve channel permissions: %w", err)
 	}
 
-	if !effectivePerms.Has(models.PermConnectVoice) {
+	if !mayEnterVoice(effectivePerms) {
 		// Check for a one-time force-move grant (admin moved this user here)
 		s.mu.Lock()
 		grant, hasGrant := s.forceMoveGrants[userID]
@@ -44,6 +45,9 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 				delete(s.forceMoveGrants, userID) // expired or wrong channel — clean up
 			}
 			s.mu.Unlock()
+			if !effectivePerms.Has(models.PermViewChannel) {
+				return nil, pkg.ErrNotFound // a hidden channel answers like a missing one
+			}
 			return nil, fmt.Errorf("%w: missing voice connect permission", pkg.ErrForbidden)
 		}
 	}
@@ -63,10 +67,21 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 		}
 	}
 
+	// Read before anything is marked or claimed: a store that cannot say which room this channel is
+	// in fails the request rather than guessing one (see roomNameFor).
+	roomName, err := s.roomNameFor(ctx, channel.ServerID, channelID)
+	if err != nil {
+		s.logError(models.LogCategoryVoice, &userID, "voice room name unavailable", map[string]string{
+			"channel_id": channelID, "error": err.Error(),
+		})
+		return nil, err
+	}
+
 	// Marked before the claim, not after. The claim persists a row and the abandoned-binding sweep
 	// runs every five seconds; a tick landing in between saw a channel with no participants and
-	// nobody connecting, and released a binding whose token had already gone out.
-	s.markPendingJoin(channelID, userID)
+	// nobody connecting, and released a binding whose token had already gone out. Reaching here
+	// without voice access means a force-move grant was consumed above.
+	s.markPendingJoin(channelID, userID, !mayEnterVoice(effectivePerms))
 
 	// Only now. Resolving claims the channel's LiveKit instance on first use — an actual write, to
 	// memory and to channel_voice_bindings — and it used to run before any of the checks above. A
@@ -86,8 +101,6 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 	canPublishData := true
 
 	at := auth.NewAccessToken(room.APIKey, room.APISecret)
-
-	roomName := generateRoomName(channel.ServerID, channelID)
 
 	grant := &auth.VideoGrant{
 		RoomJoin:       true,
@@ -122,6 +135,10 @@ func (s *voiceService) GenerateToken(ctx context.Context, userID, username, disp
 		SetIdentity(userID).
 		SetName(participantName).
 		SetValidFor(24 * time.Hour)
+	if !mayEnterVoice(effectivePerms) {
+		// Reaching here without voice access means a force-move grant was consumed above.
+		at.SetAttributes(map[string]string{movedInAttribute: "1"})
+	}
 
 	token, err := at.ToJWT()
 	if err != nil {
@@ -272,6 +289,18 @@ func (s *voiceService) GenerateScreenShareToken(ctx context.Context, userID, use
 		return nil, fmt.Errorf("%w: must be in the voice channel to screen share", pkg.ErrBadRequest)
 	}
 
+	// Same publish gate as the main voice token (canPublish = Speak). Stream is not checked: the
+	// everyone role does not carry it and the browser share path does not enforce it either.
+	perms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, channelID)
+	if err != nil {
+		s.logScreenShareRefusal(models.LogLevelError, userID, channelID, "permission_resolve_failed", map[string]string{"error": err.Error()})
+		return nil, fmt.Errorf("failed to resolve channel permissions: %w", err)
+	}
+	if !perms.Has(models.PermSpeak) {
+		s.logScreenShareRefusal(models.LogLevelWarn, userID, channelID, "no_speak_permission", nil)
+		return nil, fmt.Errorf("%w: missing speak permission for this channel", pkg.ErrForbidden)
+	}
+
 	// Follows the binding rather than claiming one. The sub-participant joins a room that already
 	// exists — the sharer is in it — so this is not a first join, and claiming here would pick an
 	// instance from a request that carries no region (the screen-share handler sets none), pinning
@@ -290,9 +319,13 @@ func (s *voiceService) GenerateScreenShareToken(ctx context.Context, userID, use
 	canSubscribe := false   // screen share participant doesn't need to subscribe
 	canPublishData := false // no data channel needed
 
-	at := auth.NewAccessToken(room.APIKey, room.APISecret)
+	roomName, err := s.roomNameFor(ctx, channel.ServerID, channelID)
+	if err != nil {
+		s.logScreenShareRefusal(models.LogLevelError, userID, channelID, "room_name_unavailable", map[string]string{"server_id": channel.ServerID, "error": err.Error()})
+		return nil, err
+	}
 
-	roomName := generateRoomName(channel.ServerID, channelID)
+	at := auth.NewAccessToken(room.APIKey, room.APISecret)
 
 	grant := &auth.VideoGrant{
 		RoomJoin:       true,
@@ -301,6 +334,9 @@ func (s *voiceService) GenerateScreenShareToken(ctx context.Context, userID, use
 		CanSubscribe:   &canSubscribe,
 		CanPublishData: &canPublishData,
 	}
+	// A screen-share identity publishes the screen and its audio, nothing else. Without this it could
+	// publish a microphone track — a second voice that skips Speak and server-mute on the main one.
+	grant.SetCanPublishSources(screenShareSources())
 
 	// Identity suffix "_ss" marks this as a screen share sub-participant
 	ssIdentity := userID + "_ss"
@@ -313,6 +349,11 @@ func (s *voiceService) GenerateScreenShareToken(ctx context.Context, userID, use
 		SetIdentity(ssIdentity).
 		SetName(participantName).
 		SetValidFor(4 * time.Hour)
+	if state.MovedIn {
+		// The share is judged by its owner; it carries the owner's mark for when the owner's own
+		// participant is gone from the listing.
+		at.SetAttributes(map[string]string{movedInAttribute: "1"})
+	}
 
 	token, err := at.ToJWT()
 	if err != nil {
@@ -334,4 +375,10 @@ func (s *voiceService) GenerateScreenShareToken(ctx context.Context, userID, use
 		ChannelID:      channelID,
 		E2EEPassphrase: passphrase,
 	}, nil
+}
+
+// screenShareSources is everything the "_ss" sub-participant may publish. The desktop helper, iOS
+// broadcast extension and Android MediaProjection paths all publish only SCREEN_SHARE.
+func screenShareSources() []livekit.TrackSource {
+	return []livekit.TrackSource{livekit.TrackSource_SCREEN_SHARE, livekit.TrackSource_SCREEN_SHARE_AUDIO}
 }

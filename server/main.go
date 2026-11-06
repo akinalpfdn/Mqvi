@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"html"
 	"io/fs"
@@ -19,6 +20,7 @@ import (
 	"github.com/akinalp/mqvi/config"
 	"github.com/akinalp/mqvi/database"
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/pkg/authcookie"
 	"github.com/akinalp/mqvi/pkg/crypto"
 	"github.com/akinalp/mqvi/pkg/fileacl"
@@ -480,9 +482,14 @@ func registerFileEndpoint(
 		var userID string
 
 		if !sigOK {
-			user, ok := authorizeByJWT(r, signedPath, authService, userRepo, fileACL)
-			if !ok {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+			user, err := authorizeByJWT(r, signedPath, authService, userRepo, fileACL)
+			if err != nil {
+				if errors.Is(err, errFileAuthRejected) {
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					return
+				}
+				log.Printf("[files] authorization failed: %v", err)
+				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}
 			userID = user.ID
@@ -691,19 +698,27 @@ func serveInviteOG(w http.ResponseWriter, r *http.Request, inviteSvc services.In
 	return true
 }
 
+// errFileAuthRejected means no token presented is good for this file. A lookup that failed on the
+// way is a different answer: a database hiccup must not turn every image into a 401.
+var errFileAuthRejected = errors.New("file request not authorized")
+
 func authorizeByJWT(
 	r *http.Request,
 	signedPath string,
 	authService services.AuthService,
 	userRepo repository.UserRepository,
 	fileACL *fileacl.Checker,
-) (*models.User, bool) {
+) (*models.User, error) {
 	for _, token := range readJWTTokens(r) {
-		if user, ok := checkFileToken(r, token, signedPath, authService, userRepo, fileACL); ok {
-			return user, true
+		user, err := checkFileToken(r, token, signedPath, authService, userRepo, fileACL)
+		if err == nil {
+			return user, nil
+		}
+		if !errors.Is(err, errFileAuthRejected) {
+			return nil, err
 		}
 	}
-	return nil, false
+	return nil, errFileAuthRejected
 }
 
 func checkFileToken(
@@ -712,15 +727,18 @@ func checkFileToken(
 	authService services.AuthService,
 	userRepo repository.UserRepository,
 	fileACL *fileacl.Checker,
-) (*models.User, bool) {
-	user, ok := fileUserFromToken(r, token, authService, userRepo)
-	if !ok {
-		return nil, false
+) (*models.User, error) {
+	user, err := fileUserFromToken(r, token, authService, userRepo)
+	if err != nil {
+		return nil, err
 	}
-	if fileACL.Check(r.Context(), user, signedPath) != nil {
-		return nil, false
+	if err := fileACL.Check(r.Context(), user, signedPath); err != nil {
+		if errors.Is(err, fileacl.ErrAccessDenied) {
+			return nil, errFileAuthRejected
+		}
+		return nil, fmt.Errorf("checking file access: %w", err)
 	}
-	return user, true
+	return user, nil
 }
 
 func fileUserFromToken(
@@ -728,29 +746,29 @@ func fileUserFromToken(
 	token string,
 	authService services.AuthService,
 	userRepo repository.UserRepository,
-) (*models.User, bool) {
+) (*models.User, error) {
 	claims, err := authService.ValidateFileToken(token)
 	if err != nil {
-		return nil, false
+		return nil, errFileAuthRejected
 	}
-	if authService.ValidateSession(r.Context(), claims) != nil {
-		return nil, false
+	if err := authService.ValidateSession(r.Context(), claims); err != nil {
+		if errors.Is(err, pkg.ErrUnauthorized) {
+			return nil, errFileAuthRejected
+		}
+		return nil, fmt.Errorf("checking the file token's session: %w", err)
 	}
 	user, err := userRepo.GetActiveByID(r.Context(), claims.UserID)
-	if err != nil || user == nil {
-		return nil, false
+	if err != nil {
+		if errors.Is(err, pkg.ErrNotFound) {
+			return nil, errFileAuthRejected
+		}
+		return nil, fmt.Errorf("loading the file token's user: %w", err)
 	}
-	if user.DeletedAt != nil {
-		return nil, false
-	}
-	if user.IsPlatformBanned {
-		return nil, false
-	}
-	if claims.TokenVersion != user.TokenVersion {
-		return nil, false
+	if user == nil || user.DeletedAt != nil || user.IsPlatformBanned || claims.TokenVersion != user.TokenVersion {
+		return nil, errFileAuthRejected
 	}
 	user.PasswordHash = ""
-	return user, true
+	return user, nil
 }
 
 func readJWTTokens(r *http.Request) []string {

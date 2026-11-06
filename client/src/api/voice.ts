@@ -3,6 +3,7 @@
  */
 
 import { apiClient } from "./client";
+import type { MicReport } from "../audio/micHealth";
 import type { VoiceTokenResponse, VoiceState } from "../types";
 import type { NativeEngine, PublishEngine } from "../utils/publishEngine";
 
@@ -111,6 +112,43 @@ export async function reportNoiseReductionFailure(
   return apiClient<void>(`/servers/${serverId}/voice/noise-reduction-failure`, {
     method: "POST",
     body: { channel_id: channelId, engine, reason, detail },
+  });
+}
+
+/** Where the reporting client runs. Mirrors the server's closed set; the iOS app's voice is native. */
+export type MicPlatform = "electron_mac" | "electron_windows" | "electron_linux" | "web" | "android";
+
+/** The processor on the mic when the report was made. Mirrors the server's closed set. */
+export type MicProcessorKind = "none" | "rnnoise" | "gtcrn" | "vadgate";
+
+export type MicHealthBody = MicReport & {
+  channel_id: string;
+  platform: MicPlatform;
+  processor: MicProcessorKind;
+  app_version: string;
+};
+
+/**
+ * Tells the server the microphone died, or how that ended (see audio/micHealth). Fire-and-forget:
+ * the report is for the operator, and nothing the user does waits on it.
+ */
+export async function reportMicHealth(serverId: string, body: MicHealthBody) {
+  return apiClient<void>(`/servers/${serverId}/voice/mic-health`, {
+    method: "POST",
+    body: {
+      channel_id: body.channel_id,
+      event: body.event,
+      fault: body.fault,
+      faults: body.faults,
+      intent: body.intent,
+      platform: body.platform,
+      processor: body.processor,
+      app_version: body.app_version,
+      duration_ms: Math.max(0, Math.round(body.durationMs)),
+      since_reconnect_ms: Math.round(body.sinceReconnectMs),
+      trail: body.trail.map((t) => ({ e: t.e, ago_ms: Math.max(0, Math.round(t.ago_ms)) })),
+      detail: body.detail,
+    },
   });
 }
 

@@ -18,8 +18,10 @@ func NewSQLiteSearchRepo(db database.TxQuerier) SearchRepository {
 	return &sqliteSearchRepo{db: db}
 }
 
-// Search performs FTS5 full-text search with BM25 ranking.
-func (r *sqliteSearchRepo) Search(ctx context.Context, query string, serverID string, channelID *string, limit, offset int) (*SearchResult, error) {
+// Search performs FTS5 full-text search with BM25 ranking, restricted to channelIDs. The caller
+// decides which channels may be read; an empty list matches nothing. The count is filtered the same
+// way as the rows, so it never reveals matches in a channel the caller cannot read.
+func (r *sqliteSearchRepo) Search(ctx context.Context, query string, serverID string, channelIDs []string, limit, offset int) (*SearchResult, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 25
 	}
@@ -28,33 +30,27 @@ func (r *sqliteSearchRepo) Search(ctx context.Context, query string, serverID st
 	}
 
 	safeQuery := sanitizeFTSQuery(query)
-	if safeQuery == "" {
+	if safeQuery == "" || len(channelIDs) == 0 {
 		return &SearchResult{Messages: []models.Message{}, TotalCount: 0}, nil
 	}
 
-	var countQuery string
-	var countArgs []any
-
-	if channelID != nil {
-		countQuery = `
-			SELECT COUNT(*)
-			FROM messages_fts fts
-			JOIN messages m ON m.rowid = fts.rowid
-			JOIN channels ch ON ch.id = m.channel_id
-			WHERE messages_fts MATCH ? AND ch.server_id = ? AND m.channel_id = ?`
-		countArgs = []any{safeQuery, serverID, *channelID}
-	} else {
-		countQuery = `
-			SELECT COUNT(*)
-			FROM messages_fts fts
-			JOIN messages m ON m.rowid = fts.rowid
-			JOIN channels ch ON ch.id = m.channel_id
-			WHERE messages_fts MATCH ? AND ch.server_id = ?`
-		countArgs = []any{safeQuery, serverID}
+	where := `WHERE messages_fts MATCH ? AND ch.server_id = ? AND m.channel_id IN (` +
+		strings.TrimSuffix(strings.Repeat("?,", len(channelIDs)), ",") + `)`
+	whereArgs := make([]any, 0, len(channelIDs)+2)
+	whereArgs = append(whereArgs, safeQuery, serverID)
+	for _, id := range channelIDs {
+		whereArgs = append(whereArgs, id)
 	}
 
+	countQuery := `
+		SELECT COUNT(*)
+		FROM messages_fts fts
+		JOIN messages m ON m.rowid = fts.rowid
+		JOIN channels ch ON ch.id = m.channel_id
+		` + where
+
 	var totalCount int
-	if err := r.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&totalCount); err != nil {
+	if err := r.db.QueryRowContext(ctx, countQuery, whereArgs...).Scan(&totalCount); err != nil {
 		return nil, fmt.Errorf("failed to count search results: %w", err)
 	}
 
@@ -62,34 +58,17 @@ func (r *sqliteSearchRepo) Search(ctx context.Context, query string, serverID st
 		return &SearchResult{Messages: []models.Message{}, TotalCount: 0}, nil
 	}
 
-	var dataQuery string
-	var dataArgs []any
-
-	if channelID != nil {
-		dataQuery = `
-			SELECT m.id, m.channel_id, m.user_id, m.content, m.edited_at, m.created_at,
-			       u.id, u.username, u.display_name, u.avatar_url, u.status, u.deleted_at, u.is_hard_deleted
-			FROM messages_fts fts
-			JOIN messages m ON m.rowid = fts.rowid
-			JOIN channels ch ON ch.id = m.channel_id
-			LEFT JOIN users u ON m.user_id = u.id
-			WHERE messages_fts MATCH ? AND ch.server_id = ? AND m.channel_id = ?
-			ORDER BY fts.rank
-			LIMIT ? OFFSET ?`
-		dataArgs = []any{safeQuery, serverID, *channelID, limit, offset}
-	} else {
-		dataQuery = `
-			SELECT m.id, m.channel_id, m.user_id, m.content, m.edited_at, m.created_at,
-			       u.id, u.username, u.display_name, u.avatar_url, u.status, u.deleted_at, u.is_hard_deleted
-			FROM messages_fts fts
-			JOIN messages m ON m.rowid = fts.rowid
-			JOIN channels ch ON ch.id = m.channel_id
-			LEFT JOIN users u ON m.user_id = u.id
-			WHERE messages_fts MATCH ? AND ch.server_id = ?
-			ORDER BY fts.rank
-			LIMIT ? OFFSET ?`
-		dataArgs = []any{safeQuery, serverID, limit, offset}
-	}
+	dataQuery := `
+		SELECT m.id, m.channel_id, m.user_id, m.content, m.edited_at, m.created_at,
+		       u.id, u.username, u.display_name, u.avatar_url, u.status, u.deleted_at, u.is_hard_deleted
+		FROM messages_fts fts
+		JOIN messages m ON m.rowid = fts.rowid
+		JOIN channels ch ON ch.id = m.channel_id
+		LEFT JOIN users u ON m.user_id = u.id
+		` + where + `
+		ORDER BY fts.rank
+		LIMIT ? OFFSET ?`
+	dataArgs := append(append([]any{}, whereArgs...), limit, offset)
 
 	rows, err := r.db.QueryContext(ctx, dataQuery, dataArgs...)
 	if err != nil {

@@ -73,13 +73,15 @@ func (s *voiceService) enforceVoicePermissionForParticipant(p models.VoiceState)
 		return
 	}
 
-	if !perms.Has(models.PermConnectVoice) {
+	// Someone else's move stands in for access the participant lacks in that channel, so it is not
+	// taken back by an unrelated permission change; Speak below still applies.
+	if !mayEnterVoice(perms) && !p.MovedIn {
 		// Lost the right to be in voice at all — disconnect (in-memory + LiveKit + broadcast).
 		// The fresh resolve above also blocks an immediate rejoin (GenerateToken re-checks
 		// ConnectVoice against the now-fresh cache). Tell the target's own client to tear its
 		// LiveKit session down cleanly (same signal as an admin force-disconnect).
-		s.DisconnectUser(p.UserID)
-		s.hub.BroadcastToUser(p.UserID, ws.Event{Op: ws.OpVoiceForceDisconnect})
+		// Only from the channel the permission was lost in: a user who moved since may hold it there.
+		s.leaveWhere(p.UserID, inVoiceChannel(p.ChannelID), nil, &ws.Event{Op: ws.OpVoiceForceDisconnect})
 		return
 	}
 

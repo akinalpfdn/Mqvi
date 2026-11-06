@@ -1119,6 +1119,15 @@ function setupIPC(): void {
   // Lets idle detection respect activity in other apps (games, browsers, etc.).
   ipcMain.handle("get-system-idle-time", () => powerMonitor.getSystemIdleTime());
 
+  // Screen lock and sleep, forwarded for the mic-health trail: capture devices are often suspended
+  // across them, and the renderer cannot see either. lock-screen/unlock-screen exist on macOS and
+  // Windows only; suspend/resume everywhere.
+  const forwardPower = (event: string) => () => mainWindow?.webContents.send("power-event", event);
+  powerMonitor.on("lock-screen", forwardPower("screen_locked"));
+  powerMonitor.on("unlock-screen", forwardPower("screen_unlocked"));
+  powerMonitor.on("suspend", forwardPower("system_suspend"));
+  powerMonitor.on("resume", forwardPower("system_resume"));
+
   // Relaunch app — used by ConnectionSettings
   ipcMain.handle("relaunch", () => {
     app.relaunch();

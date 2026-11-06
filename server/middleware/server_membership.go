@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/akinalp/mqvi/models"
@@ -39,7 +41,11 @@ func (m *ServerMembershipMiddleware) Require(next http.Handler) http.Handler {
 
 		// Reject if server is soft-deleted (members must not see/operate on it).
 		if _, err := m.serverRepo.GetActiveByID(r.Context(), serverID); err != nil {
-			pkg.ErrorWithMessage(w, http.StatusNotFound, "server not found")
+			if errors.Is(err, pkg.ErrNotFound) {
+				pkg.ErrorWithMessage(w, http.StatusNotFound, "server not found")
+				return
+			}
+			pkg.Error(w, fmt.Errorf("failed to check the server: %w", err))
 			return
 		}
 

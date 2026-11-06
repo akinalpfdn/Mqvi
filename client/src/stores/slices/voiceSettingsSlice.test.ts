@@ -4,6 +4,8 @@ import {
   DOM_BUTTON_TO_MOUSE_TOKEN,
   migrateSettings,
   DEFAULT_SETTINGS,
+  settingsForServer,
+  mergeServerSettings,
 } from "./voiceSettingsSlice";
 
 vi.mock("../preferencesStore", () => ({
@@ -81,5 +83,49 @@ describe("migrateSettings", () => {
     expect(s.micSensitivity).toBe(12);
     expect(s.inputVolume).toBe(150);
     expect(s.masterVolume).toBe(DEFAULT_SETTINGS.masterVolume);
+  });
+});
+
+// Device ids are hashed per machine. Synced, the PC's headset id landed on the Mac as a saved
+// speaker that is never plugged in: a "not connected" warning with Default shown as selected.
+describe("machine-local device choices", () => {
+  const local = { ...DEFAULT_SETTINGS, inputDevice: "mac-mic", outputDevice: "mac-headset" };
+
+  it("should not send device ids to the server", () => {
+    const sent = settingsForServer(local);
+
+    expect("inputDevice" in sent).toBe(false);
+    expect("outputDevice" in sent).toBe(false);
+  });
+
+  it("should still send the rest of the voice settings", () => {
+    const sent = settingsForServer({ ...local, micSensitivity: 12, inputMode: "push_to_talk" });
+
+    expect(sent.micSensitivity).toBe(12);
+    expect(sent.inputMode).toBe("push_to_talk");
+  });
+
+  // Older clients keep uploading their own machine's ids.
+  it("should keep this machine's devices over the server's", () => {
+    const merged = mergeServerSettings(local, { inputDevice: "pc-mic", outputDevice: "pc-headset" });
+
+    expect(merged.inputDevice).toBe("mac-mic");
+    expect(merged.outputDevice).toBe("mac-headset");
+  });
+
+  it("should apply the server's other settings", () => {
+    const merged = mergeServerSettings(local, { outputDevice: "pc-headset", masterVolume: 40 });
+
+    expect(merged.masterVolume).toBe(40);
+  });
+
+  it("should still read the legacy noise reduction boolean from the server", () => {
+    expect(mergeServerSettings(local, { noiseReduction: false }).noiseReductionMode).toBe("off");
+  });
+
+  it("should ignore keys the settings do not have", () => {
+    const merged = mergeServerSettings(local, { somethingElse: 1 });
+
+    expect("somethingElse" in merged).toBe(false);
   });
 });

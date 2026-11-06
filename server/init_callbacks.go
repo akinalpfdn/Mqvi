@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 
 	"github.com/akinalp/mqvi/models"
@@ -135,25 +136,22 @@ func registerHubCallbacks(
 
 	// ─── Voice Callbacks ───
 
-	hub.OnVoiceJoin(func(userID, username, displayName, avatarURL, channelID string, isMuted, isDeafened bool) {
+	hub.OnVoiceJoin(func(userID, username, displayName, avatarURL, channelID string, isMuted, isDeafened bool) bool {
 		if err := voiceService.JoinChannel(userID, username, displayName, avatarURL, channelID, isMuted, isDeafened); err != nil {
 			log.Printf("[voice] join error user=%s channel=%s: %v", userID, channelID, err)
-			return
+			return errors.Is(err, services.ErrVoiceJoinRefused)
 		}
+		return false
+	})
 
-		// Track last voice activity for admin panel
+	// Last voice activity for the admin panel, after every join — also one deferred and completed in
+	// the background, which the callback above never sees succeed.
+	voiceService.SetOnJoined(func(userID, serverID string) {
 		if actErr := userRepo.UpdateLastVoiceActivity(context.Background(), userID); actErr != nil {
 			log.Printf("[voice] failed to update user voice activity user=%s: %v", userID, actErr)
 		}
-
-		// Track server-level voice activity
-		ch, chErr := channelRepo.GetByID(context.Background(), channelID)
-		if chErr != nil {
-			log.Printf("[voice] channel lookup for activity tracking failed channel=%s: %v", channelID, chErr)
-			return
-		}
-		if actErr := serverRepo.UpdateLastVoiceActivity(context.Background(), ch.ServerID); actErr != nil {
-			log.Printf("[voice] failed to update server voice activity server=%s: %v", ch.ServerID, actErr)
+		if actErr := serverRepo.UpdateLastVoiceActivity(context.Background(), serverID); actErr != nil {
+			log.Printf("[voice] failed to update server voice activity server=%s: %v", serverID, actErr)
 		}
 	})
 	hub.OnVoiceLeave(func(userID string) {

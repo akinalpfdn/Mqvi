@@ -18,10 +18,12 @@ import (
 )
 
 // stubVoiceService implements the narrow voiceHandlerService interface for
-// testing the VoiceStates handler in isolation. Only GetAllVoiceStates returns
-// data; the token methods are unused in this test.
+// testing the VoiceStates handler in isolation. VisibleVoiceStates scopes to the
+// asked servers and records who asked; the token methods are unused in this test.
 type stubVoiceService struct {
-	all []models.VoiceState
+	all        []models.VoiceState
+	askedFor   string
+	micReports []models.MicHealthReport
 }
 
 func (s *stubVoiceService) GenerateToken(_ context.Context, _, _, _, _ string) (*models.VoiceTokenResponse, error) {
@@ -30,17 +32,38 @@ func (s *stubVoiceService) GenerateToken(_ context.Context, _, _, _, _ string) (
 func (s *stubVoiceService) GenerateScreenShareToken(_ context.Context, _, _, _, _ string) (*models.VoiceTokenResponse, error) {
 	return nil, nil
 }
-func (s *stubVoiceService) RecordScreenShareFallback(_, _, _, _, _ string) {}
+func (s *stubVoiceService) RecordScreenShareFallback(_, _, _, _, _ string)      {}
 func (s *stubVoiceService) RecordScreenShareStop(_, _, _, _, _ string, _ int64) {}
-func (s *stubVoiceService) RecordNoiseReductionFailure(_, _, _, _, _ string) {}
-func (s *stubVoiceService) GetAllVoiceStates() []models.VoiceState      { return s.all }
+func (s *stubVoiceService) RecordNoiseReductionFailure(_, _, _, _, _ string)    {}
+func (s *stubVoiceService) VisibleVoiceStates(_ context.Context, userID string, serverIDs []string) ([]models.VoiceState, map[string]int64) {
+	s.askedFor = userID
+	var out []models.VoiceState
+	for _, st := range s.all {
+		for _, id := range serverIDs {
+			if st.ServerID == id {
+				out = append(out, st)
+			}
+		}
+	}
+	return out, nil
+}
+
+func (s *stubVoiceService) RecordMicHealth(_ string, r models.MicHealthReport) {
+	s.micReports = append(s.micReports, r)
+}
+
+func voiceStatesRequest(serverID string) *http.Request {
+	req := httptest.NewRequest(http.MethodGet, "/api/servers/"+serverID+"/voice/states", nil)
+	req.SetPathValue("serverId", serverID)
+	return req.WithContext(context.WithValue(req.Context(), ctxkeys.User, &models.User{ID: "caller"}))
+}
 
 // passthroughSigner is a FileURLSigner that returns its input unchanged so
 // tests assert on the path, not on signature artifacts.
 type passthroughSigner struct{}
 
-func (passthroughSigner) SignURL(s string) string         { return s }
-func (passthroughSigner) SignURLPtr(p *string) *string    { return p }
+func (passthroughSigner) SignURL(s string) string      { return s }
+func (passthroughSigner) SignURLPtr(p *string) *string { return p }
 
 func TestVoiceStates_FiltersByServerID(t *testing.T) {
 	all := []models.VoiceState{
@@ -51,8 +74,7 @@ func TestVoiceStates_FiltersByServerID(t *testing.T) {
 	}
 	h := &VoiceHandler{voiceService: &stubVoiceService{all: all}, urlSigner: passthroughSigner{}}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/servers/server-a/voice/states", nil)
-	req.SetPathValue("serverId", "server-a")
+	req := voiceStatesRequest("server-a")
 	rr := httptest.NewRecorder()
 	h.VoiceStates(rr, req)
 
@@ -60,8 +82,8 @@ func TestVoiceStates_FiltersByServerID(t *testing.T) {
 		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
 	}
 	var env struct {
-		Success bool                 `json:"success"`
-		Data    []models.VoiceState  `json:"data"`
+		Success bool                `json:"success"`
+		Data    []models.VoiceState `json:"data"`
 	}
 	if err := json.NewDecoder(rr.Body).Decode(&env); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -77,11 +99,34 @@ func TestVoiceStates_FiltersByServerID(t *testing.T) {
 	}
 }
 
+// Which states are visible depends on who asks; the handler must ask as the caller.
+func TestVoiceStates_ResolvesForTheCaller(t *testing.T) {
+	svc := &stubVoiceService{}
+	h := &VoiceHandler{voiceService: svc, urlSigner: passthroughSigner{}}
+
+	rr := httptest.NewRecorder()
+	h.VoiceStates(rr, voiceStatesRequest("server-a"))
+
+	if rr.Code != http.StatusOK || svc.askedFor != "caller" {
+		t.Fatalf("code %d, resolved for %q; want 200 for \"caller\"", rr.Code, svc.askedFor)
+	}
+}
+
+func TestVoiceStates_RequiresAUser(t *testing.T) {
+	h := &VoiceHandler{voiceService: &stubVoiceService{}, urlSigner: passthroughSigner{}}
+	req := httptest.NewRequest(http.MethodGet, "/api/servers/server-a/voice/states", nil)
+	req.SetPathValue("serverId", "server-a")
+	rr := httptest.NewRecorder()
+	h.VoiceStates(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without a user, got %d", rr.Code)
+	}
+}
+
 func TestVoiceStates_RejectsMissingServerID(t *testing.T) {
 	h := &VoiceHandler{voiceService: &stubVoiceService{}, urlSigner: passthroughSigner{}}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/servers//voice/states", nil)
-	req.SetPathValue("serverId", "")
+	req := voiceStatesRequest("")
 	rr := httptest.NewRecorder()
 	h.VoiceStates(rr, req)
 
@@ -96,8 +141,7 @@ func TestVoiceStates_EmptyServerReturnsEmpty(t *testing.T) {
 	}
 	h := &VoiceHandler{voiceService: &stubVoiceService{all: all}, urlSigner: passthroughSigner{}}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/servers/server-x/voice/states", nil)
-	req.SetPathValue("serverId", "server-x")
+	req := voiceStatesRequest("server-x")
 	rr := httptest.NewRecorder()
 	h.VoiceStates(rr, req)
 
@@ -105,8 +149,8 @@ func TestVoiceStates_EmptyServerReturnsEmpty(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 	var env struct {
-		Success bool                 `json:"success"`
-		Data    []models.VoiceState  `json:"data"`
+		Success bool                `json:"success"`
+		Data    []models.VoiceState `json:"data"`
 	}
 	if err := json.NewDecoder(rr.Body).Decode(&env); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -140,8 +184,7 @@ func TestVoiceStates_SignsAvatarOnEgress(t *testing.T) {
 	signer := &signingSigner{}
 	h := &VoiceHandler{voiceService: &stubVoiceService{all: all}, urlSigner: signer}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/servers/s/voice/states", nil)
-	req.SetPathValue("serverId", "s")
+	req := voiceStatesRequest("s")
 	rr := httptest.NewRecorder()
 	h.VoiceStates(rr, req)
 
@@ -152,8 +195,8 @@ func TestVoiceStates_SignsAvatarOnEgress(t *testing.T) {
 		t.Fatalf("expected SignURL called once with raw avatar path, got %v", signer.signed)
 	}
 	var env struct {
-		Success bool                 `json:"success"`
-		Data    []models.VoiceState  `json:"data"`
+		Success bool                `json:"success"`
+		Data    []models.VoiceState `json:"data"`
 	}
 	if err := json.NewDecoder(rr.Body).Decode(&env); err != nil {
 		t.Fatalf("decode response: %v", err)

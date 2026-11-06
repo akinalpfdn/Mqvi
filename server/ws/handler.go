@@ -2,6 +2,7 @@ package ws
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg"
 	"github.com/akinalp/mqvi/pkg/ratelimit"
 )
 
@@ -27,10 +29,12 @@ type BanChecker interface {
 	IsBanned(ctx context.Context, userID string) (bool, error)
 }
 
-// VoiceStatesProvider returns all active voice states for the ready event.
+// VoiceStatesProvider returns the voice states a user may see, for the ready event.
 type VoiceStatesProvider interface {
-	GetAllVoiceStates() []models.VoiceState
-	GetActiveChannelTimers() map[string]int64
+	// ReadyVoiceStates also returns each server's place in its voice event order at the read.
+	ReadyVoiceStates(ctx context.Context, userID string, serverIDs []string) ([]models.VoiceState, map[string]int64, map[string]uint64)
+	// ResyncVoiceSince queues a replace for userID in every server whose voice events moved past mark.
+	ResyncVoiceSince(userID string, mark map[string]uint64)
 }
 
 // IncomingCallProvider returns a pending RINGING incoming-call payload for a user,
@@ -268,6 +272,15 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	// A device signed out from the devices screen keeps an unexpired access token for up to its
 	// TTL; without this it could reconnect with it.
 	if err := h.tokenValidator.ValidateSession(r.Context(), claims); err != nil {
+		// A session check that failed is not a revoked session: say so, and do not log it as one.
+		if !errors.Is(err, pkg.ErrUnauthorized) {
+			log.Printf("[ws] session check failed for %s: %v", claims.UserID, err)
+			h.hub.logEvent(models.LogLevelError, models.LogCategoryWS, &claims.UserID, "WS connect: session check failed", map[string]string{
+				"error": err.Error(),
+			})
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 		h.hub.logEvent(models.LogLevelWarn, models.LogCategoryAuth, &claims.UserID, "WS connect blocked: session revoked", nil)
 		http.Error(w, "session revoked", http.StatusUnauthorized)
 		return
@@ -283,7 +296,11 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 			h.hub.logEvent(models.LogLevelError, models.LogCategoryWS, &claims.UserID, "WS connect: user lookup failed", map[string]string{
 				"error": err.Error(),
 			})
-			http.Error(w, "user not found", http.StatusUnauthorized)
+			if errors.Is(err, pkg.ErrNotFound) {
+				http.Error(w, "user not found", http.StatusUnauthorized)
+			} else {
+				http.Error(w, "internal error", http.StatusInternalServerError)
+			}
 			return
 		}
 		if user.IsPlatformBanned {
@@ -453,22 +470,12 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 
-	// Send voice states sync so frontend can initialize voiceStore.
-	// Filter to servers the user belongs to — voice events are server-scoped,
-	// so leaking states from foreign servers would be inconsistent with runtime broadcasts.
+	// Send voice states sync so frontend can initialize voiceStore: the user's servers only, and
+	// within them only the channels they may see — the same rule as the live voice events.
 	if h.voiceStatesProvider != nil {
-		userServers := make(map[string]bool, len(serverIDs))
-		for _, id := range serverIDs {
-			userServers[id] = true
-		}
-
-		allStates := h.voiceStatesProvider.GetAllVoiceStates()
-		items := make([]VoiceStateItem, 0, len(allStates))
-		visibleChannels := make(map[string]struct{})
-		for _, s := range allStates {
-			if !userServers[s.ServerID] {
-				continue
-			}
+		visible, timers, mark := h.voiceStatesProvider.ReadyVoiceStates(r.Context(), claims.UserID, serverIDs)
+		items := make([]VoiceStateItem, 0, len(visible))
+		for _, s := range visible {
 			items = append(items, VoiceStateItem{
 				UserID:           s.UserID,
 				ChannelID:        s.ChannelID,
@@ -484,20 +491,14 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 				IsServerMuted:    s.IsServerMuted,
 				IsServerDeafened: s.IsServerDeafened,
 			})
-			visibleChannels[s.ChannelID] = struct{}{}
-		}
-		// Filter timers to channels the user can actually see (server scoping).
-		allTimers := h.voiceStatesProvider.GetActiveChannelTimers()
-		timers := make(map[string]int64, len(visibleChannels))
-		for cid := range visibleChannels {
-			if t, ok := allTimers[cid]; ok {
-				timers[cid] = t
-			}
 		}
 		client.sendEvent(Event{
 			Op:   OpVoiceStatesSync,
 			Data: VoiceStatesSyncData{States: items, ChannelTimers: timers},
 		})
+		// This connection is registered, so a voice event queued after the read may already be ahead
+		// of the sync, which then replaced it. A per-server replace queued now lands after both.
+		h.voiceStatesProvider.ResyncVoiceSince(claims.UserID, mark)
 	}
 
 	// Re-deliver a ringing incoming call so a receiver who connects after missing the

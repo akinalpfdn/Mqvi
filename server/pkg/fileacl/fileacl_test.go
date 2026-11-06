@@ -2,10 +2,13 @@ package fileacl
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/akinalp/mqvi/models"
+	"github.com/akinalp/mqvi/pkg"
 )
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
@@ -128,7 +131,7 @@ func TestCheck_Message_WithoutReadPermission(t *testing.T) {
 func TestCheck_Message_NotFound(t *testing.T) {
 	c := NewChecker(
 		nil, nil,
-		&mockMessageLookup{err: errors.New("not found")},
+		&mockMessageLookup{err: pkg.ErrNotFound},
 		nil, nil, nil, nil,
 	)
 	user := &models.User{ID: "u1"}
@@ -275,5 +278,53 @@ func TestCheck_UnknownType(t *testing.T) {
 	user := &models.User{ID: "u1"}
 	if err := c.Check(context.Background(), user, "/api/files/unknown/scope/file.txt"); !errors.Is(err, ErrAccessDenied) {
 		t.Fatalf("should deny unknown type, got: %v", err)
+	}
+}
+
+// A lookup that failed has not said the file is off limits. Answered as a denial it turns every
+// attachment into a 403/401 during a database hiccup, and the cause reaches no log.
+func TestCheck_ShouldNotAnswerAFailedLookupAsADenial(t *testing.T) {
+	dbDown := errors.New("database is locked")
+	user := &models.User{ID: "u1"}
+	cases := map[string]struct {
+		checker *Checker
+		path    string
+	}{
+		"message lookup": {NewChecker(nil, nil, &mockMessageLookup{err: dbDown}, nil, nil, nil, nil), "/api/files/messages/m1/a.pdf"},
+		"channel permissions": {NewChecker(&mockChannelPerms{err: fmt.Errorf("failed to get user roles: %w", dbDown)}, nil,
+			&mockMessageLookup{msg: &models.Message{ChannelID: "c1"}}, nil, nil, nil, nil), "/api/files/messages/m1/a.pdf"},
+		"dm message lookup": {NewChecker(nil, nil, nil, &mockDMMessageLookup{err: dbDown}, nil, nil, nil), "/api/files/dm/d1/a.png"},
+		"dm channel lookup": {NewChecker(nil, nil, nil, &mockDMMessageLookup{msg: &models.DMMessage{DMChannelID: "dm1"}},
+			&mockDMChannelLookup{err: dbDown}, nil, nil), "/api/files/dm/d1/a.png"},
+		"server membership": {NewChecker(nil, &mockServerMember{err: dbDown}, nil, nil, nil, nil, nil), "/api/files/soundboards/s1/a.mp3"},
+		"feedback lookup":   {NewChecker(nil, nil, nil, nil, nil, &mockFeedbackLookup{err: dbDown}, nil), "/api/files/feedback/t1/a.png"},
+		"report lookup":     {NewChecker(nil, nil, nil, nil, nil, nil, &mockReportLookup{err: dbDown}), "/api/files/reports/r1/a.png"},
+	}
+	for name, c := range cases {
+		err := c.checker.Check(context.Background(), user, c.path)
+		if err == nil || errors.Is(err, ErrAccessDenied) || !errors.Is(err, dbDown) {
+			t.Errorf("%s failed: answered as %v, want the lookup error", name, err)
+		}
+	}
+}
+
+// Whatever the file belonged to being gone is still a denial, in either way repositories say it.
+func TestCheck_ShouldDenyWhenWhatTheFileBelongedToIsGone(t *testing.T) {
+	user := &models.User{ID: "u1"}
+	cases := map[string]struct {
+		checker *Checker
+		path    string
+	}{
+		"deleted channel": {NewChecker(&mockChannelPerms{err: fmt.Errorf("failed to get channel for permission resolution: %w", pkg.ErrNotFound)}, nil,
+			&mockMessageLookup{msg: &models.Message{ChannelID: "c1"}}, nil, nil, nil, nil), "/api/files/messages/m1/a.pdf"},
+		"deleted dm message": {NewChecker(nil, nil, nil, &mockDMMessageLookup{err: fmt.Errorf("%w: DM message not found", pkg.ErrNotFound)}, nil, nil, nil), "/api/files/dm/d1/a.png"},
+		// The feedback repository wraps sql.ErrNoRows rather than pkg.ErrNotFound.
+		"deleted feedback ticket": {NewChecker(nil, nil, nil, nil, nil, &mockFeedbackLookup{err: fmt.Errorf("failed to get feedback ticket: %w", sql.ErrNoRows)}, nil), "/api/files/feedback/t1/a.png"},
+		"deleted report":          {NewChecker(nil, nil, nil, nil, nil, nil, &mockReportLookup{err: fmt.Errorf("%w: report r1", pkg.ErrNotFound)}), "/api/files/reports/r1/a.png"},
+	}
+	for name, c := range cases {
+		if err := c.checker.Check(context.Background(), user, c.path); !errors.Is(err, ErrAccessDenied) {
+			t.Errorf("%s answered as %v, want access denied", name, err)
+		}
 	}
 }

@@ -8,6 +8,9 @@
 //	voice_screenshare.go — screen share viewer tracking
 //	voice_lifecycle.go   — orphan/AFK sweeps + LiveKit participant removal
 //	voice_e2ee.go        — per-room SFrame passphrase helpers
+//	voice_egress.go      — who is told about a voice change, in order (per-server queue)
+//	voice_visibility.go  — voice state filtered to what a member may see
+//	voice_mic_health.go  — client reports of a microphone that stopped sending
 //
 // All files share the single `voiceService` struct and its single `sync.RWMutex`,
 // so the concerns can cross-read each other's state without lock-ordering risk.
@@ -51,6 +54,14 @@ type ChannelBindingStore interface {
 	ClearChannelBinding(ctx context.Context, channelID, instanceID string) error
 }
 
+// ChannelRoomNameStore persists the room name a rotation gave a channel (see roomNameFor). Optional:
+// a nil store keeps rotated names in memory only, which is what the service tests run with.
+type ChannelRoomNameStore interface {
+	// GetChannelRoomName returns pkg.ErrNotFound for a channel that was never rotated.
+	GetChannelRoomName(ctx context.Context, channelID string) (string, error)
+	SetChannelRoomName(ctx context.Context, channelID, roomName string) error
+}
+
 // OnlineUserChecker checks connected users. Used by orphan state cleanup.
 type OnlineUserChecker interface {
 	GetOnlineUserIDs() []string
@@ -59,6 +70,12 @@ type OnlineUserChecker interface {
 // AFKTimeoutGetter retrieves a server's AFK timeout. Satisfied by repository.ServerRepository.
 type AFKTimeoutGetter interface {
 	GetByID(ctx context.Context, serverID string) (*models.Server, error)
+}
+
+// ServerMembershipChecker answers whether a user is a member of a server. Implemented by the server
+// repository.
+type ServerMembershipChecker interface {
+	IsMember(ctx context.Context, serverID, userID string) (bool, error)
 }
 
 // ─── VoiceService Interface ───
@@ -74,15 +91,36 @@ type VoiceService interface {
 	// RecordNoiseReductionFailure logs a mic denoiser that would not attach on a client. Also
 	// fire-and-forget: the call is unaffected, the user is just unfiltered.
 	RecordNoiseReductionFailure(userID, channelID, engine, reason, detail string)
+	// RecordMicHealth logs a client's report that its microphone died or came back. Fire-and-forget.
+	RecordMicHealth(userID string, report models.MicHealthReport)
 	JoinChannel(userID, username, displayName, avatarURL, channelID string, isMuted, isDeafened bool) error
 	LeaveChannel(userID string) error
+	// DisconnectUserFromServer and DisconnectUserFromChannel remove the user from voice only while
+	// they are still there — a caller acting on an earlier snapshot must not end a call elsewhere.
+	DisconnectUserFromServer(userID, serverID string) bool
+	DisconnectUserFromChannel(userID, channelID string) bool
 	UpdateState(userID string, isMuted, isDeafened, isStreaming *bool, shareQuality *string) error
 	UpdateUserProfile(userID, username, displayName, avatarURL string)
 	GetChannelParticipants(channelID string) []models.VoiceState
 	GetServerParticipants(serverID string) []models.VoiceState
 	GetUserVoiceState(userID string) *models.VoiceState
+	// GetAllVoiceStates is every state on the platform, unfiltered: platform-admin views only.
 	GetAllVoiceStates() []models.VoiceState
-	GetActiveChannelTimers() map[string]int64 // channelID → start time (Unix ms)
+	// VisibleVoiceStates is the voice state of serverIDs that userID may see, with the timers of
+	// those channels. Avatars are unsigned.
+	VisibleVoiceStates(ctx context.Context, userID string, serverIDs []string) ([]models.VoiceState, map[string]int64)
+	// ReadyVoiceStates is VisibleVoiceStates for the websocket ready sync, with each server's place
+	// in its voice event order; ResyncVoiceSince repairs what moved past it before the sync went out.
+	ReadyVoiceStates(ctx context.Context, userID string, serverIDs []string) ([]models.VoiceState, map[string]int64, map[string]uint64)
+	ResyncVoiceSince(userID string, mark map[string]uint64)
+	// Resync*Visibility re-send members the voice state they may see after a permission change.
+	ResyncChannelVisibility(serverID, channelID string)
+	ResyncServerVisibility(serverID string)
+	// Begin/Abort/FinishChannelDelete bracket a voice channel's delete (see VoiceChannelDeleteHooks).
+	BeginChannelDelete(serverID, channelID string)
+	AbortChannelDelete(serverID, channelID string)
+	FinishChannelDelete(serverID, channelID string)
+	ResyncUserVisibility(serverID, userID string)
 	// SyncServerStatesToUser pushes a server's in-progress voice participants +
 	// channel timers to one user (used on server join so a newcomer sees active
 	// calls without reconnecting).
@@ -91,6 +129,9 @@ type VoiceService interface {
 	// channel transitions to zero participants. Used by voiceMessageService to
 	// purge the ephemeral chat for that channel.
 	SetOnChannelEmpty(fn func(channelID string))
+	// SetOnJoined installs a callback fired after every successful voice join, whether the
+	// websocket's own or a deferred one completed in the background (see deferJoin).
+	SetOnJoined(fn func(userID, serverID string))
 	DisconnectUser(userID string)
 	GetStreamCount(channelID string) int
 	AdminUpdateState(ctx context.Context, adminUserID, targetUserID string, isServerMuted, isServerDeafened *bool) error
@@ -141,12 +182,20 @@ type voiceService struct {
 	sfuPresentAt       map[string]time.Time          // userID -> when the SFU last confirmed a websocket-less user present (orphan sweep re-check throttle)
 	channelStartedAt   map[string]time.Time          // channelID -> moment the channel went from 0→1 participant
 	channelInstances   map[string]string             // channelID -> LiveKit instance id, claimed by the first token request
-	// channelID -> userID -> deadline. A token has been minted but the websocket join has not
-	// arrived yet. Without this the channel looks empty during the LiveKit handshake, which both
-	// leaks bindings (a token nobody uses pins the channel forever) and lets the last person
-	// leaving release a binding out from under someone who is still connecting.
-	pendingJoins   map[string]map[string]time.Time
-	onChannelEmpty func(string) // optional callback fired (async) on N→0 — installed via SetOnChannelEmpty
+	// channelID -> userID. A token has been minted but the websocket join has not arrived yet.
+	// Without this the channel looks empty during the LiveKit handshake, which both leaks bindings
+	// (a token nobody uses pins the channel forever) and lets the last person leaving release a
+	// binding out from under someone who is still connecting.
+	pendingJoins map[string]map[string]pendingJoin
+	// Guarded by roomNamesMu, not mu: room names are read from paths that run under mu or inside
+	// egress hooks (channel delete), and a cache miss reads the store.
+	roomNamesMu sync.Mutex
+	// channelID -> LiveKit room name, filled on first use (see roomNameFor).
+	roomNames map[string]string
+	// room name -> a room a channel left because an intruder was in it (see rotateRoom).
+	retiredRooms   map[string]retiredRoom
+	onChannelEmpty func(string)                  // optional callback fired (async) on N→0 — installed via SetOnChannelEmpty
+	onJoined       func(userID, serverID string) // optional, after every successful join — SetOnJoined
 	mu             sync.RWMutex
 
 	channelGetter    ChannelGetter
@@ -154,11 +203,19 @@ type voiceService struct {
 	bindingStore     ChannelBindingStore
 	permResolver     ChannelPermResolver
 	hub              ws.Broadcaster
+	egress           *voiceEgress
 	onlineChecker    OnlineUserChecker
 	afkTimeoutGetter AFKTimeoutGetter
 	encryptionKey    []byte // AES-256-GCM for LiveKit credential decryption
 	appLogger        VoiceAppLogger
 	urlSigner        FileURLSigner
+	membership       ServerMembershipChecker
+	roomNameStore    ChannelRoomNameStore
+
+	// userID -> the background try of a join that could not be decided (see deferJoin). Guarded by mu.
+	deferredJoins   map[string]deferredJoin
+	deferredJoinGen uint64
+	joinRetryDelays []time.Duration
 }
 
 func NewVoiceService(
@@ -167,12 +224,16 @@ func NewVoiceService(
 	bindingStore ChannelBindingStore,
 	permResolver ChannelPermResolver,
 	hub ws.Broadcaster,
+	serverOnline ServerOnlineLister,
+	visibility VoiceVisibilityResolver,
 	onlineChecker OnlineUserChecker,
 	afkTimeoutGetter AFKTimeoutGetter,
 	encryptionKey []byte,
 	urlSigner FileURLSigner,
+	membership ServerMembershipChecker,
+	roomNameStore ChannelRoomNameStore,
 ) VoiceService {
-	return &voiceService{
+	s := &voiceService{
 		states:             make(map[string]*models.VoiceState),
 		roomPassphrases:    make(map[string]string),
 		screenShareViewers: make(map[string]map[string]bool),
@@ -182,7 +243,9 @@ func NewVoiceService(
 		sfuPresentAt:       make(map[string]time.Time),
 		channelStartedAt:   make(map[string]time.Time),
 		channelInstances:   make(map[string]string),
-		pendingJoins:       make(map[string]map[string]time.Time),
+		pendingJoins:       make(map[string]map[string]pendingJoin),
+		roomNames:          make(map[string]string),
+		retiredRooms:       make(map[string]retiredRoom),
 		channelGetter:      channelGetter,
 		bindingStore:       bindingStore,
 		livekitGetter:      livekitGetter,
@@ -192,7 +255,16 @@ func NewVoiceService(
 		afkTimeoutGetter:   afkTimeoutGetter,
 		encryptionKey:      encryptionKey,
 		urlSigner:          urlSigner,
+		membership:         membership,
+		roomNameStore:      roomNameStore,
+		deferredJoins:      make(map[string]deferredJoin),
+		joinRetryDelays:    defaultJoinRetryDelays,
 	}
+	s.egress = newVoiceEgress(hub, serverOnline, visibility, urlSigner, func(message string, metadata map[string]string) {
+		s.logWarn(models.LogCategoryVoice, nil, message, metadata)
+	})
+	s.egress.retry = s.retryResync
+	return s
 }
 
 func (s *voiceService) SetAppLogger(logger VoiceAppLogger) {
@@ -203,6 +275,11 @@ func (s *voiceService) SetAppLogger(logger VoiceAppLogger) {
 // Set once at wiring time; not safe to call concurrently with voice operations.
 func (s *voiceService) SetOnChannelEmpty(fn func(channelID string)) {
 	s.onChannelEmpty = fn
+}
+
+// SetOnJoined installs a callback fired after every successful join. Set once at wiring time.
+func (s *voiceService) SetOnJoined(fn func(userID, serverID string)) {
+	s.onJoined = fn
 }
 
 // logError writes a structured error log if appLogger is set.

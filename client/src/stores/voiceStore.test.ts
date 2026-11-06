@@ -174,6 +174,37 @@ describe("voiceStore", () => {
     });
   });
 
+  describe("refreshVoiceToken", () => {
+    // A force disconnect handled while the token request is in flight must not be undone by the
+    // response: the room connects whenever a token is present.
+    it("should not write a token for a channel the user left meanwhile", async () => {
+      type TokenAnswer = Awaited<ReturnType<typeof voiceApi.getVoiceToken>>;
+      let answer: (v: TokenAnswer) => void = () => {};
+      vi.mocked(voiceApi.getVoiceToken).mockReturnValueOnce(
+        new Promise<TokenAnswer>((resolve) => { answer = resolve; })
+      );
+      useVoiceStore.setState({ currentVoiceChannelId: "vc", currentVoiceServerId: "srv1", livekitToken: null });
+
+      const pending = useVoiceStore.getState().refreshVoiceToken("vc");
+      await Promise.resolve();
+      useVoiceStore.setState({ currentVoiceChannelId: null }); // force disconnect lands
+      answer({ success: true, data: { token: "t", url: "wss://lk", channel_id: "vc" } } as TokenAnswer);
+
+      expect(await pending).toBeNull();
+      expect(useVoiceStore.getState().livekitToken).toBeNull();
+    });
+
+    it("should write the token while the user is still in the channel", async () => {
+      vi.mocked(voiceApi.getVoiceToken).mockResolvedValueOnce(
+        { success: true, data: { token: "t", url: "wss://lk", channel_id: "vc" } } as Awaited<ReturnType<typeof voiceApi.getVoiceToken>>
+      );
+      useVoiceStore.setState({ currentVoiceChannelId: "vc", currentVoiceServerId: "srv1", livekitToken: null });
+
+      expect(await useVoiceStore.getState().refreshVoiceToken("vc")).not.toBeNull();
+      expect(useVoiceStore.getState().livekitToken).toBe("t");
+    });
+  });
+
   describe("handleVoiceStatesSync", () => {
     it("should group states by channel_id", () => {
       useVoiceStore.getState().handleVoiceStatesSync([
@@ -184,6 +215,48 @@ describe("voiceStore", () => {
       const states = useVoiceStore.getState().voiceStates;
       expect(states["ch1"]).toHaveLength(2);
       expect(states["ch2"]).toHaveLength(1);
+    });
+  });
+
+  describe("handleVoiceServerStatesSync", () => {
+    const vs = (user_id: string, channel_id: string, server_id: string) => ({
+      user_id, channel_id, server_id, username: user_id, display_name: user_id, avatar_url: "",
+      is_muted: false, is_deafened: false, is_streaming: false, is_server_muted: false, is_server_deafened: false,
+    });
+
+    it("should drop a server's channels that are no longer sent, with their timers", () => {
+      useVoiceStore.setState({
+        voiceStates: { hidden: [vs("spy", "hidden", "srv1")], open: [vs("u1", "open", "srv1")] },
+        channelTimers: { hidden: 100, open: 200 },
+      });
+
+      useVoiceStore.getState().handleVoiceServerStatesSync("srv1", [vs("u1", "open", "srv1")], { open: 200 });
+
+      const { voiceStates, channelTimers } = useVoiceStore.getState();
+      expect(voiceStates.hidden).toBeUndefined();
+      expect(voiceStates.open).toHaveLength(1);
+      expect(channelTimers).toEqual({ open: 200 });
+    });
+
+    it("should add channels that became visible", () => {
+      useVoiceStore.getState().handleVoiceServerStatesSync("srv1", [vs("u2", "granted", "srv1")], { granted: 300 });
+
+      expect(useVoiceStore.getState().voiceStates.granted).toHaveLength(1);
+      expect(useVoiceStore.getState().channelTimers.granted).toBe(300);
+    });
+
+    it("should leave other servers' calls untouched", () => {
+      useVoiceStore.setState({
+        voiceStates: { a: [vs("u1", "a", "srv1")], b: [vs("u2", "b", "srv2")] },
+        channelTimers: { a: 1, b: 2 },
+      });
+
+      useVoiceStore.getState().handleVoiceServerStatesSync("srv1", [], {});
+
+      const { voiceStates, channelTimers } = useVoiceStore.getState();
+      expect(voiceStates.a).toBeUndefined();
+      expect(voiceStates.b).toHaveLength(1);
+      expect(channelTimers).toEqual({ b: 2 });
     });
   });
 

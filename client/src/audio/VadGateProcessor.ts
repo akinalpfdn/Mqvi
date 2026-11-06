@@ -50,6 +50,20 @@ class VadGateProcessor
     this.initialInputVolume = inputVolume;
   }
 
+  /**
+   * The raw microphone track this processor reads. LiveKit's `mediaStreamTrack` returns the
+   * processed output once a processor is attached, but the OS mutes and ends the capture track —
+   * mic-health has to watch this one.
+   */
+  get captureTrack(): MediaStreamTrack | undefined {
+    return this.sourceNode?.mediaStream.getAudioTracks()[0];
+  }
+
+  /** The audio context the processor runs in; silence comes out while it is not running. */
+  get audioContext(): BaseAudioContext | undefined {
+    return this.sourceNode?.context;
+  }
+
   /** Builds the audio graph (VAD gate only, no ML denoising — much lighter than RNNoiseProcessor). */
   async init(opts: AudioProcessorOptions): Promise<void> {
     const { audioContext, track } = opts;

@@ -27,9 +27,9 @@ type roomCredentials struct {
 //
 // Every path that needs it goes through here — the join token, the screen-share sub-participant
 // token, and the server-side room client used for participant removal, listing and mute
-// enforcement. That is not tidiness. The room name is `serverID:channelID` (see generateRoomName)
-// and carries no instance identity, so if two of those paths ever resolved differently they would
-// each open a room of the same name on a different SFU. Both halves would work, neither would hear
+// enforcement. That is not tidiness. The room name (see roomNameFor) carries no instance identity,
+// so if two of those paths ever resolved differently they would each open a room of the same name
+// on a different SFU. Both halves would work, neither would hear
 // the other, and nothing would error. One function makes that disagreement impossible rather than
 // merely unlikely.
 //
@@ -326,23 +326,6 @@ func (s *voiceService) persistBinding(ctx context.Context, channelID, instanceID
 	}
 }
 
-// generateRoomName is the one place a room is named. Kept beside the resolver because the two are
-// a pair: the name says which room, the resolver says which server it lives on, and a room is only
-// unambiguous when both agree.
-func generateRoomName(serverID, channelID string) string {
-	return serverID + ":" + channelID
-}
-
-// ParseRoomName inverts generateRoomName. IDs are 16 hex characters or the literal "default", so a
-// room with an empty side or a second ':' is not one of ours and is rejected rather than guessed at.
-func ParseRoomName(room string) (serverID, channelID string, ok bool) {
-	serverID, channelID, found := strings.Cut(room, ":")
-	if !found || serverID == "" || channelID == "" || strings.Contains(channelID, ":") {
-		return "", "", false
-	}
-	return serverID, channelID, true
-}
-
 // SplitParticipantIdentity strips the screen-share sub-participant suffix so the identity resolves
 // to the user who owns it. A "_ss" identity leaving is the user's second track going away, never
 // the user leaving. Same normalisation listLiveKitParticipants applies.
@@ -357,20 +340,27 @@ func SplitParticipantIdentity(identity string) (userID string, isScreenShare boo
 // used from pinning a channel for longer than that.
 const pendingJoinTTL = time.Minute
 
+// pendingJoin is a token issued for a channel whose websocket join has not landed yet.
+type pendingJoin struct {
+	deadline time.Time
+	// viaMove: minted on a force-move grant, which stands in for ConnectVoice in the target.
+	viaMove bool
+}
+
 // markPendingJoin records that a token was issued for this channel and the join has not landed yet.
 //
 // The binding is claimed here, at token time, but everything that ends its life keys off s.states,
 // which only exists once the websocket join arrives. That gap is what this closes.
-func (s *voiceService) markPendingJoin(channelID, userID string) {
+func (s *voiceService) markPendingJoin(channelID, userID string, viaMove bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.pendingJoins == nil {
-		s.pendingJoins = make(map[string]map[string]time.Time)
+		s.pendingJoins = make(map[string]map[string]pendingJoin)
 	}
 	if s.pendingJoins[channelID] == nil {
-		s.pendingJoins[channelID] = make(map[string]time.Time)
+		s.pendingJoins[channelID] = make(map[string]pendingJoin)
 	}
-	s.pendingJoins[channelID][userID] = time.Now().Add(pendingJoinTTL)
+	s.pendingJoins[channelID][userID] = pendingJoin{deadline: time.Now().Add(pendingJoinTTL), viaMove: viaMove}
 }
 
 // clearPendingJoinLocked drops the marker once the real voice state exists.
@@ -386,6 +376,16 @@ func (s *voiceService) clearPendingJoinLocked(channelID, userID string) {
 	}
 }
 
+// movedJoinPendingLocked reports whether userID holds an unexpired token for channelID minted on a
+// force-move grant. Read-only, so an RLock is enough.
+//
+// An ordinary token is deliberately not asked about here: it outlives a kick, a ban and a lost
+// permission, so whoever relies on it must ask the permission itself.
+func (s *voiceService) movedJoinPendingLocked(channelID, userID string) bool {
+	pj, ok := s.pendingJoins[channelID][userID]
+	return ok && pj.viaMove && time.Now().Before(pj.deadline)
+}
+
 // hasPendingJoinLocked reports whether anyone is still mid-handshake into this channel, pruning
 // expired markers as it goes. MUST be called under mu.Lock.
 func (s *voiceService) hasPendingJoinLocked(channelID string) bool {
@@ -394,8 +394,8 @@ func (s *voiceService) hasPendingJoinLocked(channelID string) bool {
 		return false
 	}
 	now := time.Now()
-	for userID, deadline := range pending {
-		if now.After(deadline) {
+	for userID, pj := range pending {
+		if now.After(pj.deadline) {
 			delete(pending, userID)
 		}
 	}

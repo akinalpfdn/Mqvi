@@ -143,12 +143,14 @@ export function errorEventDetails(event: Pick<ErrorEvent, "error" | "message">):
 export type ErrorReporting = {
   /** For createRoot's onCaughtError: a render crash, sent at once. */
   reportRenderCrash: (error: unknown, componentStack?: string) => void;
+  /** A failure the app handled but someone must see, such as a voice join that never connected. */
+  reportFailure: (message: string, detail: string) => void;
   dispose: () => void;
 };
 
 /** Starts reporting; a no-op in development, where the console already shows everything. */
 export function installErrorReporting(): ErrorReporting {
-  if (import.meta.env.DEV) return { reportRenderCrash: () => {}, dispose: () => {} };
+  if (import.meta.env.DEV) return { reportRenderCrash: () => {}, reportFailure: () => {}, dispose: () => {} };
 
   let version = typeof __APP_VERSION__ === "string" && !isCapacitor() ? __APP_VERSION__ : "";
   if (isCapacitor()) {
@@ -191,6 +193,7 @@ export function installErrorReporting(): ErrorReporting {
       // The boundary reloads in two seconds; keepalive lets this request outlive the page.
       reporter.report("render", message, componentStack ? `${stack}\n${componentStack}` : stack, true);
     },
+    reportFailure: (message, detail) => reporter.report("error", message, detail),
     dispose: () => {
       window.removeEventListener("error", onError);
       window.removeEventListener("unhandledrejection", onRejection);

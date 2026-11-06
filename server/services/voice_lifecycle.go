@@ -245,39 +245,10 @@ func (s *voiceService) sweepOrphanStates() {
 			continue
 		}
 
-		// Grace expired and the SFU agrees — confirmed abandoned session. Unchanged from here.
+		// Grace expired and the SFU agrees — confirmed abandoned session.
 		channelID := state.ChannelID
 		serverID := state.ServerID
-		username := state.Username
-		displayName := state.DisplayName
-		avatarURL := s.urlSigner.SignURL(state.AvatarURL)
-		delete(s.states, c.userID)
-		delete(s.offlineSince, c.userID)
-		delete(s.sfuPresentAt, c.userID)
-		delete(s.livekitAbsentSince, c.userID)
-
-		s.broadcastToServer(serverID, ws.Event{
-			Op: ws.OpVoiceStateUpdate,
-			Data: ws.VoiceStateUpdateBroadcast{
-				UserID:      c.userID,
-				ChannelID:   channelID,
-				Username:    username,
-				DisplayName: displayName,
-				AvatarURL:   avatarURL,
-				Action:      "leave",
-			},
-		})
-
-		// Stop the channel's call timer when this reap empties it — same as
-		// LeaveChannel. Without this, an abandoned session reaped here leaves the
-		// timer running forever: it counts up endlessly, blocks the next join's
-		// startChannelTimerLocked (no-op since it still "exists") so no fresh
-		// timer_start is broadcast, and resyncs serve the stale start time.
-		if s.countInChannelLocked(channelID) == 0 {
-			s.stopChannelTimerLocked(channelID, serverID)
-		}
-
-		releasedInstance := s.cleanupRoomPassphraseIfEmpty(channelID)
+		releasedInstance := s.removeVoiceStateLocked(state)
 		orphans = append(orphans, orphanEntry{userID: c.userID, channelID: channelID, serverID: serverID, instanceID: releasedInstance})
 		reason := "absent from SFU"
 		if ceiled[c.userID] {
@@ -312,19 +283,31 @@ func (s *voiceService) sweepOrphanStates() {
 // a release nothing else can say where the room was. "" means "wherever the channel is currently
 // bound", which is right for callers acting on a channel that still has people in it.
 //
+// Returns the room the client is for: its name (roomNameFor) and the instance it is on.
+//
 // MUST NOT be called under mu.Lock (does DB lookups).
-func (s *voiceService) newLiveKitRoomClient(ctx context.Context, channelID, instanceID string) (*lksdk.RoomServiceClient, error) {
-	var room *roomCredentials
+func (s *voiceService) newLiveKitRoomClient(ctx context.Context, serverID, channelID, instanceID string) (*lksdk.RoomServiceClient, roomRef, error) {
+	var creds *roomCredentials
 	var err error
 	if instanceID != "" {
-		room, err = s.credentialsByID(ctx, instanceID)
+		creds, err = s.credentialsByID(ctx, instanceID)
 	} else {
-		room, err = s.boundRoomInstance(ctx, channelID)
+		creds, err = s.boundRoomInstance(ctx, channelID)
 	}
 	if err != nil {
-		return nil, err
+		return nil, roomRef{}, err
 	}
-	return lksdk.NewRoomServiceClient(room.URL, room.APIKey, room.APISecret), nil
+	name, err := s.roomNameFor(ctx, serverID, channelID)
+	if err != nil {
+		return nil, roomRef{}, err
+	}
+	return lksdk.NewRoomServiceClient(creds.URL, creds.APIKey, creds.APISecret), roomRef{name: name, instanceID: creds.InstanceID}, nil
+}
+
+// roomRef is a channel's room as a server-side LiveKit call addresses it.
+type roomRef struct {
+	name       string
+	instanceID string
 }
 
 // removeParticipantFromLiveKit explicitly removes a participant from the LiveKit server.
@@ -340,7 +323,7 @@ func (s *voiceService) removeParticipantFromLiveKit(serverID, channelID, userID,
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	roomClient, err := s.newLiveKitRoomClient(ctx, channelID, instanceID)
+	roomClient, room, err := s.newLiveKitRoomClient(ctx, serverID, channelID, instanceID)
 	if errors.Is(err, errChannelNotBound) {
 		return // no room was ever opened for this channel, so there is no participant to remove
 	}
@@ -351,8 +334,7 @@ func (s *voiceService) removeParticipantFromLiveKit(serverID, channelID, userID,
 		})
 		return
 	}
-
-	roomName := generateRoomName(serverID, channelID)
+	roomName := room.name
 
 	_, err = roomClient.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{
 		Room:     roomName,
@@ -469,18 +451,16 @@ func (s *voiceService) sweepAFKUsers() {
 	for _, entry := range toKick {
 		log.Printf("[voice] AFK kick: user=%s channel=%s server=%s (idle too long)", entry.userID, entry.channelID, entry.serverID)
 
-		// Notify user before disconnect
-		s.hub.BroadcastToUser(entry.userID, ws.Event{
+		// Only from the channel that was idle: a user who moved since joined somewhere new, and that
+		// join reset their activity. The notice is queued just before the leave.
+		s.leaveWhere(entry.userID, inVoiceChannel(entry.channelID), &ws.Event{
 			Op: ws.OpVoiceAFKKick,
 			Data: ws.VoiceAFKKickData{
 				ChannelID:   entry.channelID,
 				ChannelName: entry.channelName,
 				ServerName:  entry.serverName,
 			},
-		})
-
-		// Use the existing disconnect flow
-		s.DisconnectUser(entry.userID)
+		}, nil)
 	}
 }
 
@@ -490,37 +470,60 @@ func (s *voiceService) sweepAFKUsers() {
 // share still counts as present. LiveKit is the source of truth for room membership.
 // MUST NOT be called under s.mu (does DB lookups + network I/O).
 func (s *voiceService) listLiveKitParticipants(ctx context.Context, serverID, channelID string) (map[string]bool, error) {
-	roomClient, err := s.newLiveKitRoomClient(ctx, channelID, "")
+	listing, err := s.listRoom(ctx, serverID, channelID)
+	if err != nil {
+		return nil, err
+	}
+	present := make(map[string]bool, len(listing.identities))
+	for _, identity := range listing.identities {
+		userID, _ := SplitParticipantIdentity(identity)
+		present[userID] = true
+	}
+	return present, nil
+}
+
+// roomListing is a channel's room as LiveKit reports it.
+type roomListing struct {
+	room       roomRef         // zero when the channel has no room
+	identities []string        // screen-share suffix included
+	movedIn    map[string]bool // base user ids whose participant carries movedInAttribute
+}
+
+// listRoom lists the channel's room. MUST NOT be called under s.mu (DB lookups + network I/O).
+func (s *voiceService) listRoom(ctx context.Context, serverID, channelID string) (roomListing, error) {
+	roomClient, room, err := s.newLiveKitRoomClient(ctx, serverID, channelID, "")
 	if errors.Is(err, errChannelNotBound) {
 		// No binding means no room, so nobody is in it. Say that rather than erroring: the caller
 		// skips a channel it cannot query, and skipping means phantom participants are never reaped
 		// and the channel timer runs forever. Before per-channel binding this path always resolved
 		// and LiveKit answered for an absent room, which is the behaviour being restored here.
 		// A genuinely mid-move user is covered by livekitAbsentGrace, not by pretending to see them.
-		return map[string]bool{}, nil
+		return roomListing{}, nil
 	}
 	if err != nil {
-		return nil, err
+		return roomListing{}, err
 	}
 
-	roomName := generateRoomName(serverID, channelID)
-
-	resp, err := roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: roomName})
+	resp, err := roomClient.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: room.name})
 	if err != nil {
 		// Room not found = the SFU closed it because it's empty. That is a
 		// CONFIRMED-empty signal (the exact phantom case), not a transient
 		// failure — return an empty set so its stale states get reaped.
 		if strings.Contains(err.Error(), "not_found") || strings.Contains(err.Error(), "not found") {
-			return map[string]bool{}, nil
+			return roomListing{room: room}, nil
 		}
-		return nil, fmt.Errorf("list participants room=%s: %w", roomName, err)
+		return roomListing{}, fmt.Errorf("list participants room=%s: %w", room.name, err)
 	}
 
-	present := make(map[string]bool, len(resp.Participants))
+	listing := roomListing{room: room, identities: make([]string, 0, len(resp.Participants)), movedIn: map[string]bool{}}
 	for _, p := range resp.Participants {
-		present[strings.TrimSuffix(p.Identity, "_ss")] = true
+		listing.identities = append(listing.identities, p.Identity)
+		if p.Attributes[movedInAttribute] == "1" {
+			userID, _ := SplitParticipantIdentity(p.Identity)
+			listing.movedIn[userID] = true
+		}
 	}
-	return present, nil
+	return listing, nil
 }
 
 // StartLiveKitReconciliation periodically reconciles in-memory voice state against
@@ -549,6 +552,10 @@ func (s *voiceService) StartLiveKitReconciliation() {
 // Reaping reuses the exact leave broadcast + timer-stop the orphan sweep already
 // uses, so observable join/leave behavior is unchanged.
 func (s *voiceService) sweepLiveKitReconciliation() {
+	// Before the early return below: a room a channel left must be deleted again even when nobody
+	// is in voice any more.
+	s.sweepRetiredRooms()
+
 	// Phase 1: snapshot active channels and their users.
 	type chanInfo struct {
 		serverID string
@@ -582,12 +589,28 @@ func (s *voiceService) sweepLiveKitReconciliation() {
 	}
 	var absent []absentUser
 	present := make(map[string]bool) // users confirmed in LiveKit (successfully queried channels)
+	var unknown []roomParticipant    // in the room with no voice state in this channel at snapshot time
 
 	for channelID, ci := range channels {
-		inRoom, err := s.listLiveKitParticipants(ctx, ci.serverID, channelID)
+		listing, err := s.listRoom(ctx, ci.serverID, channelID)
 		if err != nil {
 			log.Printf("[voice] livekit reconcile: list participants failed channel=%s: %v", channelID, err)
 			continue // skip channel entirely — no tracker changes on transient failure
+		}
+		inChannel := make(map[string]bool, len(ci.userIDs))
+		for _, userID := range ci.userIDs {
+			inChannel[userID] = true
+		}
+		inRoom := make(map[string]bool, len(listing.identities))
+		for _, identity := range listing.identities {
+			userID, _ := SplitParticipantIdentity(identity)
+			inRoom[userID] = true
+			if !inChannel[userID] {
+				unknown = append(unknown, roomParticipant{
+					channelID: channelID, serverID: ci.serverID, room: listing.room,
+					identity: identity, userID: userID, movedIn: listing.movedIn[userID],
+				})
+			}
 		}
 		for _, userID := range ci.userIDs {
 			if inRoom[userID] {
@@ -625,32 +648,9 @@ func (s *voiceService) sweepLiveKitReconciliation() {
 			continue // still within grace
 		}
 
-		// Confirmed phantom — reap. Same shape as sweepOrphanStates.
+		// Confirmed phantom — reap. Absent from the SFU already, so no teardown follows.
 		channelID := state.ChannelID
-		serverID := state.ServerID
-		username := state.Username
-		displayName := state.DisplayName
-		avatarURL := s.urlSigner.SignURL(state.AvatarURL)
-		delete(s.states, a.userID)
-		delete(s.livekitAbsentSince, a.userID)
-		delete(s.offlineSince, a.userID)
-
-		s.broadcastToServer(serverID, ws.Event{
-			Op: ws.OpVoiceStateUpdate,
-			Data: ws.VoiceStateUpdateBroadcast{
-				UserID:      a.userID,
-				ChannelID:   channelID,
-				Username:    username,
-				DisplayName: displayName,
-				AvatarURL:   avatarURL,
-				Action:      "leave",
-			},
-		})
-
-		if s.countInChannelLocked(channelID) == 0 {
-			s.stopChannelTimerLocked(channelID, serverID)
-		}
-		s.cleanupRoomPassphraseIfEmpty(channelID)
+		s.removeVoiceStateLocked(state)
 
 		log.Printf("[voice] livekit reconcile: reaped phantom user=%s channel=%s (absent from SFU for %s)", a.userID, channelID, now.Sub(first).Round(time.Second))
 		s.logWarn(models.LogCategoryVoice, &a.userID, "livekit reconcile: phantom voice state removed", map[string]string{
@@ -667,4 +667,53 @@ func (s *voiceService) sweepLiveKitReconciliation() {
 	}
 
 	s.mu.Unlock()
+
+	// Phase 4: the other direction — in the room, but not in voice here.
+	s.removeUnentitledParticipants(unknown)
+}
+
+// roomParticipant is one identity in a channel's LiveKit room.
+type roomParticipant struct {
+	channelID string
+	serverID  string
+	room      roomRef // the room it was listed in
+	identity  string  // as LiveKit has it: the user's id, or "{id}_ss" for their screen share
+	userID    string
+	movedIn   bool // the user's participant carries movedInAttribute (a force-move token)
+}
+
+// mayBeInRoom is the join rule (joinAuthorized) re-asked now: in voice here, on a force-move token
+// while still a member, or allowed to connect. An ordinary token does not keep anyone — whoever
+// is mid-join on one may connect, or their token is all they have left. A permission or membership
+// that cannot be read keeps them — in doubt, never remove.
+//
+// movedIn is the mark LiveKit reports on a participant who connected with a force-move token. The
+// pending marker says the same, but it lives in memory: after a restart only the mark is left, and
+// without it a moved user who lacks ConnectVoice would be taken for an intruder.
+func (s *voiceService) mayBeInRoom(serverID, userID, channelID string, movedIn bool) bool {
+	s.mu.RLock()
+	st, inVoice := s.states[userID]
+	held := inVoice && st.ChannelID == channelID
+	moved := !held && (movedIn || s.movedJoinPendingLocked(channelID, userID))
+	s.mu.RUnlock()
+	if held {
+		return true
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if moved {
+		member, err := s.isServerMember(ctx, serverID, userID)
+		if err != nil {
+			log.Printf("[voice] livekit reconcile: membership user=%s server=%s: %v (keeping)", userID, serverID, err)
+			return true
+		}
+		return member
+	}
+	perms, err := s.permResolver.ResolveChannelPermissionsFresh(ctx, userID, channelID)
+	if err != nil {
+		log.Printf("[voice] livekit reconcile: permission resolve user=%s channel=%s: %v (keeping)", userID, channelID, err)
+		return true
+	}
+	return mayEnterVoice(perms)
 }

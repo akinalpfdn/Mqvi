@@ -19,6 +19,15 @@ export type VoiceWsSlice = {
 
   handleVoiceStateUpdate: (data: VoiceStateUpdateData) => void;
   handleVoiceStatesSync: (states: VoiceState[]) => void;
+  /**
+   * Replace one server's voice states and timers, leaving other servers alone. Sent when what this
+   * user may see in that server changed, so channels they lost view of disappear.
+   */
+  handleVoiceServerStatesSync: (
+    serverId: string,
+    states: VoiceState[],
+    timers: Record<string, number>
+  ) => void;
   /** Replace all channel timers (called on voice_states_sync to populate fresh state). */
   applyChannelTimers: (timers: Record<string, number>) => void;
   /** Server says channel went 0 → 1 participant. */
@@ -132,6 +141,29 @@ export const createVoiceWsSlice: StateCreator<
     }
 
     set({ voiceStates: grouped });
+  },
+
+  handleVoiceServerStatesSync: (serverId, states, timers) => {
+    set((state) => {
+      const nextStates: Record<string, VoiceState[]> = {};
+      // The server's channels are the ones this client holds participants of for it — a timer only
+      // runs where someone is, so these cover the timers to drop as well.
+      const serverChannels = new Set<string>();
+      for (const [channelId, list] of Object.entries(state.voiceStates)) {
+        const kept = list.filter((s) => s.server_id !== serverId);
+        if (kept.length !== list.length) serverChannels.add(channelId);
+        if (kept.length > 0) nextStates[channelId] = kept;
+      }
+      for (const s of states) {
+        nextStates[s.channel_id] = [...(nextStates[s.channel_id] ?? []), s];
+      }
+
+      const nextTimers = { ...state.channelTimers };
+      for (const channelId of serverChannels) delete nextTimers[channelId];
+      Object.assign(nextTimers, timers);
+
+      return { voiceStates: nextStates, channelTimers: nextTimers };
+    });
   },
 
   applyChannelTimers: (timers: Record<string, number>) => {

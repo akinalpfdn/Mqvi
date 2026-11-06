@@ -94,6 +94,7 @@ const (
 	// Voice operations
 	OpVoiceStateUpdate            = "voice_state_update"
 	OpVoiceStatesSync             = "voice_states_sync"
+	OpVoiceServerStatesSync       = "voice_server_states_sync"  // replaces one server's voice states (visibility changed)
 	OpVoiceChannelTimerStart      = "voice_channel_timer_start" // first user joined → call started
 	OpVoiceChannelTimerStop       = "voice_channel_timer_stop"  // last user left → call ended
 	OpVoiceMessageCreate          = "voice_message_create"      // ephemeral voice chat message sent
@@ -277,6 +278,14 @@ type VoiceStateUpdateBroadcast struct {
 type VoiceStatesSyncData struct {
 	States        []VoiceStateItem `json:"states"`
 	ChannelTimers map[string]int64 `json:"channel_timers"` // channelID → start time (Unix ms)
+}
+
+// VoiceServerStatesSyncData replaces one server's voice states on the client, leaving its other
+// servers alone. Sent when what a member may see changes, so channels they lost view of disappear.
+type VoiceServerStatesSyncData struct {
+	ServerID      string           `json:"server_id"`
+	States        []VoiceStateItem `json:"states"`
+	ChannelTimers map[string]int64 `json:"channel_timers"`
 }
 
 // VoiceChannelTimerStartData — channel went from 0 → 1 participant; clients render duration from started_at.

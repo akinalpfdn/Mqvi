@@ -16,7 +16,7 @@ func newTestChannelPermService(
 	channelRepo *testutil.MockChannelRepo,
 	hub *testutil.MockBroadcaster,
 ) ChannelPermissionService {
-	return NewChannelPermissionService(permRepo, roleRepo, channelRepo, hub)
+	return NewChannelPermissionService(permRepo, roleRepo, channelRepo, hub, nil)
 }
 
 // Phase 48-A #6 — role/member permission changes invalidate the cache, so a permission

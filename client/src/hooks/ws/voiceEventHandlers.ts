@@ -130,6 +130,14 @@ export async function handleVoiceEvent(
       return true;
     }
 
+    case "voice_server_states_sync": {
+      // Visibility changed in one server: replace only its states. No re-assert or recovery here —
+      // the user's own channel is always included, and the other servers are untouched.
+      const d = msg.d as { server_id: string; states: VoiceState[]; channel_timers?: Record<string, number> };
+      useVoiceStore.getState().handleVoiceServerStatesSync(d.server_id, d.states, d.channel_timers ?? {});
+      return true;
+    }
+
     case "voice_channel_timer_start": {
       const d = msg.d as { channel_id: string; started_at: number };
       useVoiceStore.getState().handleVoiceChannelTimerStart(d.channel_id, d.started_at);

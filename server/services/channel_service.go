@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/pkg"
@@ -21,13 +22,13 @@ type UserVoiceChannelProvider interface {
 	GetUserVoiceChannelID(userID string) string
 }
 
-// VoiceChannelDisconnector tears down voice participants when a channel is deleted:
-// enumerate the channel's participants, then DisconnectUser each (broadcast leave +
-// LiveKit remove + free passphrase + stop timer). Without this, deleting a voice channel
-// leaves ghost in-memory state and a running channel timer.
-type VoiceChannelDisconnector interface {
-	GetChannelParticipants(channelID string) []models.VoiceState
-	DisconnectUser(userID string)
+// VoiceChannelDeleteHooks bracket a voice channel's delete. Begin before the row goes, then Finish
+// after it (or Abort if the delete failed). Without them, deleting a voice channel leaves ghost
+// in-memory state and a running timer, and its call can be shown to members who never could see it.
+type VoiceChannelDeleteHooks interface {
+	BeginChannelDelete(serverID, channelID string)
+	AbortChannelDelete(serverID, channelID string)
+	FinishChannelDelete(serverID, channelID string)
 }
 
 type ChannelVisibilityFilter struct {
@@ -65,8 +66,10 @@ type channelService struct {
 	hub           ws.Broadcaster
 	visChecker    ChannelVisibilityChecker
 	voiceProvider UserVoiceChannelProvider
-	voiceDisc     VoiceChannelDisconnector
+	voiceDisc     VoiceChannelDeleteHooks
 	fileCleanup   FileCleanupService
+	online        ServerOnlineLister
+	audience      ChannelAudienceFilter
 }
 
 func NewChannelService(
@@ -75,8 +78,10 @@ func NewChannelService(
 	hub ws.Broadcaster,
 	visChecker ChannelVisibilityChecker,
 	voiceProvider UserVoiceChannelProvider,
-	voiceDisc VoiceChannelDisconnector,
+	voiceDisc VoiceChannelDeleteHooks,
 	fileCleanup FileCleanupService,
+	online ServerOnlineLister,
+	audience ChannelAudienceFilter,
 ) ChannelService {
 	return &channelService{
 		channelRepo:   channelRepo,
@@ -86,6 +91,8 @@ func NewChannelService(
 		voiceProvider: voiceProvider,
 		voiceDisc:     voiceDisc,
 		fileCleanup:   fileCleanup,
+		online:        online,
+		audience:      audience,
 	}
 }
 
@@ -192,7 +199,7 @@ func (s *channelService) Create(ctx context.Context, serverID string, req *model
 		return nil, fmt.Errorf("failed to create channel: %w", err)
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpChannelCreate,
 		Data: nil,
 	})
@@ -237,7 +244,8 @@ func (s *channelService) Update(ctx context.Context, serverID string, id string,
 		return nil, err
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	// Name and topic of a hidden channel are not for members who cannot see it.
+	s.hub.BroadcastToUsers(s.channelUpdateAudience(ctx, serverID, channel.ID), ws.Event{
 		Op:   ws.OpChannelUpdate,
 		Data: channel,
 	})
@@ -261,26 +269,40 @@ func (s *channelService) Delete(ctx context.Context, serverID string, id string)
 		return fmt.Errorf("failed to collect channel files: %w", err)
 	}
 
+	// Read while the overrides still exist: afterwards nobody's view of the channel can be read, and
+	// a hidden channel's id is not for members who never saw it.
+	audience, audienceErr := s.sidebarAudience(ctx, serverID, id)
+
+	// The overrides go with the row, after which a hidden channel reads as visible to the base view,
+	// so the call is hidden from every reader before the delete; a failed delete gives it back.
+	voice := channel.Type == models.ChannelTypeVoice && s.voiceDisc != nil
+	if voice {
+		s.voiceDisc.BeginChannelDelete(serverID, id)
+	}
+
 	// Phase 2: DB delete (CASCADE removes attachment rows)
 	if err := s.channelRepo.Delete(ctx, id); err != nil {
+		if voice {
+			s.voiceDisc.AbortChannelDelete(serverID, id)
+		}
 		return err
+	}
+
+	// Disconnect anyone still in the call — after the delete, so a failed delete never kicks anyone.
+	if voice {
+		s.voiceDisc.FinishChannelDelete(serverID, id)
 	}
 
 	// Phase 3: delete files from disk + release quota (safe — DB rows already gone)
 	s.fileCleanup.Execute(plan)
 
-	s.hub.BroadcastToAll(ws.Event{
-		Op:   ws.OpChannelDelete,
-		Data: map[string]string{"id": id},
-	})
-
-	// Authoritatively disconnect anyone still in this (now-deleted) voice channel:
-	// clears ghost in-memory state, removes LiveKit participants, stops the channel
-	// timer. Runs after the successful DB delete so a failed delete never kicks anyone.
-	if channel.Type == models.ChannelTypeVoice && s.voiceDisc != nil {
-		for _, p := range s.voiceDisc.GetChannelParticipants(id) {
-			s.voiceDisc.DisconnectUser(p.UserID)
-		}
+	deleted := ws.Event{Op: ws.OpChannelDelete, Data: map[string]string{"id": id}}
+	if audienceErr != nil {
+		// A deleted channel's id is worth less than a channel stuck in every sidebar.
+		log.Printf("[channel] delete %s: %v (told the whole server)", id, audienceErr)
+		s.hub.BroadcastToServer(serverID, deleted)
+	} else {
+		s.hub.BroadcastToUsers(audience, deleted)
 	}
 
 	return nil
@@ -313,7 +335,7 @@ func (s *channelService) ReorderChannels(ctx context.Context, serverID string, r
 		return nil, fmt.Errorf("failed to update channel positions: %w", err)
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpChannelReorder,
 		Data: nil,
 	})
@@ -324,4 +346,34 @@ func (s *channelService) ReorderChannels(ctx context.Context, serverID string, r
 	}
 
 	return grouped, nil
+}
+
+// channelUpdateAudience is sidebarAudience with a failed read withheld from all but the channel's
+// voice participants.
+func (s *channelService) channelUpdateAudience(ctx context.Context, serverID, channelID string) []string {
+	audience, err := s.sidebarAudience(ctx, serverID, channelID)
+	if err != nil {
+		log.Printf("[channel] update %s: %v (withheld)", channelID, err)
+	}
+	return audience
+}
+
+// sidebarAudience is who the sidebar shows this channel to: members with ViewChannel, plus a member
+// sitting in it as a voice channel (the sidebar force-includes that one, see GetAllGrouped). The
+// participants are returned even when the permission read fails.
+func (s *channelService) sidebarAudience(ctx context.Context, serverID, channelID string) ([]string, error) {
+	audience, err := channelAudienceOrErr(ctx, s.online, s.audience, serverID, channelID, models.PermViewChannel)
+	if s.voiceProvider == nil {
+		return audience, err
+	}
+	seen := make(map[string]bool, len(audience))
+	for _, uid := range audience {
+		seen[uid] = true
+	}
+	for _, uid := range s.online.GetOnlineUserIDsForServer(serverID) {
+		if !seen[uid] && s.voiceProvider.GetUserVoiceChannelID(uid) == channelID {
+			audience = append(audience, uid)
+		}
+	}
+	return audience, err
 }

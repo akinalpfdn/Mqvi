@@ -11,9 +11,11 @@ import (
 )
 
 // VoiceServerPermissionEnforcer re-applies voice permissions at the SFU for users already
-// in voice across a server, after a role's permissions change or a role is deleted.
+// in voice across a server, after a role's permissions change or a role is deleted, and resends
+// the server's members the voice state they may now see.
 type VoiceServerPermissionEnforcer interface {
 	EnforceServerVoicePermissions(serverID string)
+	ResyncServerVisibility(serverID string)
 }
 
 // RoleService handles role CRUD. All operations are server-scoped.
@@ -70,6 +72,7 @@ func (s *roleService) invalidatePermCache() {
 func (s *roleService) enforceServerVoice(serverID string) {
 	if s.voiceEnforcer != nil {
 		go s.voiceEnforcer.EnforceServerVoicePermissions(serverID)
+		s.voiceEnforcer.ResyncServerVisibility(serverID)
 	}
 }
 
@@ -133,7 +136,7 @@ func (s *roleService) Create(ctx context.Context, serverID, actorID string, req 
 		return nil, fmt.Errorf("failed to create role: %w", err)
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpRoleCreate,
 		Data: role,
 	})
@@ -279,7 +282,7 @@ func (s *roleService) Delete(ctx context.Context, serverID, actorID, roleID stri
 	s.invalidatePermCache()
 	s.enforceServerVoice(serverID)
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpRoleDelete,
 		Data: map[string]string{"id": roleID},
 	})
@@ -338,7 +341,7 @@ func (s *roleService) ReorderRoles(ctx context.Context, serverID, actorID string
 		return nil, fmt.Errorf("failed to reload roles after reorder: %w", err)
 	}
 
-	s.hub.BroadcastToAll(ws.Event{
+	s.hub.BroadcastToServer(serverID, ws.Event{
 		Op:   ws.OpRolesReorder,
 		Data: roles,
 	})

@@ -28,7 +28,10 @@ import { GtcrnProcessor } from "../../audio/GtcrnProcessor";
 import { GtcrnUnsupportedSampleRateError } from "../../audio/gtcrnSampleRate";
 import { VadGateProcessor } from "../../audio/VadGateProcessor";
 import { useSystemAudioCapture } from "../../hooks/useSystemAudioCapture";
+import { useMicHealthReport } from "../../hooks/useMicHealthReport";
+import type { MicTrailEvent } from "../../audio/micHealth";
 import { startShareAudioRun } from "../../utils/shareAudioRun";
+import { useSavedAudioDevices } from "../../hooks/useSavedAudioDevices";
 import { isElectron, isCapacitor, resolveUserId } from "../../utils/constants";
 import { startNativeScreenShare, stopNativeScreenShare, onNativeScreenShareStopped } from "../../utils/nativePlugins";
 import * as voiceApi from "../../api/voice";
@@ -105,13 +108,18 @@ function VoiceStateManager() {
   const micSensitivity = useVoiceStore((s) => s.micSensitivity);
   const inputVolume = useVoiceStore((s) => s.inputVolume);
   const outputDevice = useVoiceStore((s) => s.outputDevice);
+  const inputDevice = useVoiceStore((s) => s.inputDevice);
 
   // Skip effects until initial connection sync is done
   const initialSyncDone = useRef(false);
 
+  // Mic-health trail entries only this component sees (push-to-talk presses); set once the hook below runs.
+  const noteMicRef = useRef<(e: MicTrailEvent) => void>(() => {});
+
   // PTT: bypass store, toggle mic directly on LiveKit participant
   const setMicEnabled = useCallback(
     (enabled: boolean) => {
+      noteMicRef.current(enabled ? "ptt_down" : "ptt_up");
       localParticipant.setMicrophoneEnabled(enabled).catch((err: unknown) => {
         console.error("[VoiceStateManager] PTT mic toggle failed:", err);
       });
@@ -470,35 +478,8 @@ function VoiceStateManager() {
     };
   }, [room, localParticipant]);
 
-  // Apply output device (sinkId) to all LiveKit audio elements.
-  // Runs on every outputDevice change and on (re)connect — switchActiveDevice
-  // stores the preference on the Room so new tracks also honor it.
-  useEffect(() => {
-    if (!outputDevice) return;
-
-    async function applyOutputDevice() {
-      try {
-        await room.switchActiveDevice("audiooutput", outputDevice);
-      } catch (err) {
-        console.error("[VoiceStateManager] Failed to switch output device:", err);
-      }
-    }
-
-    if (room.state === ConnectionState.Connected) {
-      applyOutputDevice();
-    }
-
-    function handleConnected() {
-      applyOutputDevice();
-    }
-    room.on(RoomEvent.Connected, handleConnected);
-    room.on(RoomEvent.Reconnected, handleConnected);
-
-    return () => {
-      room.off(RoomEvent.Connected, handleConnected);
-      room.off(RoomEvent.Reconnected, handleConnected);
-    };
-  }, [room, outputDevice]);
+  // Saved speaker and microphone, and back on them when they are plugged in mid-call.
+  useSavedAudioDevices(room, localParticipant, inputDevice, outputDevice);
 
   // RTT polling: try signaling RTT first, fall back to WebRTC stats ICE candidate-pair
   useEffect(() => {
@@ -826,6 +807,9 @@ function VoiceStateManager() {
     if (processorRef.current instanceof GtcrnProcessor) return "gtcrn";
     return "vadgate";
   }
+
+  // Reports a mic that should be sending and is not, with its cause (audio/micHealth).
+  noteMicRef.current = useMicHealthReport(room, () => processorRef.current, getCurrentProcessorType);
 
   // Switch processor when noiseReduction or micSensitivity changes
   useEffect(() => {

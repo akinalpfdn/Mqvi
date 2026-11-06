@@ -97,3 +97,41 @@ func TestInitiateCall_TellsTheCallerWhyNoCallStarted(t *testing.T) {
 		t.Errorf("a call that started reported %q", got)
 	}
 }
+
+// callerLookup fails the caller's active-user lookup with err.
+type callerLookup struct{ err error }
+
+func (g callerLookup) GetByID(_ context.Context, id string) (*models.User, error) {
+	return &models.User{ID: id}, nil
+}
+
+func (g callerLookup) GetActiveByID(_ context.Context, id string) (*models.User, error) {
+	if id == "caller" {
+		return nil, g.err
+	}
+	return &models.User{ID: id}, nil
+}
+
+// A failed caller lookup is a failure, not "caller not available": answered forbidden, the database
+// error read as an ordinary refusal and never reached a log as one.
+func TestInitiateCall_ShouldNotAnswerAFailedCallerLookupAsForbidden(t *testing.T) {
+	dbDown := errors.New("database is locked")
+	initiate := func(lookupErr error) error {
+		svc := &p2pCallService{
+			friendChecker: &scriptedFriends{answers: []friendAnswer{{f: &models.Friendship{Status: models.FriendshipStatusAccepted}}}},
+			userGetter:    callerLookup{err: lookupErr},
+			hub:           fakeHub{},
+			activeCalls:   map[string]*models.P2PCall{},
+			userCalls:     map[string]string{},
+			ringTimers:    map[string]*time.Timer{},
+		}
+		return svc.InitiateCall("caller", "caller-sess", "", "", "receiver", models.P2PCallTypeVoice)
+	}
+
+	if err := initiate(dbDown); errors.Is(err, pkg.ErrForbidden) || !errors.Is(err, dbDown) {
+		t.Fatalf("failed caller lookup answered as %v, want the lookup error", err)
+	}
+	if err := initiate(pkg.ErrNotFound); !errors.Is(err, pkg.ErrForbidden) {
+		t.Fatalf("deleted caller answered as %v, want forbidden", err)
+	}
+}

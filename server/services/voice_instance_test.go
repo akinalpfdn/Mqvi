@@ -3,41 +3,52 @@ package services
 import "testing"
 
 // The room name carries no instance identity, so two paths resolving different instances would each
-// open a room of this same name on a different SFU — both working, neither hearing the other. These
-// two helpers are the pair that prevents it, and they are only useful if everything uses them.
+// open a room of this same name on a different SFU — both working, neither hearing the other.
 
-func TestGenerateRoomName_IsServerScoped(t *testing.T) {
+func TestFixedRoomName_IsServerScoped(t *testing.T) {
 	// Two servers may legitimately have a channel with the same id; the room must not collide.
-	if a, b := generateRoomName("s1", "c1"), generateRoomName("s2", "c1"); a == b {
+	if a, b := fixedRoomName("s1", "c1"), fixedRoomName("s2", "c1"); a == b {
 		t.Fatalf("same room name for different servers: %q", a)
 	}
 }
 
-func TestGenerateRoomName_IsStable(t *testing.T) {
-	// Every caller must produce the identical string — a join and a screen share that disagree by
-	// one character are two rooms.
-	if a, b := generateRoomName("s1", "c1"), generateRoomName("s1", "c1"); a != b {
-		t.Fatalf("not stable: %q vs %q", a, b)
-	}
-	if got, want := generateRoomName("s1", "c1"), "s1:c1"; got != want {
+func TestFixedRoomName_KeepsTheWireFormat(t *testing.T) {
+	// Every call that was never rotated is in a room of exactly this name.
+	if got, want := fixedRoomName("s1", "c1"), "s1:c1"; got != want {
 		t.Errorf("got %q, want %q — the wire format changed, existing rooms will not match", got, want)
 	}
 }
 
-func TestParseRoomName_InvertsGenerateRoomName(t *testing.T) {
-	serverID, channelID, ok := ParseRoomName(generateRoomName("2556be2191737aa5", "f09d4499301a5686"))
-	if !ok || serverID != "2556be2191737aa5" || channelID != "f09d4499301a5686" {
-		t.Fatalf("round trip failed: %q %q %v", serverID, channelID, ok)
+func TestRotatedRoomName_IsNewEveryTime(t *testing.T) {
+	seen := map[string]bool{fixedRoomName("s1", "c1"): true}
+	for range 100 {
+		name := rotatedRoomName("s1", "c1")
+		if seen[name] {
+			t.Fatalf("%q came up twice — a token for one room would open another", name)
+		}
+		seen[name] = true
 	}
-	if _, _, ok := ParseRoomName(generateRoomName("default", "c1")); !ok {
+}
+
+func TestParseRoomName_ReadsFixedAndRotatedNames(t *testing.T) {
+	for _, room := range []string{
+		fixedRoomName("2556be2191737aa5", "f09d4499301a5686"),
+		rotatedRoomName("2556be2191737aa5", "f09d4499301a5686"),
+	} {
+		serverID, channelID, ok := ParseRoomName(room)
+		if !ok || serverID != "2556be2191737aa5" || channelID != "f09d4499301a5686" {
+			t.Fatalf("%q: got %q %q %v", room, serverID, channelID, ok)
+		}
+	}
+	if _, _, ok := ParseRoomName(fixedRoomName("default", "c1")); !ok {
 		t.Fatal("the seeded server id \"default\" must parse")
 	}
 }
 
 func TestParseRoomName_RejectsMalformed(t *testing.T) {
-	for _, room := range []string{"", "abc", ":c1", "s1:", "a:b:c", ":"} {
+	for _, room := range []string{"", "abc", ":c1", "s1:", "s1::x", "s1:c1:", ":", "a:b:c:d"} {
 		if _, _, ok := ParseRoomName(room); ok {
-			t.Errorf("%q parsed; a room that is not serverID:channelID must be rejected, not guessed", room)
+			t.Errorf("%q parsed; a room that is not serverID:channelID[:rotation] must be rejected, not guessed", room)
 		}
 	}
 }
