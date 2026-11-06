@@ -40,7 +40,7 @@ type messageService struct {
 	reactionRepo    repository.ReactionRepository
 	readStateRepo   repository.ReadStateRepository
 	hub             ws.BroadcastAndOnline
-	permResolver    ChannelPermResolver
+	permResolver    ChannelPermAudienceResolver
 	urlSigner       FileURLSigner
 	fileDeleter     FileDeleter
 	storageService  StorageService
@@ -64,7 +64,7 @@ func NewMessageService(
 	reactionRepo repository.ReactionRepository,
 	readStateRepo repository.ReadStateRepository,
 	hub ws.BroadcastAndOnline,
-	permResolver ChannelPermResolver,
+	permResolver ChannelPermAudienceResolver,
 	urlSigner FileURLSigner,
 	fileDeleter FileDeleter,
 	storageService StorageService,
@@ -353,27 +353,7 @@ func (s *messageService) create(ctx context.Context, channelID string, userID st
 // Scoped to the channel's server members so permission checks don't iterate every
 // user on the platform.
 func (s *messageService) allowedViewers(channelID string) []string {
-	ctx := context.Background()
-
-	channel, err := s.channelRepo.GetByID(ctx, channelID)
-	if err != nil || channel == nil {
-		return nil
-	}
-
-	onlineUsers := s.hub.GetOnlineUserIDsForServer(channel.ServerID)
-	var allowed []string
-
-	for _, userID := range onlineUsers {
-		perms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, channelID)
-		if err != nil {
-			continue
-		}
-		if perms.Has(models.PermViewChannel) && perms.Has(models.PermReadMessages) {
-			allowed = append(allowed, userID)
-		}
-	}
-
-	return allowed
+	return readersOf(s.channelRepo, s.hub, s.permResolver, channelID)
 }
 
 // BroadcastCreate sends the message via WS after file uploads complete.

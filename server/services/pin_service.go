@@ -25,7 +25,7 @@ type pinService struct {
 	messageRepo  repository.MessageRepository
 	channelRepo  repository.ChannelRepository
 	hub          ws.BroadcastAndOnline
-	permResolver ChannelPermResolver
+	permResolver ChannelPermAudienceResolver
 	urlSigner    FileURLSigner
 }
 
@@ -34,7 +34,7 @@ func NewPinService(
 	messageRepo repository.MessageRepository,
 	channelRepo repository.ChannelRepository,
 	hub ws.BroadcastAndOnline,
-	permResolver ChannelPermResolver,
+	permResolver ChannelPermAudienceResolver,
 	urlSigner FileURLSigner,
 ) PinService {
 	return &pinService{
@@ -50,25 +50,7 @@ func NewPinService(
 // allowedViewers returns online user IDs that have ViewChannel + ReadMessages on the channel.
 // Scoped to the channel's server members.
 func (s *pinService) allowedViewers(channelID string) []string {
-	ctx := context.Background()
-
-	channel, err := s.channelRepo.GetByID(ctx, channelID)
-	if err != nil || channel == nil {
-		return nil
-	}
-
-	onlineUsers := s.hub.GetOnlineUserIDsForServer(channel.ServerID)
-	var allowed []string
-	for _, uid := range onlineUsers {
-		perms, err := s.permResolver.ResolveChannelPermissions(ctx, uid, channelID)
-		if err != nil {
-			continue
-		}
-		if perms.Has(models.PermViewChannel) && perms.Has(models.PermReadMessages) {
-			allowed = append(allowed, uid)
-		}
-	}
-	return allowed
+	return readersOf(s.channelRepo, s.hub, s.permResolver, channelID)
 }
 
 func (s *pinService) Pin(ctx context.Context, serverID string, messageID string, channelID string, pinnedBy string) (*models.PinnedMessageWithDetails, error) {

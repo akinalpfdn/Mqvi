@@ -943,6 +943,42 @@ func (m *MockReactionRepo) GetByMessageIDs(ctx context.Context, messageIDs []str
 
 type MockChannelPermResolver struct {
 	ResolveChannelPermissionsFn func(ctx context.Context, userID, channelID string) (models.Permission, error)
+	// The batched forms default to ResolveChannelPermissionsFn per item, so a test that sets only it
+	// gets the same answers from every form.
+	FilterUsersWithPermissionFn      func(ctx context.Context, channelID string, userIDs []string, required models.Permission) ([]string, error)
+	ResolveUserChannelsPermissionsFn func(ctx context.Context, userID, serverID string, channelIDs []string) (map[string]models.Permission, error)
+}
+
+func (m *MockChannelPermResolver) FilterUsersWithPermission(ctx context.Context, channelID string, userIDs []string, required models.Permission) ([]string, error) {
+	if m.FilterUsersWithPermissionFn != nil {
+		return m.FilterUsersWithPermissionFn(ctx, channelID, userIDs, required)
+	}
+	var out []string
+	for _, uid := range userIDs {
+		perms, err := m.ResolveChannelPermissions(ctx, uid, channelID)
+		if err != nil {
+			return nil, err
+		}
+		if perms&required == required || perms.Has(models.PermAdmin) {
+			out = append(out, uid)
+		}
+	}
+	return out, nil
+}
+
+func (m *MockChannelPermResolver) ResolveUserChannelsPermissions(ctx context.Context, userID, serverID string, channelIDs []string) (map[string]models.Permission, error) {
+	if m.ResolveUserChannelsPermissionsFn != nil {
+		return m.ResolveUserChannelsPermissionsFn(ctx, userID, serverID, channelIDs)
+	}
+	out := make(map[string]models.Permission, len(channelIDs))
+	for _, id := range channelIDs {
+		perms, err := m.ResolveChannelPermissions(ctx, userID, id)
+		if err != nil {
+			return nil, err
+		}
+		out[id] = perms
+	}
+	return out, nil
 }
 
 func (m *MockChannelPermResolver) ResolveChannelPermissions(ctx context.Context, userID, channelID string) (models.Permission, error) {

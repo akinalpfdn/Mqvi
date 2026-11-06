@@ -24,14 +24,14 @@ type SearchChannelLister interface {
 type searchService struct {
 	searchRepo   repository.SearchRepository
 	channels     SearchChannelLister
-	permResolver ChannelPermResolver
+	permResolver UserChannelsPermResolver
 	urlSigner    FileURLSigner
 }
 
 func NewSearchService(
 	searchRepo repository.SearchRepository,
 	channels SearchChannelLister,
-	permResolver ChannelPermResolver,
+	permResolver UserChannelsPermResolver,
 	urlSigner FileURLSigner,
 ) SearchService {
 	return &searchService{searchRepo: searchRepo, channels: channels, permResolver: permResolver, urlSigner: urlSigner}
@@ -77,20 +77,24 @@ func (s *searchService) Search(ctx context.Context, userID, serverID, query stri
 }
 
 // readableChannelIDs is the same gate the message list and pins apply: ViewChannel + ReadMessages,
-// resolved per channel so overrides count. A resolve error fails the search closed.
+// with overrides counted, for every channel in two queries. A resolve error fails the search closed.
 func (s *searchService) readableChannelIDs(ctx context.Context, userID, serverID string) ([]string, error) {
 	channels, err := s.channels.GetAllByServer(ctx, serverID)
 	if err != nil {
 		return nil, fmt.Errorf("list channels for search: %w", err)
 	}
-	ids := make([]string, 0, len(channels))
-	for _, ch := range channels {
-		perms, err := s.permResolver.ResolveChannelPermissions(ctx, userID, ch.ID)
-		if err != nil {
-			return nil, fmt.Errorf("resolve search permissions for channel %s: %w", ch.ID, err)
-		}
-		if perms.Has(models.PermViewChannel) && perms.Has(models.PermReadMessages) {
-			ids = append(ids, ch.ID)
+	all := make([]string, len(channels))
+	for i, ch := range channels {
+		all[i] = ch.ID
+	}
+	perms, err := s.permResolver.ResolveUserChannelsPermissions(ctx, userID, serverID, all)
+	if err != nil {
+		return nil, fmt.Errorf("resolve search permissions: %w", err)
+	}
+	ids := make([]string, 0, len(all))
+	for _, id := range all {
+		if perms[id].Has(models.PermViewChannel) && perms[id].Has(models.PermReadMessages) {
+			ids = append(ids, id)
 		}
 	}
 	return ids, nil

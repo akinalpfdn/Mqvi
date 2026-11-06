@@ -19,6 +19,31 @@ type ChannelAudienceFilter interface {
 	FilterUsersWithPermission(ctx context.Context, channelID string, userIDs []string, required models.Permission) ([]string, error)
 }
 
+// ChannelPermAudienceResolver is a single-user permission check plus the batched audience filter:
+// what a service needs that both gates an action and broadcasts its event.
+type ChannelPermAudienceResolver interface {
+	ChannelPermResolver
+	ChannelAudienceFilter
+}
+
+// channelServerGetter reads a channel's server for its audience.
+type channelServerGetter interface {
+	GetByID(ctx context.Context, id string) (*models.Channel, error)
+}
+
+// readersOf is the audience of a message event: the channel's server's online members who hold
+// ViewChannel and ReadMessages there. A channel that cannot be read withholds the event, logged —
+// guessing whom to tell is how a hidden channel's messages leak.
+func readersOf(channels channelServerGetter, online ServerOnlineLister, filter ChannelAudienceFilter, channelID string) []string {
+	ctx := context.Background()
+	channel, err := channels.GetByID(ctx, channelID)
+	if err != nil || channel == nil {
+		log.Printf("[ws] audience for channel=%s: channel not read: %v (event withheld)", channelID, err)
+		return nil
+	}
+	return channelAudience(ctx, online, filter, channel.ServerID, channelID, models.PermViewChannel|models.PermReadMessages)
+}
+
 // channelAudience returns the server's online members whose effective permissions in channelID
 // include every bit of required. It decides who receives an event, so a stale cached grant would be
 // a leak; and one read per member made a single event cost thousands of queries on a large server.

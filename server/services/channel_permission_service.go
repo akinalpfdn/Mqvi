@@ -42,6 +42,12 @@ type ChannelPermResolver interface {
 	ResolveChannelPermissionsFresh(ctx context.Context, userID, channelID string) (models.Permission, error)
 }
 
+// UserChannelsPermResolver resolves one user's effective permissions in many channels of one server
+// at once — what a per-channel loop over ResolveChannelPermissions would answer, in two queries.
+type UserChannelsPermResolver interface {
+	ResolveUserChannelsPermissions(ctx context.Context, userID, serverID string, channelIDs []string) (map[string]models.Permission, error)
+}
+
 // VoiceChannelPermissionEnforcer re-applies effective voice permissions at the SFU for
 // users already in a voice channel after its overrides change, and resends the server's members
 // the voice state they may now see. Implemented by voiceService.
@@ -77,6 +83,8 @@ type ChannelPermissionService interface {
 	BuildVisibilityFilter(ctx context.Context, userID, serverID string) (*ChannelVisibilityFilter, error)
 	// FilterUsersWithPermission keeps the users holding required in a channel (batched, uncached).
 	FilterUsersWithPermission(ctx context.Context, channelID string, userIDs []string, required models.Permission) ([]string, error)
+	// ResolveUserChannelsPermissions resolves one user in many channels of a server (batched).
+	ResolveUserChannelsPermissions(ctx context.Context, userID, serverID string, channelIDs []string) (map[string]models.Permission, error)
 	// SetVoiceEnforcer wires the voice enforcer (post-construction — voiceService is built
 	// after this service, which it depends on).
 	SetVoiceEnforcer(enforcer VoiceChannelPermissionEnforcer)
@@ -370,6 +378,43 @@ func (s *channelPermService) ResolveChannelPermissions(ctx context.Context, user
 	effective := foldChannelPermissions(roles, overrides)
 	s.permCache.Set(cacheKey, effective)
 	return effective, nil
+}
+
+// ResolveUserChannelsPermissions is ResolveChannelPermissions for many channels of serverID at once:
+// the user's roles there and their overrides are read once — two queries for any number of
+// channels — and folded per channel with the same formula (foldChannelPermissions). Every channel
+// in channelIDs must belong to serverID. Results are cached like single resolves.
+func (s *channelPermService) ResolveUserChannelsPermissions(ctx context.Context, userID, serverID string, channelIDs []string) (map[string]models.Permission, error) {
+	out := make(map[string]models.Permission, len(channelIDs))
+	if len(channelIDs) == 0 {
+		return out, nil
+	}
+	roles, err := s.roleRepo.GetByUserIDAndServer(ctx, userID, serverID)
+	if err != nil {
+		return nil, fmt.Errorf("get roles of %s in %s: %w", userID, serverID, err)
+	}
+
+	byChannel := make(map[string][]models.ChannelPermissionOverride)
+	if !foldBasePermissions(roles).Has(models.PermAdmin) {
+		roleIDs := make([]string, len(roles))
+		for i, role := range roles {
+			roleIDs[i] = role.ID
+		}
+		overrides, err := s.permRepo.GetByRoles(ctx, roleIDs)
+		if err != nil {
+			return nil, fmt.Errorf("get overrides of %s in %s: %w", userID, serverID, err)
+		}
+		for _, o := range overrides {
+			byChannel[o.ChannelID] = append(byChannel[o.ChannelID], o)
+		}
+	}
+
+	for _, channelID := range channelIDs {
+		effective := foldChannelPermissions(roles, byChannel[channelID])
+		out[channelID] = effective
+		s.permCache.Set(userID+":"+channelID, effective)
+	}
+	return out, nil
 }
 
 // FilterUsersWithPermission returns the users whose effective permissions in channelID include
