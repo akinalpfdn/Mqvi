@@ -141,22 +141,18 @@ func registerHubCallbacks(
 			log.Printf("[voice] join error user=%s channel=%s: %v", userID, channelID, err)
 			return errors.Is(err, services.ErrVoiceJoinRefused)
 		}
+		return false
+	})
 
-		// Track last voice activity for admin panel
+	// Last voice activity for the admin panel, after every join — also one deferred and completed in
+	// the background, which the callback above never sees succeed.
+	voiceService.SetOnJoined(func(userID, serverID string) {
 		if actErr := userRepo.UpdateLastVoiceActivity(context.Background(), userID); actErr != nil {
 			log.Printf("[voice] failed to update user voice activity user=%s: %v", userID, actErr)
 		}
-
-		// Track server-level voice activity
-		ch, chErr := channelRepo.GetByID(context.Background(), channelID)
-		if chErr != nil {
-			log.Printf("[voice] channel lookup for activity tracking failed channel=%s: %v", channelID, chErr)
-			return false
+		if actErr := serverRepo.UpdateLastVoiceActivity(context.Background(), serverID); actErr != nil {
+			log.Printf("[voice] failed to update server voice activity server=%s: %v", serverID, actErr)
 		}
-		if actErr := serverRepo.UpdateLastVoiceActivity(context.Background(), ch.ServerID); actErr != nil {
-			log.Printf("[voice] failed to update server voice activity server=%s: %v", ch.ServerID, actErr)
-		}
-		return false
 	})
 	hub.OnVoiceLeave(func(userID string) {
 		if err := voiceService.LeaveChannel(userID); err != nil {

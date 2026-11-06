@@ -70,21 +70,49 @@ func (s *voiceService) serverSnapshotLocked(serverID string) voiceSnapshot {
 }
 
 func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, channelID string, isMuted, isDeafened bool) error {
+	// The websocket's own join replaces any background try still waiting.
+	s.mu.Lock()
+	s.cancelDeferredJoinLocked(userID)
+	s.mu.Unlock()
+	_, err := s.join(voiceJoinRequest{
+		userID: userID, username: username, displayName: displayName, avatarURL: avatarURL,
+		channelID: channelID, isMuted: isMuted, isDeafened: isDeafened,
+	}, 0)
+	return err
+}
+
+// join decides and applies a voice join. attempt counts the background tries of a deferred join, 0
+// for the websocket's own. Returns the channel's server once the channel could be read.
+func (s *voiceService) join(req voiceJoinRequest, attempt int) (string, error) {
+	userID, username, displayName, avatarURL := req.userID, req.username, req.displayName, req.avatarURL
+	channelID, isMuted, isDeafened := req.channelID, req.isMuted, req.isDeafened
+
 	// avatarURL is the raw, unsigned URL from the DB. We store it unsigned in
 	// VoiceState (which lives as long as the user is in voice — could be hours)
 	// and re-sign at every broadcast egress. Storing an already-signed URL would
 	// expire mid-session and serve 401s to anyone who joined later via voice_states_sync.
 	signedAvatar := s.urlSigner.SignURL(avatarURL)
 
-	// Resolve channel's parent server before locking — all voice broadcasts are server-scoped.
+	// Already in this channel: the websocket re-asserting it after a reconnect, which needs no
+	// authorization, so none is read. Checked again under the lock below.
+	reassert := s.isInChannel(userID, channelID)
+
+	// Resolve channel's parent server before locking — all voice broadcasts are server-scoped. A
+	// read that fails is not a missing channel: the join is tried again (deferJoin).
 	channel, err := s.channelGetter.GetByID(context.Background(), channelID)
+	if errors.Is(err, pkg.ErrNotFound) {
+		return "", fmt.Errorf("%w: channel not found", pkg.ErrNotFound)
+	}
 	if err != nil {
-		return fmt.Errorf("%w: channel not found", pkg.ErrNotFound)
+		return "", s.deferJoin(req, attempt, fmt.Errorf("read channel: %w", err))
 	}
 	serverID := channel.ServerID
 
 	// Resolved before the lock: the permission lookup may hit the database.
-	authorized := s.joinAuthorized(userID, channel)
+	decision, authErr := joinAllowed, error(nil)
+	if !reassert {
+		decision, authErr = s.joinAuthorized(userID, channel)
+	}
 
 	var oldChannelID string
 	var oldServerID string
@@ -95,10 +123,27 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 
 	// Decided on the state as it is now, under the lock. Being in this channel already is the WS
 	// reconnect re-assert and passes; anything else is a new join and needs authorization.
-	if existing, ok := s.states[userID]; (!ok || existing.ChannelID != channelID) && !authorized {
+	existing, inVoice := s.states[userID]
+	sameChannel := inVoice && existing.ChannelID == channelID
+	if reassert && !sameChannel {
+		// Left, moved or removed since the check above: a new join after all, so it is authorized
+		// now, and decided on the state as it is then.
 		s.mu.Unlock()
-		log.Printf("[voice] join refused user=%s channel=%s (no token issued, no connect permission)", userID, channelID)
-		return ErrVoiceJoinRefused
+		decision, authErr = s.joinAuthorized(userID, channel)
+		s.mu.Lock()
+		existing, inVoice = s.states[userID]
+		sameChannel = inVoice && existing.ChannelID == channelID
+	}
+	if !sameChannel {
+		switch decision {
+		case joinRefused:
+			s.mu.Unlock()
+			log.Printf("[voice] join refused user=%s channel=%s (no token issued, no connect permission)", userID, channelID)
+			return serverID, ErrVoiceJoinRefused
+		case joinUnknown:
+			s.mu.Unlock()
+			return serverID, s.deferJoin(req, attempt, authErr)
+		}
 	}
 
 	// Leave current channel if in one
@@ -119,13 +164,14 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 			delete(s.livekitAbsentSince, userID)
 			s.mu.Unlock()
 			log.Printf("[voice] same-channel rejoin user=%s channel=%s (no broadcast)", userID, channelID)
-			return nil
+			s.joined(userID, serverID)
+			return serverID, nil
 		}
 
 		releasedInstance = s.removeVoiceStateLocked(existing)
 	}
 
-	// The websocket join landed, so the token-time marker has done its job.
+	// The websocket join landed, so the token-time marker (or a deferred join's) has done its job.
 	s.clearPendingJoinLocked(channelID, userID)
 
 	// Capture before insertion so we can detect the 0 → 1 transition.
@@ -178,12 +224,32 @@ func (s *voiceService) JoinChannel(userID, username, displayName, avatarURL, cha
 	}
 
 	log.Printf("[voice] user %s joined channel %s", userID, channelID)
-	return nil
+	s.joined(userID, serverID)
+	return serverID, nil
+}
+
+// joined runs the join callback, outside s.mu.
+func (s *voiceService) joined(userID, serverID string) {
+	if s.onJoined != nil {
+		s.onJoined(userID, serverID)
+	}
 }
 
 func (s *voiceService) LeaveChannel(userID string) error {
+	// A join still waiting to be decided is left too.
+	s.mu.Lock()
+	s.cancelDeferredJoinLocked(userID)
+	s.mu.Unlock()
 	s.leaveWhere(userID, nil, nil, nil)
 	return nil
+}
+
+// isInChannel reports whether userID is in voice in channelID right now.
+func (s *voiceService) isInChannel(userID, channelID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	st, ok := s.states[userID]
+	return ok && st.ChannelID == channelID
 }
 
 func (s *voiceService) DisconnectUserFromServer(userID, serverID string) bool {
@@ -552,9 +618,11 @@ var ErrVoiceJoinRefused = fmt.Errorf("%w: not allowed to join this voice channel
 // alone proves nothing: it outlives a kick, a ban and a lost permission, and anyone can keep one fresh.
 // The one exception is a token minted on a force-move grant, which stands in for ConnectVoice and so
 // needs only the membership the move was made under.
-func (s *voiceService) joinAuthorized(userID string, channel *models.Channel) bool {
+//
+// A read that fails decides nothing: joinUnknown with the error, never a refusal (see deferJoin).
+func (s *voiceService) joinAuthorized(userID string, channel *models.Channel) (joinDecision, error) {
 	if channel.Type != models.ChannelTypeVoice {
-		return false
+		return joinRefused, nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), voiceJoinAuthTimeout)
 	defer cancel()
@@ -565,18 +633,23 @@ func (s *voiceService) joinAuthorized(userID string, channel *models.Channel) bo
 	if moved {
 		member, err := s.isServerMember(ctx, channel.ServerID, userID)
 		if err != nil {
-			log.Printf("[voice] join authorization: membership user=%s server=%s: %v", userID, channel.ServerID, err)
-			return false
+			return joinUnknown, fmt.Errorf("membership user=%s server=%s: %w", userID, channel.ServerID, err)
 		}
-		return member
+		return decide(member), nil
 	}
 
 	perms, err := s.permResolver.ResolveChannelPermissionsFresh(ctx, userID, channel.ID)
 	if err != nil {
-		log.Printf("[voice] join authorization: resolve user=%s channel=%s: %v", userID, channel.ID, err)
-		return false
+		return joinUnknown, fmt.Errorf("permissions user=%s channel=%s: %w", userID, channel.ID, err)
 	}
-	return mayEnterVoice(perms)
+	return decide(mayEnterVoice(perms)), nil
+}
+
+func decide(allowed bool) joinDecision {
+	if allowed {
+		return joinAllowed
+	}
+	return joinRefused
 }
 
 const voiceJoinAuthTimeout = 5 * time.Second

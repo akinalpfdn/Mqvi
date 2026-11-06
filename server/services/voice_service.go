@@ -129,6 +129,9 @@ type VoiceService interface {
 	// channel transitions to zero participants. Used by voiceMessageService to
 	// purge the ephemeral chat for that channel.
 	SetOnChannelEmpty(fn func(channelID string))
+	// SetOnJoined installs a callback fired after every successful voice join, whether the
+	// websocket's own or a deferred one completed in the background (see deferJoin).
+	SetOnJoined(fn func(userID, serverID string))
 	DisconnectUser(userID string)
 	GetStreamCount(channelID string) int
 	AdminUpdateState(ctx context.Context, adminUserID, targetUserID string, isServerMuted, isServerDeafened *bool) error
@@ -191,7 +194,8 @@ type voiceService struct {
 	roomNames map[string]string
 	// room name -> a room a channel left because an intruder was in it (see rotateRoom).
 	retiredRooms   map[string]retiredRoom
-	onChannelEmpty func(string) // optional callback fired (async) on N→0 — installed via SetOnChannelEmpty
+	onChannelEmpty func(string)                  // optional callback fired (async) on N→0 — installed via SetOnChannelEmpty
+	onJoined       func(userID, serverID string) // optional, after every successful join — SetOnJoined
 	mu             sync.RWMutex
 
 	channelGetter    ChannelGetter
@@ -207,6 +211,11 @@ type voiceService struct {
 	urlSigner        FileURLSigner
 	membership       ServerMembershipChecker
 	roomNameStore    ChannelRoomNameStore
+
+	// userID -> the background try of a join that could not be decided (see deferJoin). Guarded by mu.
+	deferredJoins   map[string]deferredJoin
+	deferredJoinGen uint64
+	joinRetryDelays []time.Duration
 }
 
 func NewVoiceService(
@@ -248,6 +257,8 @@ func NewVoiceService(
 		urlSigner:          urlSigner,
 		membership:         membership,
 		roomNameStore:      roomNameStore,
+		deferredJoins:      make(map[string]deferredJoin),
+		joinRetryDelays:    defaultJoinRetryDelays,
 	}
 	s.egress = newVoiceEgress(hub, serverOnline, visibility, urlSigner, func(message string, metadata map[string]string) {
 		s.logWarn(models.LogCategoryVoice, nil, message, metadata)
@@ -264,6 +275,11 @@ func (s *voiceService) SetAppLogger(logger VoiceAppLogger) {
 // Set once at wiring time; not safe to call concurrently with voice operations.
 func (s *voiceService) SetOnChannelEmpty(fn func(channelID string)) {
 	s.onChannelEmpty = fn
+}
+
+// SetOnJoined installs a callback fired after every successful join. Set once at wiring time.
+func (s *voiceService) SetOnJoined(fn func(userID, serverID string)) {
+	s.onJoined = fn
 }
 
 // logError writes a structured error log if appLogger is set.

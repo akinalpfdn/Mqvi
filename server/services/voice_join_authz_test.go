@@ -198,24 +198,30 @@ func TestVoiceJoin_ReadsThePermissionFresh(t *testing.T) {
 	}
 }
 
-// A force-move token stands in for ConnectVoice, not for membership.
+// A force-move token stands in for ConnectVoice, not for membership. A membership that cannot be
+// read admits nobody either, but it is no refusal: the join waits for a read (deferJoin).
 func TestVoiceJoin_ForceMoveTokenRefusedOnceNoLongerAMember(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		membership ServerMembershipChecker
 		user       string
+		want       error
 	}{
-		{"kicked or banned", memberOf{}, "u1"},
-		{"membership unreadable", memberOf{}, "broken"},
-		{"no membership source", nil, "u1"},
+		{"kicked or banned", memberOf{}, "u1", ErrVoiceJoinRefused},
+		{"membership unreadable", memberOf{}, "broken", ErrVoiceJoinDeferred},
+		{"no membership source", nil, "u1", ErrVoiceJoinDeferred},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			svc, _ := newAuthzVoiceService(t, grants{})
+			svc.joinRetryDelays = []time.Duration{time.Hour} // the background try is not this test's
 			svc.membership = tc.membership
 			svc.markPendingJoin("vc", tc.user, true)
 
-			if err := join(svc, tc.user, "vc"); !errors.Is(err, ErrVoiceJoinRefused) {
-				t.Fatalf("err = %v, want ErrVoiceJoinRefused", err)
+			if err := join(svc, tc.user, "vc"); !errors.Is(err, tc.want) {
+				t.Fatalf("err = %v, want %v", err, tc.want)
+			}
+			if svc.GetUserVoiceState(tc.user) != nil {
+				t.Fatal("joined without a readable membership")
 			}
 		})
 	}
