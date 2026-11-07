@@ -102,13 +102,12 @@ type Client struct {
 	// at connect rather than queried per presence event — see GetPresenceAudience.
 	presencePeerIDs []string
 
-	// prefStatus: user's preferred presence loaded from DB at connect time.
-	// Used by addClient to set initial per-connection status.
+	// prefStatus: user's picked presence loaded from DB at connect time.
+	// Seeds the hub's per-user pick when this is the user's first connection.
 	prefStatus string
 
-	// status: per-connection presence. Hub aggregates across all connections
-	// to determine the user's visible status (highest priority wins).
-	// Accessed under Hub.mu.
+	// status: this connection's automatic activity, "online" or "idle". The user's pick lives on the
+	// hub, per user; the two fold into the visible status there. Accessed under Hub.mu.
 	status string
 }
 
@@ -272,9 +271,9 @@ func (c *Client) handleHeartbeat(_ Event) {
 	c.sendEvent(Event{Op: OpHeartbeatAck})
 }
 
-// handlePresenceUpdate processes a client presence change.
-// Updates per-connection status, computes aggregate across all connections,
-// then delegates DB persist + broadcast to the callback.
+// handlePresenceUpdate processes a client presence change. An automatic one flips this connection
+// between active and idle; a pick sets the user's status on every device. Either way the visible
+// status is recomputed and DB persist + broadcast are delegated to the callback.
 func (c *Client) handlePresenceUpdate(event Event) {
 	dataBytes, err := json.Marshal(event.Data)
 	if err != nil {
@@ -295,12 +294,23 @@ func (c *Client) handlePresenceUpdate(event Event) {
 	}
 
 	c.hub.mu.Lock()
-	c.status = data.Status
+	if data.IsAuto {
+		if data.Status != "online" && data.Status != "idle" {
+			c.hub.mu.Unlock()
+			return
+		}
+		c.status = data.Status
+	} else {
+		c.hub.setManualStatusLocked(c.userID, data.Status)
+		// Picking a status is input on this device.
+		c.status = "online"
+	}
 	aggregate := c.hub.computeAggregateStatusLocked(c.userID)
+	manual := c.hub.manualStatusLocked(c.userID)
 	c.hub.mu.Unlock()
 
 	if c.hub.onPresenceManualUpdate != nil {
-		c.hub.onPresenceManualUpdate(c.userID, aggregate, data.IsAuto)
+		c.hub.onPresenceManualUpdate(c.userID, aggregate, manual, data.IsAuto)
 	}
 }
 

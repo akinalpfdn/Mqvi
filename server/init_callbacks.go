@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"slices"
 
 	"github.com/akinalp/mqvi/models"
 	"github.com/akinalp/mqvi/repository"
@@ -19,6 +20,53 @@ type dmTypingRouter interface {
 // channelTypingRouter decides who sees a typing indicator in a server channel.
 type channelTypingRouter interface {
 	TypingRecipients(ctx context.Context, senderUserID, channelID string) ([]string, error)
+}
+
+// presenceAnnouncer is the part of the hub a presence announcement uses.
+type presenceAnnouncer interface {
+	SetInvisible(userID string, invisible bool)
+	GetPresenceAudience(userID string) []string
+	BroadcastToUsers(userIDs []string, event ws.Event)
+	BroadcastToUser(userID string, event ws.Event)
+}
+
+// presenceStore persists the visible status and the user's own pick.
+type presenceStore interface {
+	UpdateStatus(ctx context.Context, userID string, status models.UserStatus) error
+	UpdatePrefStatus(ctx context.Context, userID string, prefStatus models.UserStatus) error
+}
+
+// announcePresence persists a user's visible status and tells everyone entitled to it. Only a pick
+// (isAuto false) is persisted as pref_status — auto-idle must not overwrite it, so idle detection
+// resumes after a reconnect. The pick itself goes to the user's own devices and nobody else's.
+func announcePresence(ctx context.Context, hub presenceAnnouncer, users presenceStore, userID, status, prefStatus string, isAuto bool) {
+	if err := users.UpdateStatus(ctx, userID, models.UserStatus(status)); err != nil {
+		log.Printf("[presence] failed to set %s for user %s: %v", status, userID, err)
+		return
+	}
+	if !isAuto {
+		if err := users.UpdatePrefStatus(ctx, userID, models.UserStatus(prefStatus)); err != nil {
+			log.Printf("[presence] failed to set pref_status %s for user %s: %v", prefStatus, userID, err)
+		}
+	}
+
+	hub.SetInvisible(userID, status == string(models.UserStatusOffline))
+
+	others := slices.DeleteFunc(hub.GetPresenceAudience(userID), func(id string) bool { return id == userID })
+	hub.BroadcastToUsers(others, ws.Event{
+		Op:   ws.OpPresence,
+		Data: ws.PresenceData{UserID: userID, Status: status},
+	})
+	hub.BroadcastToUser(userID, ws.Event{
+		Op:   ws.OpPresence,
+		Data: ws.PresenceData{UserID: userID, Status: status, PrefStatus: prefStatus},
+	})
+
+	source := "manual"
+	if isAuto {
+		source = "auto"
+	}
+	log.Printf("[presence] user %s is now %s (%s)", userID, status, source)
 }
 
 // registerHubCallbacks wires Hub events to service layer logic.
@@ -103,39 +151,8 @@ func registerHubCallbacks(
 		p2pCallService.HandleSessionDisconnect(userID, sessionID, nativeMedia)
 	})
 
-	hub.OnPresenceManualUpdate(func(userID string, status string, isAuto bool) {
-		ctx := context.Background()
-		st := models.UserStatus(status)
-
-		if err := userRepo.UpdateStatus(ctx, userID, st); err != nil {
-			log.Printf("[presence] failed to set %s for user %s: %v", status, userID, err)
-			return
-		}
-
-		// Only persist pref_status for manual changes — auto-idle should not
-		// overwrite the user's preferred status, so idle detection can resume
-		// correctly after WS reconnect.
-		if !isAuto {
-			if err := userRepo.UpdatePrefStatus(ctx, userID, st); err != nil {
-				log.Printf("[presence] failed to set pref_status %s for user %s: %v", status, userID, err)
-			}
-		}
-
-		hub.SetInvisible(userID, status == string(models.UserStatusOffline))
-
-		hub.BroadcastToUsers(hub.GetPresenceAudience(userID), ws.Event{
-			Op: ws.OpPresence,
-			Data: ws.PresenceData{
-				UserID: userID,
-				Status: status,
-			},
-		})
-
-		source := "manual"
-		if isAuto {
-			source = "auto"
-		}
-		log.Printf("[presence] user %s is now %s (%s)", userID, status, source)
+	hub.OnPresenceManualUpdate(func(userID, status, prefStatus string, isAuto bool) {
+		announcePresence(context.Background(), hub, userRepo, userID, status, prefStatus, isAuto)
 	})
 
 	// ─── Voice Callbacks ───

@@ -168,13 +168,16 @@ export async function handleSystemEvent(
     }
 
     case "presence_update": {
-      const data = msg.d as { user_id: string; status: UserStatus };
+      const data = msg.d as { user_id: string; status: UserStatus; pref_status?: UserStatus };
       useMemberStore.getState().handlePresenceUpdate(data.user_id, data.status);
       // Sidebar friends list filters by status — without this update friends
       // appear stuck online/offline until the Friends tab is reopened.
       useFriendStore.getState().handlePresenceUpdate(data.user_id, data.status);
       const myId = useAuthStore.getState().user?.id;
       if (data.user_id === myId) {
+        // The pick rides only on the copy sent to this user's own devices; picked elsewhere, it
+        // still drives this device's picker and idle detection. Set first: the visible status wins.
+        if (data.pref_status) useAuthStore.getState().setManualStatus(data.pref_status);
         useAuthStore.getState().updateUser({ status: data.status });
       }
       return true;

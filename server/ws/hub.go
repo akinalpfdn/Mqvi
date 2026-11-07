@@ -135,9 +135,10 @@ type VoiceLeaveCallback func(userID string)
 // Nil pointers mean "no change" (partial update).
 type VoiceStateUpdateCallback func(userID string, isMuted, isDeafened, isStreaming *bool, shareQuality *string)
 
-// PresenceManualUpdateCallback — user changed presence (manual or auto-idle).
-// isAuto distinguishes auto-idle from manual status changes (only manual persists to pref_status).
-type PresenceManualUpdateCallback func(userID string, status string, isAuto bool)
+// PresenceManualUpdateCallback — user's visible presence changed (a pick, an auto-idle flip, or a
+// connection coming or going). status is what others see; prefStatus is the user's own pick, which only
+// a manual change (isAuto false) persists and which only the user's own devices may be told.
+type PresenceManualUpdateCallback func(userID, status, prefStatus string, isAuto bool)
 
 // VoiceAdminStateUpdateCallback — admin server-muted/deafened a user.
 // Nil pointers mean "no change" (partial update).
@@ -214,6 +215,11 @@ type Hub struct {
 	// Protected by mu (same lock as clients).
 	invisibleUsers map[string]bool
 
+	// manualStatus: the status each connected user picked (online/idle/dnd/offline). Per user, not
+	// per connection: a pick on one device holds on all of them. Seeded from pref_status by the first
+	// connection, dropped with the last. Protected by mu.
+	manualStatus map[string]string
+
 	// maxConnectionsPerUser caps concurrent sockets for one account. Lives on the hub rather than
 	// the handler because only the hub can enforce it: the check has to happen under the same lock
 	// that registers, or it races the handshake. Protected by mu.
@@ -275,6 +281,7 @@ func NewHub() *Hub {
 		unregister:     make(chan *Client),
 		userInfos:      make(map[string]cachedUserInfo),
 		invisibleUsers: make(map[string]bool),
+		manualStatus:   make(map[string]string),
 	}
 }
 
@@ -348,13 +355,12 @@ func (h *Hub) addClient(client *Client) bool {
 
 	isFirstConnection := len(h.clients[client.userID]) == 0
 
-	// Set per-connection status from prefStatus or default to "online"
-	if client.prefStatus != "" && client.prefStatus != "offline" {
-		client.status = client.prefStatus
-	} else if client.prefStatus == "offline" {
-		client.status = "offline"
-	} else {
-		client.status = "online"
+	// A new connection is active until its own idle detection says otherwise. The pick comes from the
+	// first connection's pref_status; later ones join under the hub's, which is newer than whatever
+	// their handshake read from the database.
+	client.status = "online"
+	if isFirstConnection {
+		h.setManualStatusLocked(client.userID, client.prefStatus)
 	}
 
 	if _, ok := h.clients[client.userID]; !ok {
@@ -368,9 +374,10 @@ func (h *Hub) addClient(client *Client) bool {
 	}
 
 	// New connection may change aggregate (e.g. existing idle + new online = online)
-	var aggregateForExisting string
+	var aggregateForExisting, manual string
 	if !isFirstConnection {
 		aggregateForExisting = h.computeAggregateStatusLocked(client.userID)
+		manual = h.manualStatusLocked(client.userID)
 	}
 
 	log.Printf("[ws] client connected: user=%s status=%s (total connections for user: %d)",
@@ -384,7 +391,7 @@ func (h *Hub) addClient(client *Client) bool {
 		prefStatus := client.prefStatus
 		go h.onUserFirstConnect(userID, prefStatus)
 	} else if !isFirstConnection && h.onPresenceManualUpdate != nil {
-		go h.onPresenceManualUpdate(client.userID, aggregateForExisting, true)
+		go h.onPresenceManualUpdate(client.userID, aggregateForExisting, manual, true)
 	}
 
 	return true
@@ -400,7 +407,7 @@ func (h *Hub) removeClient(client *Client) {
 	var partialDisconnect bool
 	var removed bool
 	var userID string
-	var newAggregate string
+	var newAggregate, manual string
 	// Captured before the delete below: once the last connection is gone the user is no longer in
 	// h.clients, and an audience derived afterwards would be empty — so nobody would ever learn
 	// they went offline.
@@ -420,6 +427,7 @@ func (h *Hub) removeClient(client *Client) {
 
 			if len(clients) == 0 {
 				delete(h.clients, client.userID)
+				delete(h.manualStatus, client.userID)
 				fullyDisconnected = true
 				userID = client.userID
 				log.Printf("[ws] user fully disconnected: %s", client.userID)
@@ -429,6 +437,7 @@ func (h *Hub) removeClient(client *Client) {
 				partialDisconnect = true
 				userID = client.userID
 				newAggregate = h.computeAggregateStatusLocked(client.userID)
+				manual = h.manualStatusLocked(client.userID)
 				log.Printf("[ws] client disconnected: user=%s (remaining: %d, aggregate=%s)",
 					client.userID, len(clients), newAggregate)
 			}
@@ -455,37 +464,48 @@ func (h *Hub) removeClient(client *Client) {
 	if fullyDisconnected && h.onUserFullyDisconnected != nil {
 		go h.onUserFullyDisconnected(userID, audience)
 	} else if partialDisconnect && h.onPresenceManualUpdate != nil {
-		go h.onPresenceManualUpdate(userID, newAggregate, true)
+		go h.onPresenceManualUpdate(userID, newAggregate, manual, true)
 	}
 }
 
-// statusPriority defines presence precedence. Higher = more "active".
-// When a user has multiple connections, the highest priority wins.
-var statusPriority = map[string]int{
-	"online":  4,
-	"idle":    3,
-	"dnd":     2,
-	"offline": 1,
-}
-
-// computeAggregateStatusLocked returns the highest-priority status across
-// all connections for a user. MUST be called under h.mu Lock/RLock.
+// computeAggregateStatusLocked returns the status others see. A pick other than online — idle, dnd,
+// invisible ("offline") — is the user's call whatever any device reports. Under online, the user is
+// as active as their most active device: one in use keeps them online, all idle makes them idle.
+// MUST be called under h.mu Lock/RLock.
 func (h *Hub) computeAggregateStatusLocked(userID string) string {
 	clients := h.clients[userID]
 	if len(clients) == 0 {
 		return "offline"
 	}
-
-	bestPriority := 0
-	bestStatus := "offline"
+	if manual := h.manualStatusLocked(userID); manual != "online" {
+		return manual
+	}
 	for client := range clients {
-		p := statusPriority[client.status]
-		if p > bestPriority {
-			bestPriority = p
-			bestStatus = client.status
+		if client.status != "idle" {
+			return "online"
 		}
 	}
-	return bestStatus
+	return "idle"
+}
+
+// manualStatusLocked returns the user's pick, online when none is recorded.
+// MUST be called under h.mu Lock/RLock.
+func (h *Hub) manualStatusLocked(userID string) string {
+	if manual := h.manualStatus[userID]; manual != "" {
+		return manual
+	}
+	return "online"
+}
+
+// setManualStatusLocked records the user's pick; empty means online. MUST be called under h.mu Lock.
+func (h *Hub) setManualStatusLocked(userID, status string) {
+	if h.manualStatus == nil {
+		h.manualStatus = make(map[string]string)
+	}
+	if status == "" {
+		status = "online"
+	}
+	h.manualStatus[userID] = status
 }
 
 // BroadcastToAll sends an event to all connected clients.

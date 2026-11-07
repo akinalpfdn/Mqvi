@@ -329,19 +329,22 @@ func TestRemoveClient_AnnouncesOnlyTheLastDisconnection(t *testing.T) {
 
 // ─── Aggregate presence ───
 
-// A user is as active as their most active device: reading email on the laptop while the phone
-// sits idle should not show them as idle.
+// Under a picked "online" a user is as active as their most active device: reading email on the
+// laptop while the phone sits idle should not show them as idle. Any other pick is the user's call,
+// whatever the devices report.
 func TestAggregateStatus_TakesTheMostActiveConnection(t *testing.T) {
 	cases := []struct {
 		name     string
+		manual   string
 		statuses []string
 		want     string
 	}{
-		{"online beats idle", []string{"idle", "online"}, "online"},
-		{"idle beats dnd", []string{"dnd", "idle"}, "idle"},
-		{"dnd beats offline", []string{"offline", "dnd"}, "dnd"},
-		{"all invisible stays offline", []string{"offline", "offline"}, "offline"},
-		{"single connection is itself", []string{"dnd"}, "dnd"},
+		{"online beats idle", "online", []string{"idle", "online"}, "online"},
+		{"every device idle is idle", "online", []string{"idle", "idle"}, "idle"},
+		{"no pick recorded counts as online", "", []string{"idle", "online"}, "online"},
+		{"a picked dnd beats an active device", "dnd", []string{"online", "online"}, "dnd"},
+		{"a picked idle beats an active device", "idle", []string{"online"}, "idle"},
+		{"a picked invisible stays offline", "offline", []string{"online", "idle"}, "offline"},
 	}
 
 	for _, tc := range cases {
@@ -350,13 +353,16 @@ func TestAggregateStatus_TakesTheMostActiveConnection(t *testing.T) {
 			for _, s := range tc.statuses {
 				join(h, "u1", nil, nil).status = s
 			}
+			if tc.manual != "" {
+				h.setManualStatusLocked("u1", tc.manual)
+			}
 
 			h.mu.RLock()
 			got := h.computeAggregateStatusLocked("u1")
 			h.mu.RUnlock()
 
 			if got != tc.want {
-				t.Errorf("statuses %v aggregated to %q, want %q", tc.statuses, got, tc.want)
+				t.Errorf("pick %q, devices %v aggregated to %q, want %q", tc.manual, tc.statuses, got, tc.want)
 			}
 		})
 	}

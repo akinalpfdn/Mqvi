@@ -200,6 +200,10 @@ type PresenceData struct {
 	UserID string `json:"user_id"`
 	Status string `json:"status"`
 	IsAuto bool   `json:"is_auto,omitempty"`
+
+	// PrefStatus is the user's own pick, on the copy sent to their own devices only: told to anyone
+	// else, an invisible pick would read "connected, hiding".
+	PrefStatus string `json:"pref_status,omitempty"`
 }
 
 type TypingData struct {
