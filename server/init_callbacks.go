@@ -16,6 +16,11 @@ type dmTypingRouter interface {
 	TypingRecipient(ctx context.Context, senderUserID, channelID string) (string, error)
 }
 
+// channelTypingRouter decides who sees a typing indicator in a server channel.
+type channelTypingRouter interface {
+	TypingRecipients(ctx context.Context, senderUserID, channelID string) ([]string, error)
+}
+
 // registerHubCallbacks wires Hub events to service layer logic.
 // Callbacks run in separate goroutines (launched by Hub) to avoid mutex deadlock.
 func registerHubCallbacks(
@@ -24,9 +29,8 @@ func registerHubCallbacks(
 	dmTyping dmTypingRouter,
 	voiceService services.VoiceService,
 	p2pCallService services.P2PCallService,
-	channelRepo repository.ChannelRepository,
 	serverRepo repository.ServerRepository,
-	channelPermResolver services.ChannelPermResolver,
+	channelTyping channelTypingRouter,
 ) {
 	// ─── Presence Callbacks ───
 
@@ -228,30 +232,12 @@ func registerHubCallbacks(
 	})
 
 	// ─── Channel Typing Callback ───
-	// Validates sender has ReadMessages permission, then broadcasts to server members only.
+	// Broadcasts to the channel's online readers (ViewChannel + ReadMessages), not the typist.
 
 	hub.OnChannelTyping(func(senderUserID, senderUsername, channelID string) {
-		ctx := context.Background()
-		ch, chErr := channelRepo.GetByID(ctx, channelID)
-		if chErr != nil {
+		recipients, err := channelTyping.TypingRecipients(context.Background(), senderUserID, channelID)
+		if err != nil {
 			return
-		}
-
-		// Filter recipients to server members who have ViewChannel + ReadMessages
-		// on this channel (respects per-channel permission overrides).
-		onlineUsers := hub.GetOnlineUserIDsForServer(ch.ServerID)
-		recipients := make([]string, 0, len(onlineUsers))
-		for _, uid := range onlineUsers {
-			if uid == senderUserID {
-				continue
-			}
-			perms, err := channelPermResolver.ResolveChannelPermissions(ctx, uid, channelID)
-			if err != nil {
-				continue
-			}
-			if perms.Has(models.PermViewChannel) && perms.Has(models.PermReadMessages) {
-				recipients = append(recipients, uid)
-			}
 		}
 
 		hub.BroadcastToUsers(recipients, ws.Event{
