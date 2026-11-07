@@ -34,6 +34,7 @@ import { handleChannelEvent } from "./ws/channelEventHandlers";
 import { handleDMEvent } from "./ws/dmEventHandlers";
 import { handleVoiceEvent } from "./ws/voiceEventHandlers";
 import { handleSystemEvent } from "./ws/systemEventHandlers";
+import { dispatchInConversationOrder } from "./ws/conversationOrder";
 import { getDeviceId, INSTANCE_ID } from "../utils/deviceId";
 import type { WSHandlerContext } from "./ws/types";
 
@@ -139,7 +140,7 @@ export function useWebSocket() {
    * Updated every render so onmessage always calls the freshest handler,
    * avoiding stale closures after HMR or re-renders.
    */
-  const routeEventRef = useRef<(msg: WSMessage) => void>(() => {});
+  const routeEventRef = useRef<(msg: WSMessage) => Promise<void>>(async () => {});
 
   /**
    * routeEvent — Thin dispatcher that delegates to domain-specific handler modules.
@@ -507,8 +508,8 @@ export function useWebSocket() {
         }
 
         pendingCallOpsRef.current = settleCallOps(pendingCallOpsRef.current, msg);
-        // Route via ref for closure freshness
-        routeEventRef.current(msg);
+        // Route via ref for closure freshness; a conversation's events apply in arrival order.
+        void dispatchInConversationOrder(msg, (m) => routeEventRef.current(m));
       };
 
       // ─── onclose ───
