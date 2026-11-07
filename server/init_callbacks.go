@@ -232,7 +232,8 @@ func registerHubCallbacks(
 	})
 
 	// ─── Channel Typing Callback ───
-	// Broadcasts to the channel's online readers (ViewChannel + ReadMessages), not the typist.
+	// Only from someone who can post in the channel; to its online readers (ViewChannel +
+	// ReadMessages), not the typist.
 
 	hub.OnChannelTyping(func(senderUserID, senderUsername, channelID string) {
 		recipients, err := channelTyping.TypingRecipients(context.Background(), senderUserID, channelID)

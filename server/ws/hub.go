@@ -167,7 +167,7 @@ type P2PCallAdoptCallback func(userID, sessionID, instanceID, deviceID string, d
 type P2PSignalCallback func(senderID, senderSessionID string, data P2PSignalData)
 
 // ChannelTypingCallback — typing indicator in a server channel.
-// Wired in main.go: validates channel access, broadcasts to server members only.
+// Wired in main.go: only from someone who can post in the channel, to its online readers.
 type ChannelTypingCallback func(senderUserID, senderUsername, channelID string)
 
 // ─── DM Callback Types ───
