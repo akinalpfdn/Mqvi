@@ -217,7 +217,7 @@ export async function handleSystemEvent(
       useDMStore.getState().handleDMAuthorUpdate(updatedMember.id, authorPatch);
       const myUserId = useAuthStore.getState().user?.id;
       if (updatedMember.id === myUserId) {
-        useChannelStore.getState().fetchChannels();
+        useChannelStore.getState().refreshServerChannels(serverId);
       }
       return true;
     }
@@ -237,7 +237,7 @@ export async function handleSystemEvent(
       const role = msg.d as Role;
       useMemberStore.getState().handleRoleUpdate(serverId, role);
       useRoleStore.getState().handleRoleUpdate(serverId, role);
-      useChannelStore.getState().fetchChannels();
+      useChannelStore.getState().refreshServerChannels(serverId);
       return true;
     }
     case "role_delete": {
@@ -246,7 +246,7 @@ export async function handleSystemEvent(
       const roleId = (msg.d as { id: string }).id;
       useMemberStore.getState().handleRoleDelete(serverId, roleId);
       useRoleStore.getState().handleRoleDelete(serverId, roleId);
-      useChannelStore.getState().fetchChannels();
+      useChannelStore.getState().refreshServerChannels(serverId);
       return true;
     }
     case "roles_reorder": {

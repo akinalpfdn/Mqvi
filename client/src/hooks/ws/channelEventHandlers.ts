@@ -27,10 +27,37 @@ import type {
   ChannelPermissionOverride,
 } from "../../types";
 
+function hasOpenTab(channelId: string): boolean {
+  return Object.values(useUIStore.getState().panels).some((panel) => panel.tabs.some((tab) => tab.channelId === channelId));
+}
+
+/**
+ * An override may have hidden the channel. Its tab is judged against the channel's own server's tree:
+ * tabs stay open across servers, and the server on screen does not hold another server's channels.
+ * Older servers name no server; the one on screen is assumed, as before.
+ */
+function refreshAfterOverrideChange(eventServerId: string | undefined, channelId: string) {
+  const serverId = eventServerId ?? useServerStore.getState().activeServerId;
+  if (!serverId) return;
+  const onScreen = serverId === useServerStore.getState().activeServerId;
+  if (!onScreen && !hasOpenTab(channelId)) {
+    useChannelStore.getState().evictServerCache(serverId);
+    return;
+  }
+  void useChannelStore.getState().fetchChannels(serverId).then(() => {
+    const state = useChannelStore.getState();
+    const tree = serverId === useServerStore.getState().activeServerId ? state.categories : state.categoriesByServer[serverId];
+    if (!tree) return; // never loaded — nothing to judge the tab against
+    if (!tree.some((c) => c.channels.some((ch) => ch.id === channelId))) {
+      useUIStore.getState().closeTextTabByChannel(channelId);
+    }
+  });
+}
+
 export async function handleChannelEvent(msg: WSMessage): Promise<boolean> {
   switch (msg.op) {
     case "channel_create":
-      useChannelStore.getState().fetchChannels();
+      useChannelStore.getState().refreshServerChannels(msg.server_id);
       return true;
     // Tab-label and voice teardown now live inside the store handlers, so a locally initiated
     // update/delete gets them too instead of waiting for this echo.
@@ -41,7 +68,7 @@ export async function handleChannelEvent(msg: WSMessage): Promise<boolean> {
       useChannelStore.getState().handleChannelDelete((msg.d as { id: string }).id);
       return true;
     case "channel_reorder":
-      useChannelStore.getState().fetchChannels();
+      useChannelStore.getState().refreshServerChannels(msg.server_id);
       return true;
 
     case "category_create":
@@ -54,7 +81,7 @@ export async function handleChannelEvent(msg: WSMessage): Promise<boolean> {
       useChannelStore.getState().handleCategoryDelete((msg.d as { id: string }).id);
       return true;
     case "category_reorder":
-      useChannelStore.getState().handleCategoryReorder();
+      useChannelStore.getState().refreshServerChannels(msg.server_id);
       return true;
 
     case "message_create": {
@@ -206,24 +233,13 @@ export async function handleChannelEvent(msg: WSMessage): Promise<boolean> {
 
     case "channel_permission_update": {
       useChannelPermissionStore.getState().handleOverrideUpdate(msg.d as ChannelPermissionOverride);
-      const cpUpd = msg.d as ChannelPermissionOverride;
-      useChannelStore.getState().fetchChannels().then(() => {
-        const allVisible = useChannelStore.getState().categories.flatMap((c) => c.channels);
-        if (!allVisible.some((ch) => ch.id === cpUpd.channel_id)) {
-          useUIStore.getState().closeTextTabByChannel(cpUpd.channel_id);
-        }
-      });
+      refreshAfterOverrideChange(msg.server_id, (msg.d as ChannelPermissionOverride).channel_id);
       return true;
     }
     case "channel_permission_delete": {
       const cpDel = msg.d as { channel_id: string; role_id: string };
       useChannelPermissionStore.getState().handleOverrideDelete(cpDel.channel_id, cpDel.role_id);
-      useChannelStore.getState().fetchChannels().then(() => {
-        const allVisible = useChannelStore.getState().categories.flatMap((c) => c.channels);
-        if (!allVisible.some((ch) => ch.id === cpDel.channel_id)) {
-          useUIStore.getState().closeTextTabByChannel(cpDel.channel_id);
-        }
-      });
+      refreshAfterOverrideChange(msg.server_id, cpDel.channel_id);
       return true;
     }
 

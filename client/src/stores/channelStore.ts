@@ -22,7 +22,10 @@ type ChannelState = {
   mutedChannelIds: Set<string>;
 
   // ─── Actions ───
-  fetchChannels: () => Promise<void>;
+  /** Fetches one server's tree into the cache (default: the one on screen); swaps the live tree only if it is on screen. */
+  fetchChannels: (serverId?: string) => Promise<void>;
+  /** A server's tree changed: refetch it if on screen, otherwise drop its cache so the next visit loads it fresh. */
+  refreshServerChannels: (serverId?: string) => void;
   selectChannel: (channelId: string) => void;
 
   // ─── Channel Mute ───
@@ -56,7 +59,6 @@ type ChannelState = {
   reorderChannels: (items: { id: string; position: number; category_id?: string }[]) => Promise<boolean>;
   reorderCategories: (items: { id: string; position: number }[]) => Promise<boolean>;
   handleChannelReorder: (categories: CategoryWithChannels[]) => void;
-  handleCategoryReorder: () => void;
 
   /** Snapshot the outgoing server's tree, then paint the incoming server from cache. */
   switchToServer: (serverId: string) => void;
@@ -74,13 +76,15 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
   isLoading: false,
   mutedChannelIds: new Set<string>(),
 
-  fetchChannels: async () => {
-    const serverId = useServerStore.getState().activeServerId;
+  fetchChannels: async (target) => {
+    const serverId = target ?? useServerStore.getState().activeServerId;
     if (!serverId) return;
 
     // Only show the loading state when there's nothing cached to paint — a background
     // revalidation must not blank a tree we're already showing from cache.
-    set({ isLoading: get().categories.length === 0 });
+    if (useServerStore.getState().activeServerId === serverId) {
+      set({ isLoading: get().categories.length === 0 });
+    }
 
     const res = await channelApi.getChannels(serverId);
     if (res.success && res.data) {
@@ -107,6 +111,16 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
     } else if (useServerStore.getState().activeServerId === serverId) {
       set({ isLoading: false });
     }
+  },
+
+  refreshServerChannels: (serverId) => {
+    // Every online member of that server gets the event; refetching the server on screen instead
+    // would be one wasted request each, all at once.
+    if (!serverId || serverId === useServerStore.getState().activeServerId) {
+      void get().fetchChannels();
+      return;
+    }
+    get().evictServerCache(serverId);
   },
 
   selectChannel: (channelId) => {
@@ -343,11 +357,6 @@ export const useChannelStore = create<ChannelState>((set, get) => ({
 
   handleChannelReorder: (categories) => {
     set({ categories });
-  },
-
-  /** Re-fetch channels to get updated category order from server */
-  handleCategoryReorder: () => {
-    get().fetchChannels();
   },
 
   // ─── Channel Mute ───

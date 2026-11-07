@@ -383,6 +383,49 @@ func TestOverrideEvents_AFailedReadStaysInTheServer(t *testing.T) {
 	rec.requireOnlyServer(t, "srv", ws.OpChannelPermissionDelete)
 }
 
+// An override event reaches its scoped audience through BroadcastToUsers, which names no server on
+// its own. The client keeps one channel tree per server and has tabs open across servers, so an event
+// that does not say which server it is about makes it refetch the one on screen and close a tab of a
+// channel the user still sees.
+func TestOverrideEvents_NameTheirServerOnTheScopedPath(t *testing.T) {
+	ctx := context.Background()
+	channels := &testutil.MockChannelRepo{
+		GetByIDFn: func(_ context.Context, id string) (*models.Channel, error) {
+			return &models.Channel{ID: id, ServerID: "srv"}, nil
+		},
+	}
+	everyoneSees := &testutil.MockRoleRepo{
+		GetByUsersAndServerFn: func(_ context.Context, _ string, users []string) (map[string][]models.Role, error) {
+			out := make(map[string][]models.Role, len(users))
+			for _, u := range users {
+				out[u] = []models.Role{{ID: "everyone", Permissions: models.PermViewChannel}}
+			}
+			return out, nil
+		},
+	}
+	online := fixedOnline{"srv": {"u1"}}
+
+	for name, act := range map[string]func(ChannelPermissionService) error{
+		ws.OpChannelPermissionUpdate: func(svc ChannelPermissionService) error {
+			return svc.SetOverride(ctx, "srv", "ch1", "r1", &models.SetOverrideRequest{Allow: models.PermSendMessages})
+		},
+		ws.OpChannelPermissionDelete: func(svc ChannelPermissionService) error {
+			return svc.DeleteOverride(ctx, "srv", "ch1", "r1")
+		},
+	} {
+		rec := newScopeRecorder()
+		if err := act(NewChannelPermissionService(&testutil.MockChannelPermRepo{}, everyoneSees, channels, rec, online)); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(rec.toUsers) != 1 || rec.toUsers[0].event.Op != name {
+			t.Fatalf("%s: want one scoped send, got users=%+v server=%+v", name, rec.toUsers, rec.toServer)
+		}
+		if got := rec.toUsers[0].event.ServerID; got != "srv" {
+			t.Errorf("%s names server %q, want \"srv\"", name, got)
+		}
+	}
+}
+
 // ─── E2EE group sessions ───
 
 type nopGroupSessionRepo struct{}

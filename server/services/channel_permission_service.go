@@ -264,6 +264,9 @@ func (s *channelPermService) tellOverrideChange(ctx context.Context, serverID, c
 		s.hub.BroadcastToServer(serverID, event)
 		return
 	}
+	// BroadcastToServer stamps the server; this path must too, or the client cannot tell which of its
+	// per-server channel trees the change belongs to.
+	event.ServerID = serverID
 	s.hub.BroadcastToUsers(unionUserIDs(before, after), event)
 }
 
