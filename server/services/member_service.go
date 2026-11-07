@@ -213,17 +213,20 @@ func (s *memberService) UpdateProfile(ctx context.Context, userID string, req *m
 		return nil, fmt.Errorf("failed to update user profile: %w", err)
 	}
 
+	display := ""
+	if user.DisplayName != nil {
+		display = *user.DisplayName
+	}
+	avatar := ""
+	if user.AvatarURL != nil {
+		avatar = *user.AvatarURL
+	}
+	// Typing and voice joins carry the hub's cached profile; without this they show the old one
+	// until the user reconnects.
+	s.hub.SetUserInfo(userID, user.Username, display, avatar)
 	// Keep the in-memory voice state fresh so a voice reconnect doesn't reload
 	// the old (now-deleted) avatar. Live clients get the change via OpMemberUpdate below.
 	if s.voiceProfile != nil {
-		display := ""
-		if user.DisplayName != nil {
-			display = *user.DisplayName
-		}
-		avatar := ""
-		if user.AvatarURL != nil {
-			avatar = *user.AvatarURL
-		}
 		s.voiceProfile.UpdateUserProfile(userID, user.Username, display, avatar)
 	}
 

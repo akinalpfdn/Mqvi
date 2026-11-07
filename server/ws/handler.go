@@ -286,7 +286,9 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch user info before upgrade — reject banned users early
+	// Fetch user info before upgrade — reject banned users early. The token's username predates any
+	// rename made during its lifetime, so the account's own is preferred.
+	username := claims.Username
 	var displayName, avatarURL string
 	var dbPrefStatus models.UserStatus
 	if h.userInfoProvider != nil {
@@ -320,6 +322,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "token revoked", http.StatusUnauthorized)
 			return
 		}
+		username = user.Username
 		if user.DisplayName != nil {
 			displayName = *user.DisplayName
 		}
@@ -383,7 +386,7 @@ func (h *Handler) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		eventLimiter:  ratelimit.NewTokenBucket(eventBurst, eventRefillPerSec),
 		signalLimiter: ratelimit.NewTokenBucket(signalBurst, signalRefillPerSec),
 	}
-	h.hub.SetUserInfo(claims.UserID, claims.Username, displayName, avatarURL)
+	h.hub.SetUserInfo(claims.UserID, username, displayName, avatarURL)
 
 	// Set invisible BEFORE the ready payload is built: GetVisibleAudienceFor filters invisible
 	// users, so a late SetInvisible would list this user as online to everyone in their audience.

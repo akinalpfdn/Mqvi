@@ -54,6 +54,8 @@ type ClientManager interface {
 	// RetagAuthSession moves the user's connections from one device session to another, for a
 	// device whose session was replaced while its sockets stayed open (password change).
 	RetagAuthSession(userID, from, to string)
+	// SetUserInfo replaces the profile typing and voice events carry for the user.
+	SetUserInfo(userID, username, displayName, avatarURL string)
 	AddClientServerID(userID, serverID string)
 	RemoveClientServerID(userID, serverID string)
 }
@@ -895,7 +897,7 @@ func (h *Hub) SetInvisible(userID string, invisible bool) {
 	}
 }
 
-// SetUserInfo caches user profile data at WS connect time.
+// SetUserInfo caches user profile data, at WS connect time and on every profile change.
 func (h *Hub) SetUserInfo(userID, username, displayName, avatarURL string) {
 	h.userMu.Lock()
 	defer h.userMu.Unlock()
